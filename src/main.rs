@@ -271,16 +271,18 @@ fn main() -> ExitCode {
                 Some(SkillsCommands::Remove { ids }) => {
                     commands::skills::remove::run(&paths, &ids, &tool_dirs)
                 }
-                Some(SkillsCommands::List {
-                    tag,
-                    r#type,
-                    plain: _,
-                }) => commands::skills::list::run(&paths, tag.as_deref(), r#type.as_deref()),
-                Some(SkillsCommands::Search { query, plain: _ }) => {
-                    commands::skills::search::run(&paths, &query)
+                Some(SkillsCommands::List { tag, r#type, plain }) => commands::skills::list::run(
+                    &paths,
+                    tag.as_deref(),
+                    r#type.as_deref(),
+                    plain,
+                    &tool_dirs,
+                ),
+                Some(SkillsCommands::Search { query, plain }) => {
+                    commands::skills::search::run(&paths, &query, plain, &tool_dirs)
                 }
-                Some(SkillsCommands::Status { plain: _ }) => {
-                    commands::skills::status::run(&paths, &tool_dirs)
+                Some(SkillsCommands::Status { plain }) => {
+                    commands::skills::status::run(&paths, &tool_dirs, plain)
                 }
                 Some(SkillsCommands::Load { ids }) => {
                     commands::skills::load::run(&paths, &ids, &tool_dirs)
@@ -309,7 +311,7 @@ fn main() -> ExitCode {
                 None => {
                     // Default: `akm skills` with no subcommand → show status
                     // Bash: `local subcommand="${1:-status}"` at bin/akm:404
-                    commands::skills::status::run(&paths, &tool_dirs)
+                    commands::skills::status::run(&paths, &tool_dirs, false)
                 }
             }
         }

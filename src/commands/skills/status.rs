@@ -1,8 +1,7 @@
 //! `akm skills status` — full status overview.
 //!
 //! Bash: `cmd_skills_status()` at bin/akm:1040–1213.
-//!
-//! Displays: project info, core specs, session specs, manifest specs, cold (available).
+//! Task 9 adds a TUI dashboard mode.
 
 use crate::error::Result;
 use crate::git::Git;
@@ -15,8 +14,19 @@ use std::collections::HashSet;
 use std::env;
 use std::path::{Path, PathBuf};
 
+use super::list::should_use_tui;
+
 /// Run the `akm skills status` command.
-pub fn run(paths: &Paths, tool_dirs: &ToolDirs) -> Result<()> {
+pub fn run(paths: &Paths, tool_dirs: &ToolDirs, plain: bool) -> Result<()> {
+    if should_use_tui(plain) {
+        crate::tui::status::run(paths, tool_dirs)
+    } else {
+        run_plain(paths, tool_dirs)
+    }
+}
+
+/// Plain output mode — identical to Task 4 implementation.
+fn run_plain(paths: &Paths, tool_dirs: &ToolDirs) -> Result<()> {
     let library = Library::load_checked(paths)?;
 
     // Section 1: Project info

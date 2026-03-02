@@ -10,4 +10,5 @@ pub mod library;
 pub mod paths;
 pub mod registry;
 pub mod shell;
+pub mod tui;
 pub mod update;

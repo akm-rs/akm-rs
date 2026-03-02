@@ -79,7 +79,7 @@ fn list_all_specs() {
     let paths = test_paths(&tmp);
     create_test_library(&paths);
 
-    let result = akm::commands::skills::list::run(&paths, None, None);
+    let result = akm::commands::skills::list::run(&paths, None, None, true, &test_tool_dirs(&tmp));
     assert!(result.is_ok());
 }
 
@@ -89,10 +89,12 @@ fn list_filter_by_type() {
     let paths = test_paths(&tmp);
     create_test_library(&paths);
 
-    let result = akm::commands::skills::list::run(&paths, None, Some("skill"));
+    let result =
+        akm::commands::skills::list::run(&paths, None, Some("skill"), true, &test_tool_dirs(&tmp));
     assert!(result.is_ok());
 
-    let result = akm::commands::skills::list::run(&paths, None, Some("agent"));
+    let result =
+        akm::commands::skills::list::run(&paths, None, Some("agent"), true, &test_tool_dirs(&tmp));
     assert!(result.is_ok());
 }
 
@@ -102,7 +104,13 @@ fn list_filter_by_tag() {
     let paths = test_paths(&tmp);
     create_test_library(&paths);
 
-    let result = akm::commands::skills::list::run(&paths, Some("testing"), None);
+    let result = akm::commands::skills::list::run(
+        &paths,
+        Some("testing"),
+        None,
+        true,
+        &test_tool_dirs(&tmp),
+    );
     assert!(result.is_ok());
 }
 
@@ -112,7 +120,13 @@ fn list_combined_filters() {
     let paths = test_paths(&tmp);
     create_test_library(&paths);
 
-    let result = akm::commands::skills::list::run(&paths, Some("testing"), Some("skill"));
+    let result = akm::commands::skills::list::run(
+        &paths,
+        Some("testing"),
+        Some("skill"),
+        true,
+        &test_tool_dirs(&tmp),
+    );
     assert!(result.is_ok());
 }
 
@@ -122,7 +136,8 @@ fn list_invalid_type_returns_error() {
     let paths = test_paths(&tmp);
     create_test_library(&paths);
 
-    let result = akm::commands::skills::list::run(&paths, None, Some("bogus"));
+    let result =
+        akm::commands::skills::list::run(&paths, None, Some("bogus"), true, &test_tool_dirs(&tmp));
     assert!(result.is_err());
 }
 
@@ -131,7 +146,7 @@ fn list_no_library_returns_error() {
     let tmp = TempDir::new().unwrap();
     let paths = test_paths(&tmp);
 
-    let result = akm::commands::skills::list::run(&paths, None, None);
+    let result = akm::commands::skills::list::run(&paths, None, None, true, &test_tool_dirs(&tmp));
     assert!(result.is_err());
 }
 
@@ -145,7 +160,7 @@ fn search_by_id() {
     let paths = test_paths(&tmp);
     create_test_library(&paths);
 
-    let result = akm::commands::skills::search::run(&paths, "tdd");
+    let result = akm::commands::skills::search::run(&paths, "tdd", true, &test_tool_dirs(&tmp));
     assert!(result.is_ok());
 }
 
@@ -155,7 +170,8 @@ fn search_by_description() {
     let paths = test_paths(&tmp);
     create_test_library(&paths);
 
-    let result = akm::commands::skills::search::run(&paths, "Code review");
+    let result =
+        akm::commands::skills::search::run(&paths, "Code review", true, &test_tool_dirs(&tmp));
     assert!(result.is_ok());
 }
 
@@ -165,7 +181,7 @@ fn search_by_tag() {
     let paths = test_paths(&tmp);
     create_test_library(&paths);
 
-    let result = akm::commands::skills::search::run(&paths, "testing");
+    let result = akm::commands::skills::search::run(&paths, "testing", true, &test_tool_dirs(&tmp));
     assert!(result.is_ok());
 }
 
@@ -175,7 +191,7 @@ fn search_case_insensitive() {
     let paths = test_paths(&tmp);
     create_test_library(&paths);
 
-    let result = akm::commands::skills::search::run(&paths, "TDD");
+    let result = akm::commands::skills::search::run(&paths, "TDD", true, &test_tool_dirs(&tmp));
     assert!(result.is_ok());
 }
 
@@ -185,7 +201,8 @@ fn search_no_results() {
     let paths = test_paths(&tmp);
     create_test_library(&paths);
 
-    let result = akm::commands::skills::search::run(&paths, "nonexistent-zzz");
+    let result =
+        akm::commands::skills::search::run(&paths, "nonexistent-zzz", true, &test_tool_dirs(&tmp));
     assert!(result.is_ok()); // No error, just no output
 }
 

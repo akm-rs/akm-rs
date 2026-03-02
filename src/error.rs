@@ -272,6 +272,10 @@ pub enum Error {
     /// Could not determine the path of the currently running binary.
     #[error("Could not determine the path of the running binary: {message}")]
     UpdateSelfPath { message: String },
+
+    /// TUI initialization or rendering error.
+    #[error("TUI error: {message}")]
+    Tui { message: String },
 }
 
 /// Convenience alias used throughout the codebase.
