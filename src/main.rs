@@ -4,12 +4,15 @@
 //! instructions across coding assistants.
 
 use akm::commands;
+use akm::completions::dynamic::SpecIdCompleter;
+use akm::completions::Shell;
 use akm::config;
 use akm::error;
 use akm::paths;
 use akm::update;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::engine::ArgValueCandidates;
 use std::process::ExitCode;
 
 /// AKM — Agent Kit Manager
@@ -76,6 +79,22 @@ enum Commands {
         #[command(subcommand)]
         command: InstructionsCommands,
     },
+    /// Generate shell completion script
+    ///
+    /// Outputs a completion registration script for the specified shell.
+    /// Source the output to enable Tab completions for akm.
+    ///
+    /// For automatic installation, use `akm setup` instead.
+    ///
+    /// Examples:
+    ///   eval "$(akm completions bash)"
+    ///   akm completions zsh >> ~/.zshrc
+    ///   akm completions fish > ~/.config/fish/completions/akm.fish
+    Completions {
+        /// Target shell
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 }
 
 /// Skills subcommands.
@@ -92,25 +111,25 @@ enum SkillsCommands {
     /// Add spec(s) to project manifest
     Add {
         /// Spec IDs to add
-        #[arg(required = true)]
+        #[arg(required = true, add = ArgValueCandidates::new(SpecIdCompleter))]
         ids: Vec<String>,
     },
     /// Remove spec(s) from project manifest
     Remove {
         /// Spec IDs to remove
-        #[arg(required = true)]
+        #[arg(required = true, add = ArgValueCandidates::new(SpecIdCompleter))]
         ids: Vec<String>,
     },
     /// Load spec(s) into active session (JIT)
     Load {
         /// Spec IDs to load
-        #[arg(required = true)]
+        #[arg(required = true, add = ArgValueCandidates::new(SpecIdCompleter))]
         ids: Vec<String>,
     },
     /// Remove spec(s) from active session
     Unload {
         /// Spec IDs to unload
-        #[arg(required = true)]
+        #[arg(required = true, add = ArgValueCandidates::new(SpecIdCompleter))]
         ids: Vec<String>,
     },
     /// Show specs in active session
@@ -161,11 +180,13 @@ enum SkillsCommands {
     /// Edit spec metadata in $EDITOR
     Edit {
         /// Spec ID to edit
+        #[arg(add = ArgValueCandidates::new(SpecIdCompleter))]
         id: String,
     },
     /// Publish spec to personal registry
     Publish {
         /// Spec ID to publish
+        #[arg(add = ArgValueCandidates::new(SpecIdCompleter))]
         id: String,
         /// Preview changes without applying
         #[arg(long)]
@@ -195,6 +216,11 @@ enum InstructionsCommands {
 }
 
 fn main() -> ExitCode {
+    // Handle shell completion requests (Tab press) before parsing.
+    // CompleteEnv detects the COMPLETE env var, generates candidates, and exits.
+    // Normal invocations pass through as a no-op.
+    clap_complete::CompleteEnv::with_factory(Cli::command).complete();
+
     let cli = Cli::parse();
 
     let paths = match paths::Paths::resolve() {
@@ -328,6 +354,7 @@ fn main() -> ExitCode {
             InstructionsCommands::Edit => commands::instructions::edit::run(&paths),
             InstructionsCommands::ScaffoldProject => commands::instructions::scaffold::run(),
         },
+        Some(Commands::Completions { shell }) => commands::completions::run(&shell),
     };
 
     // Print update notice after command output (unless user ran `akm update`)

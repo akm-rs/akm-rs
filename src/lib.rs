@@ -2,6 +2,7 @@
 
 pub mod artifacts;
 pub mod commands;
+pub mod completions;
 pub mod config;
 pub mod editor;
 pub mod error;

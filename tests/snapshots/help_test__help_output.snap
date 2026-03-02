@@ -1,6 +1,5 @@
 ---
 source: tests/help_test.rs
-assertion_line: 9
 expression: "String::from_utf8_lossy(&output.stdout).to_string()"
 ---
 Agent Kit Manager — manage reusable LLM skills, artifacts, and instructions
@@ -15,6 +14,7 @@ Commands:
   skills        Skills management
   artifacts     Artifact sync
   instructions  Global instruction management
+  completions   Generate shell completion script
   help          Print this message or the help of the given subcommand(s)
 
 Options:

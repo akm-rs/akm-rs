@@ -1,6 +1,7 @@
 //! CLI command handlers.
 
 pub mod artifacts;
+pub mod completions;
 pub mod config;
 pub mod instructions;
 pub mod setup;

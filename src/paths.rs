@@ -17,6 +17,8 @@ use std::path::{Path, PathBuf};
 pub struct Paths {
     /// `$XDG_DATA_HOME/akm` — cold library, shell init, tools.json
     data_dir: PathBuf,
+    /// `$XDG_DATA_HOME` — base data directory (parent of data_dir)
+    data_home: PathBuf,
     /// `$XDG_CONFIG_HOME/akm` — config directory
     config_dir: PathBuf,
     /// `$XDG_CACHE_HOME/akm` — registry caches, session staging
@@ -34,12 +36,14 @@ impl Paths {
     /// (extremely rare on any real system).
     pub fn resolve() -> Option<Self> {
         let home = dirs::home_dir()?;
-        let data_dir = dirs::data_dir()?.join("akm");
+        let data_home = dirs::data_dir()?;
+        let data_dir = data_home.join("akm");
         let config_dir = dirs::config_dir()?.join("akm");
         let cache_dir = dirs::cache_dir()?.join("akm");
         let akm_home = home.join(".akm");
         Some(Self {
             data_dir,
+            data_home,
             config_dir,
             cache_dir,
             akm_home,
@@ -53,6 +57,7 @@ impl Paths {
     pub fn from_roots(data: &Path, config: &Path, cache: &Path, home: &Path) -> Self {
         Self {
             data_dir: data.join("akm"),
+            data_home: data.to_path_buf(),
             config_dir: config.join("akm"),
             cache_dir: cache.join("akm"),
             akm_home: home.join(".akm"),
@@ -66,6 +71,14 @@ impl Paths {
     /// Bash: `LIBRARY_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/akm"`
     pub fn data_dir(&self) -> &Path {
         &self.data_dir
+    }
+
+    /// `$XDG_DATA_HOME` — base data directory (e.g., `~/.local/share`).
+    ///
+    /// Used for shell-specific completion file paths that live alongside
+    /// other XDG data directories (bash-completion, zsh, fish).
+    pub fn xdg_data_home(&self) -> &Path {
+        &self.data_home
     }
 
     /// `$XDG_DATA_HOME/akm/library.json`

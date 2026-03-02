@@ -273,6 +273,13 @@ pub enum Error {
     #[error("Could not determine the path of the running binary: {message}")]
     UpdateSelfPath { message: String },
 
+    /// Shell completion script could not be written.
+    #[error("Failed to install completions to {path}: {source}")]
+    CompletionInstall {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
     /// TUI initialization or rendering error.
     #[error("TUI error: {message}")]
     Tui { message: String },

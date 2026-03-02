@@ -162,7 +162,12 @@ pub fn run(paths: &Paths, scope: SetupScope, prompter: &mut dyn Prompter) -> Res
     println!("Shell integration installed");
     println!();
 
-    // Step 7: Initial sync
+    // Step 7: Install shell completions
+    println!("Installing shell completions...");
+    crate::completions::install_completions(paths);
+    println!();
+
+    // Step 8: Initial sync
     println!("Running initial sync...");
     run_initial_sync(paths, &config);
     println!();

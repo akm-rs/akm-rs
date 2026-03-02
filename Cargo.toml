@@ -8,6 +8,7 @@ repository = "https://github.com/akm-rs/akm"
 
 [dependencies]
 clap = { version = "4", features = ["derive", "env"] }
+clap_complete = { version = "4", features = ["unstable-dynamic"] }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 serde_json = "1"
