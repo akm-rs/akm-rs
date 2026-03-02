@@ -19,7 +19,7 @@ const SPEC_SUBDIRS: &[&str] = &["skills", "agents"];
 /// Run the `akm skills clean` command.
 pub fn run(paths: &Paths, tool_dirs: &ToolDirs, project: bool, dry_run: bool) -> Result<()> {
     if project {
-        clean_project(paths, dry_run)
+        clean_project(paths, tool_dirs, dry_run)
     } else {
         clean_global(tool_dirs, dry_run)
     }
@@ -78,52 +78,59 @@ fn clean_global(tool_dirs: &ToolDirs, dry_run: bool) -> Result<()> {
 /// Clean non-symlink copies from the current project.
 ///
 /// Bash: `_clean_project()` at bin/akm:1704–1765.
-fn clean_project(paths: &Paths, dry_run: bool) -> Result<()> {
+fn clean_project(paths: &Paths, tool_dirs: &ToolDirs, dry_run: bool) -> Result<()> {
     let library = Library::load_checked(paths)?;
     let project_root = Git::toplevel(None).map_err(|_| Error::ManifestNoProject)?;
 
     let mut removed = 0u32;
     let mut unknown: Vec<String> = Vec::new();
 
-    for subdir in SPEC_SUBDIRS {
-        let dir = project_root.join(".claude").join(subdir);
-        if !dir.is_dir() {
-            continue;
-        }
+    for tool_dir in tool_dirs.dirs() {
+        let tool_name = tool_dir
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
 
-        let entries = match std::fs::read_dir(&dir) {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_symlink() {
-                continue; // skip symlinks (core specs)
+        for subdir in SPEC_SUBDIRS {
+            let dir = project_root.join(&tool_name).join(subdir);
+            if !dir.is_dir() {
+                continue;
             }
 
-            let name = entry.file_name().to_string_lossy().to_string();
-            // Bash: strip .md for agents to get ID
-            let id = if *subdir == "agents" {
-                name.strip_suffix(".md").unwrap_or(&name).to_string()
-            } else {
-                name.clone()
+            let entries = match std::fs::read_dir(&dir) {
+                Ok(e) => e,
+                Err(_) => continue,
             };
 
-            if library.contains(&id) {
-                if dry_run {
-                    println!("Would remove: .claude/{subdir}/{name}");
-                } else {
-                    if path.is_dir() {
-                        std::fs::remove_dir_all(&path).ok();
-                    } else {
-                        std::fs::remove_file(&path).ok();
-                    }
-                    println!("  ✓ Removed .claude/{subdir}/{name}");
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_symlink() {
+                    continue; // skip symlinks (core specs)
                 }
-                removed += 1;
-            } else {
-                unknown.push(format!(".claude/{subdir}/{name}"));
+
+                let name = entry.file_name().to_string_lossy().to_string();
+                // Bash: strip .md for agents to get ID
+                let id = if *subdir == "agents" {
+                    name.strip_suffix(".md").unwrap_or(&name).to_string()
+                } else {
+                    name.clone()
+                };
+
+                if library.contains(&id) {
+                    if dry_run {
+                        println!("Would remove: {tool_name}/{subdir}/{name}");
+                    } else {
+                        if path.is_dir() {
+                            std::fs::remove_dir_all(&path).ok();
+                        } else {
+                            std::fs::remove_file(&path).ok();
+                        }
+                        println!("  ✓ Removed {tool_name}/{subdir}/{name}");
+                    }
+                    removed += 1;
+                } else {
+                    unknown.push(format!("{tool_name}/{subdir}/{name}"));
+                }
             }
         }
     }

@@ -16,7 +16,7 @@ use crate::paths::Paths;
 ///
 /// Output behavior mirrors Bash exactly:
 /// - No remote configured → warning to stderr, exit 0
-/// - Clone success → "Artifacts cloned to <dir>"
+/// - Clone success → "Artifacts cloned to `dir`"
 /// - Pull success → "Artifacts pulled"
 /// - Push success → "Artifacts pushed (N commits)"
 /// - Any failure → warning to stderr, exit 0 (non-fatal)

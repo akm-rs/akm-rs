@@ -177,9 +177,17 @@ pub enum Error {
     #[error("Editor '{editor}' not found. Set $EDITOR or install nano.\nTried: $EDITOR → git config core.editor → nano")]
     EditorNotFound { editor: String },
 
-    /// Editor command exited with non-zero status.
-    #[error("Editor '{editor}' exited with status {status}")]
-    EditorFailed { editor: String, status: i32 },
+    /// Editor command exited with non-zero status or failed to launch.
+    #[error("Editor '{editor}' exited with error: {message}")]
+    EditorFailed { editor: String, message: String },
+
+    /// JSON validation failed after editing a spec.
+    #[error("Invalid JSON in edited spec: {message}")]
+    InvalidEditJson { message: String },
+
+    /// Spec ID was changed during edit (not allowed).
+    #[error("Cannot change spec id. Expected '{expected}', got '{actual}'.")]
+    SpecIdChanged { expected: String, actual: String },
 
     /// Session directory does not exist (AKM_SESSION env var set but dir missing).
     /// Bash: bin/akm:124 "Error: Session directory does not exist: $AKM_SESSION"

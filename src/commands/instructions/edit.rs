@@ -73,7 +73,7 @@ pub fn run(paths: &Paths) -> Result<()> {
     if !status.success() {
         return Err(Error::EditorFailed {
             editor,
-            status: status.code().unwrap_or(-1),
+            message: format!("exited with status {}", status.code().unwrap_or(-1)),
         });
     }
 

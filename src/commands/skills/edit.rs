@@ -51,15 +51,15 @@ pub fn run(paths: &Paths, id: &str, tool_dirs: &ToolDirs) -> Result<()> {
             Command::new(&editor)
                 .arg(&tmp_file)
                 .status()
-                .map_err(|_| Error::EditorFailed {
+                .map_err(|e| Error::EditorFailed {
                     editor: editor.clone(),
-                    status: 127,
+                    message: e.to_string(),
                 })?;
 
         if !status.success() {
             return Err(Error::EditorFailed {
                 editor,
-                status: status.code().unwrap_or(1),
+                message: format!("exited with status {}", status.code().unwrap_or(1)),
             });
         }
 

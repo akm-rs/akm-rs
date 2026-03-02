@@ -5,7 +5,7 @@
 //! Behavior:
 //! 1. Load the library
 //! 2. Apply optional --tag and --type filters
-//! 3. Print each matching spec: type, id, description, [CORE] marker
+//! 3. Print each matching spec: type, id, description, \[CORE\] marker
 //!
 //! Plain output for now. TUI will be added in Task 9.
 
