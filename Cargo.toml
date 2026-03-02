@@ -2,9 +2,22 @@
 name = "akm"
 version = "1.0.0-alpha.1"
 edition = "2021"
+rust-version = "1.80.0"
 description = "Agent Kit Manager — manage reusable LLM skills, artifacts, and instructions"
 license = "MIT"
 repository = "https://github.com/akm-rs/akm"
+homepage = "https://akm.raphaelsimon.fr"
+documentation = "https://docs.rs/akm"
+readme = "README.md"
+keywords = ["cli", "llm", "skills", "agent", "developer-tools"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = [
+  ".github/",
+  "scripts/",
+  "tests/",
+  "AGENTS.md",
+  "CLAUDE.md",
+]
 
 [dependencies]
 clap = { version = "4", features = ["derive", "env"] }
