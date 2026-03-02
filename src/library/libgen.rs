@@ -66,7 +66,13 @@ pub fn generate(target_dir: &Path) -> Result<LibgenResult> {
             if let Some(existing_spec) = existing_map.get(id.as_str()) {
                 specs.push((*existing_spec).clone());
             } else {
-                let fm = Frontmatter::parse_file(&md_file).unwrap_or_default();
+                let fm = match Frontmatter::parse_file(&md_file) {
+                    Ok(fm) => fm,
+                    Err(e) => {
+                        eprintln!("Warning: {e}");
+                        Frontmatter::default()
+                    }
+                };
                 let name = fm.name.unwrap_or_else(|| id.clone());
                 let description = fm.description.unwrap_or_default();
                 specs.push(Spec::new(id, SpecType::Skill, name, description));
@@ -101,7 +107,13 @@ pub fn generate(target_dir: &Path) -> Result<LibgenResult> {
             if let Some(existing_spec) = existing_map.get(id.as_str()) {
                 specs.push((*existing_spec).clone());
             } else {
-                let fm = Frontmatter::parse_file(&file_path).unwrap_or_default();
+                let fm = match Frontmatter::parse_file(&file_path) {
+                    Ok(fm) => fm,
+                    Err(e) => {
+                        eprintln!("Warning: {e}");
+                        Frontmatter::default()
+                    }
+                };
                 let name = fm.name.unwrap_or_else(|| id.clone());
                 let description = fm.description.unwrap_or_default();
                 specs.push(Spec::new(id, SpecType::Agent, name, description));

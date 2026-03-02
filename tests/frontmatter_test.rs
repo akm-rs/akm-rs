@@ -125,3 +125,11 @@ fn require_name_and_description_missing_name() {
         .require_name_and_description(std::path::Path::new("test.md"))
         .is_err());
 }
+
+#[test]
+fn parse_single_quote_char_does_not_panic() {
+    let content = "---\nname: \"\n---\n";
+    let fm = Frontmatter::parse(content).unwrap();
+    // Single quote char is not stripped — returned as-is
+    assert_eq!(fm.name.as_deref(), Some("\""));
+}

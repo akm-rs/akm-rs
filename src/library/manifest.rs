@@ -102,9 +102,12 @@ impl Manifest {
             source: e,
         })?;
 
-        std::fs::rename(&tmp_path, &self.file_path).map_err(|e| Error::ManifestWrite {
-            path: self.file_path.clone(),
-            source: e,
+        std::fs::rename(&tmp_path, &self.file_path).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp_path);
+            Error::ManifestWrite {
+                path: self.file_path.clone(),
+                source: e,
+            }
         })?;
 
         Ok(())

@@ -163,9 +163,10 @@ impl Frontmatter {
 /// Bash: `sed "s/^[\"']//; s/[\"']$//"`
 fn strip_yaml_quotes(s: &str) -> String {
     let s = s.trim();
-    if (s.starts_with('"') && s.ends_with('"')) || (s.starts_with('\'') && s.ends_with('\'')) {
-        s[1..s.len() - 1].to_string()
-    } else {
-        s.to_string()
+    for quote in ['"', '\''] {
+        if let Some(inner) = s.strip_prefix(quote).and_then(|s| s.strip_suffix(quote)) {
+            return inner.to_string();
+        }
     }
+    s.to_string()
 }

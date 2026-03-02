@@ -72,7 +72,9 @@ impl Library {
 
     /// Load library and fail with a user-friendly error if not found.
     ///
-    /// Bash: `_check_library()` + subsequent jq commands.
+    /// This is the designated entry point for commands that require an existing
+    /// library. Currently delegates to `load()` — the `LibraryNotFound` error
+    /// already contains user-facing guidance ("Run 'akm skills sync'...").
     pub fn load_checked(paths: &Paths) -> Result<Self> {
         Self::load(paths)
     }
@@ -104,9 +106,12 @@ impl Library {
             source: e,
         })?;
 
-        std::fs::rename(&tmp_path, path).map_err(|e| Error::LibraryWrite {
-            path: path.to_path_buf(),
-            source: e,
+        std::fs::rename(&tmp_path, path).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp_path);
+            Error::LibraryWrite {
+                path: path.to_path_buf(),
+                source: e,
+            }
         })
     }
 

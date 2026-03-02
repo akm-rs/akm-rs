@@ -216,25 +216,21 @@ fn main() -> ExitCode {
                 eprintln!("Not yet implemented");
                 Ok(())
             }
-            None => {
+            None => (|| -> error::Result<()> {
                 use clap::CommandFactory;
                 let mut cmd = Cli::command();
                 for sub in cmd.get_subcommands_mut() {
                     if sub.get_name() == "skills" {
-                        return match sub.print_help() {
-                            Ok(()) => {
-                                println!();
-                                ExitCode::SUCCESS
-                            }
-                            Err(e) => {
-                                eprintln!("Error: printing skills help: {e}");
-                                ExitCode::FAILURE
-                            }
-                        };
+                        sub.print_help().map_err(|e| error::Error::Io {
+                            context: "printing skills help".into(),
+                            source: e,
+                        })?;
+                        println!();
+                        break;
                     }
                 }
                 Ok(())
-            }
+            })(),
         },
         Some(Commands::Artifacts { command }) => {
             let _ = command;

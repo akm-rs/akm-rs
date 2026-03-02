@@ -197,3 +197,30 @@ fn libgen_skills_without_skill_md_are_skipped() {
     let result = libgen::generate(base).unwrap();
     assert_eq!(result.count, 1);
 }
+
+#[test]
+fn libgen_empty_skills_dir_succeeds_with_zero_specs() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir_all(tmp.path().join("skills")).unwrap();
+    let result = libgen::generate(tmp.path()).unwrap();
+    assert_eq!(result.count, 0);
+}
+
+#[test]
+fn library_load_malformed_json_returns_parse_error() {
+    let tmp = TempDir::new().unwrap();
+    fs::write(tmp.path().join("library.json"), "not json").unwrap();
+    assert!(matches!(
+        Library::load_from(&tmp.path().join("library.json")),
+        Err(akm::error::Error::LibraryParse { .. })
+    ));
+}
+
+#[test]
+fn library_load_nonexistent_returns_not_found() {
+    let tmp = TempDir::new().unwrap();
+    assert!(matches!(
+        Library::load_from(&tmp.path().join("library.json")),
+        Err(akm::error::Error::LibraryNotFound { .. })
+    ));
+}
