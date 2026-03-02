@@ -23,6 +23,8 @@ pub struct Paths {
     cache_dir: PathBuf,
     /// `$HOME/.akm` — artifacts, global instructions (non-XDG, user-visible)
     akm_home: PathBuf,
+    /// Resolved home directory.
+    home: PathBuf,
 }
 
 impl Paths {
@@ -31,15 +33,17 @@ impl Paths {
     /// Returns `None` only if the home directory cannot be determined
     /// (extremely rare on any real system).
     pub fn resolve() -> Option<Self> {
+        let home = dirs::home_dir()?;
         let data_dir = dirs::data_dir()?.join("akm");
         let config_dir = dirs::config_dir()?.join("akm");
         let cache_dir = dirs::cache_dir()?.join("akm");
-        let akm_home = dirs::home_dir()?.join(".akm");
+        let akm_home = home.join(".akm");
         Some(Self {
             data_dir,
             config_dir,
             cache_dir,
             akm_home,
+            home,
         })
     }
 
@@ -52,6 +56,7 @@ impl Paths {
             config_dir: config.join("akm"),
             cache_dir: cache.join("akm"),
             akm_home: home.join(".akm"),
+            home: home.to_path_buf(),
         }
     }
 
@@ -146,19 +151,22 @@ impl Paths {
         self.akm_home.join("global-instructions.md")
     }
 
+    /// User's home directory. Used for resolving global tool dirs.
+    pub fn home(&self) -> &Path {
+        &self.home
+    }
+
     /// Global tool directories for symlink targets.
     /// Bash: `GLOBAL_TOOL_DIRS=("$HOME/.claude" "$HOME/.copilot" "$HOME/.agents" "$HOME/.vibe")`
     ///
     /// In the Rust version these come from tools.json, but we provide defaults
     /// matching the Bash hard-coded list for when tools.json is absent.
-    /// Derives home from `self.akm_home` parent (already resolved at construction).
     pub fn default_global_tool_dirs(&self) -> Vec<PathBuf> {
-        let home = self.akm_home.parent().unwrap_or(&self.akm_home);
         vec![
-            home.join(".claude"),
-            home.join(".copilot"),
-            home.join(".agents"),
-            home.join(".vibe"),
+            self.home.join(".claude"),
+            self.home.join(".copilot"),
+            self.home.join(".agents"),
+            self.home.join(".vibe"),
         ]
     }
 }

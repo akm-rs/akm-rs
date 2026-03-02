@@ -1,0 +1,7 @@
+---
+source: tests/instructions_test.rs
+expression: normalized
+---
+Scaffolding project instructions: /path/to/myproject
+  Created AGENTS.md
+  Created CLAUDE.md

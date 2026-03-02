@@ -172,6 +172,14 @@ pub enum Error {
         path: PathBuf,
         source: Box<dyn std::error::Error + Send + Sync>,
     },
+
+    /// Editor command not found.
+    #[error("Editor '{editor}' not found. Set $EDITOR or install nano.\nTried: $EDITOR → git config core.editor → nano")]
+    EditorNotFound { editor: String },
+
+    /// Editor command exited with non-zero status.
+    #[error("Editor '{editor}' exited with status {status}")]
+    EditorFailed { editor: String, status: i32 },
 }
 
 /// Convenience alias used throughout the codebase.

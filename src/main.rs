@@ -196,7 +196,17 @@ fn main() -> ExitCode {
             Ok(())
         }
         Some(Commands::Sync) => {
-            eprintln!("Not yet implemented: sync");
+            let config = akm::config::Config::load(&paths).unwrap_or_default();
+
+            if config.is_feature_enabled(akm::config::Feature::Instructions) {
+                println!("==> Instructions");
+                match commands::instructions::sync::run(&paths) {
+                    Ok(()) => {}
+                    Err(e) => eprintln!("  Instructions: sync skipped ({e})"),
+                }
+                println!();
+            }
+
             Ok(())
         }
         Some(Commands::Update) => {
@@ -234,11 +244,11 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Some(Commands::Instructions { command }) => {
-            let _ = command;
-            eprintln!("Not yet implemented: instructions");
-            Ok(())
-        }
+        Some(Commands::Instructions { command }) => match command {
+            InstructionsCommands::Sync => commands::instructions::sync::run(&paths),
+            InstructionsCommands::Edit => commands::instructions::edit::run(&paths),
+            InstructionsCommands::ScaffoldProject => commands::instructions::scaffold::run(),
+        },
     };
 
     match result {

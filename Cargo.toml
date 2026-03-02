@@ -20,3 +20,4 @@ assert_cmd = "2"
 predicates = "3"
 insta = { version = "1", features = ["yaml"] }
 tempfile = "3"
+serial_test = "3"

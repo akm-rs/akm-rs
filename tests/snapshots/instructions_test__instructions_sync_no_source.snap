@@ -1,0 +1,6 @@
+---
+source: tests/instructions_test.rs
+expression: normalized
+---
+Warning: No global instructions file found at $HOME/.akm/global-instructions.md
+Run 'akm instructions edit' to create one.
