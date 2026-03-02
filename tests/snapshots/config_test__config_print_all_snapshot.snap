@@ -1,0 +1,13 @@
+---
+source: tests/config_test.rs
+assertion_line: 110
+expression: normalized
+---
+AKM Config (<CONFIG_DIR>/config.toml)
+
+  features                  = skills,artifacts
+  skills.community-registry = https://github.com/akm-rs/skillverse.git
+  skills.personal-registry  = (not set)
+  artifacts.remote          = (not set)
+  artifacts.dir             = (not set)
+  artifacts.auto-push       = true
