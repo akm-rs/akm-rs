@@ -2,5 +2,7 @@
 source: tests/instructions_test.rs
 expression: normalized
 ---
+Warning: invalid 'features' in $HOME/.config/akm/config.toml, using defaults: invalid type: map, expected a sequence
+
 Warning: No global instructions file found at $HOME/.akm/global-instructions.md
 Run 'akm instructions edit' to create one.

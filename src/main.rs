@@ -4,8 +4,10 @@
 //! instructions across coding assistants.
 
 use akm::commands;
+use akm::config;
 use akm::error;
 use akm::paths;
+use akm::update;
 
 use clap::{Parser, Subcommand};
 use std::process::ExitCode;
@@ -203,6 +205,21 @@ fn main() -> ExitCode {
         }
     };
 
+    // Spawn background version check
+    let update_rx = {
+        match config::Config::load(&paths) {
+            Ok(cfg) => update::version_check::spawn_background_check(&cfg.update, &paths),
+            Err(_) => {
+                let (tx, rx) = std::sync::mpsc::channel();
+                let _ = tx.send(update::version_check::CheckResult::Skipped);
+                rx
+            }
+        }
+    };
+
+    // Track whether user ran `akm update` to suppress the post-command notice
+    let is_update_command = matches!(&cli.command, Some(Commands::Update));
+
     let result = match cli.command {
         None => {
             // Default: show help (matches Bash `main()` default of "help")
@@ -236,10 +253,10 @@ fn main() -> ExitCode {
             commands::setup::run(&paths, scope, &mut prompter)
         }
         Some(Commands::Sync) => commands::sync::run(&paths),
-        Some(Commands::Update) => {
-            eprintln!("Not yet implemented: update");
-            Ok(())
-        }
+        Some(Commands::Update) => match config::Config::load(&paths) {
+            Ok(cfg) => commands::update::run(&paths, &cfg),
+            Err(e) => Err(e),
+        },
         Some(Commands::Skills { command }) => {
             let tool_dirs = akm::library::tool_dirs::ToolDirs::load(&paths);
 
@@ -310,6 +327,11 @@ fn main() -> ExitCode {
             InstructionsCommands::ScaffoldProject => commands::instructions::scaffold::run(),
         },
     };
+
+    // Print update notice after command output (unless user ran `akm update`)
+    if !is_update_command {
+        update::version_check::print_update_notice(update_rx);
+    }
 
     match result {
         Ok(()) => ExitCode::SUCCESS,

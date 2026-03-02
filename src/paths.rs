@@ -156,6 +156,15 @@ impl Paths {
         &self.home
     }
 
+    /// `$XDG_CACHE_HOME/akm/last-update-check.json` — cached version check result.
+    ///
+    /// Contains a JSON blob with the latest known version and check timestamp.
+    /// Used by the background version check to avoid hitting the network
+    /// more than once per `check_interval`.
+    pub fn update_check_cache(&self) -> PathBuf {
+        self.cache_dir.join("last-update-check.json")
+    }
+
     /// Global tool directories for symlink targets.
     /// Bash: `GLOBAL_TOOL_DIRS=("$HOME/.claude" "$HOME/.copilot" "$HOME/.agents" "$HOME/.vibe")`
     ///

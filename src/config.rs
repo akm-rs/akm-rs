@@ -14,6 +14,12 @@ use std::path::PathBuf;
 /// Bash: `DEFAULT_SKILLS_COMMUNITY_REGISTRY="https://github.com/akm-rs/skillverse.git"`
 pub const DEFAULT_COMMUNITY_REGISTRY: &str = "https://github.com/akm-rs/skillverse.git";
 
+/// Default GitHub Releases API URL for update checks.
+pub const DEFAULT_UPDATE_URL: &str = "https://api.github.com/repos/akm-rs/akm/releases/latest";
+
+/// Default interval between update checks (24 hours in seconds).
+pub const DEFAULT_CHECK_INTERVAL_SECS: u64 = 86400;
+
 /// The three AKM feature domains.
 /// Bash: validated in `_config_validate()` for the `features` key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -75,6 +81,10 @@ pub struct Config {
     /// Artifacts configuration section.
     #[serde(default)]
     pub artifacts: ArtifactsConfig,
+
+    /// Update configuration (new in Rust version).
+    #[serde(default)]
+    pub update: UpdateConfig,
 }
 
 /// Skills-specific configuration.
@@ -121,6 +131,47 @@ impl Default for ArtifactsConfig {
     }
 }
 
+/// Update-specific configuration.
+///
+/// New in Rust version — replaces the Bash `AKM_REPO` concept.
+/// The Rust binary downloads pre-built releases from GitHub instead of
+/// pulling from a git repo.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateConfig {
+    /// URL for the GitHub Releases API (or compatible endpoint).
+    /// Default: `https://api.github.com/repos/akm-rs/akm/releases/latest`
+    #[serde(default = "default_update_url")]
+    pub url: String,
+
+    /// Interval between automatic update checks, in seconds.
+    /// Default: 86400 (24 hours)
+    #[serde(default = "default_check_interval")]
+    pub check_interval: u64,
+
+    /// Whether to automatically check for updates on every invocation.
+    /// Default: true
+    #[serde(default = "default_true")]
+    pub auto_check: bool,
+}
+
+fn default_update_url() -> String {
+    DEFAULT_UPDATE_URL.to_string()
+}
+
+fn default_check_interval() -> u64 {
+    DEFAULT_CHECK_INTERVAL_SECS
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            url: default_update_url(),
+            check_interval: default_check_interval(),
+            auto_check: true,
+        }
+    }
+}
+
 fn default_true() -> bool {
     true
 }
@@ -132,6 +183,7 @@ impl Default for Config {
             features: BTreeSet::new(),
             skills: SkillsConfig::default(),
             artifacts: ArtifactsConfig::default(),
+            update: UpdateConfig::default(),
         }
     }
 }
@@ -163,9 +215,10 @@ impl Config {
 
         // Step 2: Walk the table tree and warn about unknown keys
         if let Some(table) = raw.as_table() {
-            let known_top: &[&str] = &["features", "skills", "artifacts"];
+            let known_top: &[&str] = &["features", "skills", "artifacts", "update"];
             let known_skills: &[&str] = &["community_registry", "personal_registry"];
             let known_artifacts: &[&str] = &["remote", "dir", "auto_push"];
+            let known_update: &[&str] = &["url", "check_interval", "auto_check"];
 
             for key in table.keys() {
                 if !known_top.contains(&key.as_str()) {
@@ -192,6 +245,17 @@ impl Config {
                     if !known_artifacts.contains(&key.as_str()) {
                         eprintln!(
                             "Warning: unknown config key 'artifacts.{}' in {}",
+                            key,
+                            config_file.display()
+                        );
+                    }
+                }
+            }
+            if let Some(toml::Value::Table(update)) = table.get("update") {
+                for key in update.keys() {
+                    if !known_update.contains(&key.as_str()) {
+                        eprintln!(
+                            "Warning: unknown config key 'update.{}' in {}",
                             key,
                             config_file.display()
                         );
@@ -231,6 +295,15 @@ impl Config {
                             Ok(a) => config.artifacts = a,
                             Err(e) => eprintln!(
                                 "Warning: invalid [artifacts] config in {}, using defaults: {e}",
+                                config_file.display()
+                            ),
+                        }
+                    }
+                    if let Some(update) = table.get("update") {
+                        match update.clone().try_into::<UpdateConfig>() {
+                            Ok(u) => config.update = u,
+                            Err(e) => eprintln!(
+                                "Warning: invalid [update] config in {}, using defaults: {e}",
                                 config_file.display()
                             ),
                         }
@@ -326,11 +399,18 @@ pub enum ConfigKey {
     ArtifactsDir,
     /// `artifacts.auto-push` → `artifacts.auto_push`
     ArtifactsAutoPush,
+    /// `update.url` — GitHub Releases API URL
+    UpdateUrl,
+    /// `update.check-interval` — seconds between checks
+    UpdateCheckInterval,
+    /// `update.auto-check` — enable/disable auto-check
+    UpdateAutoCheck,
 }
 
 /// All valid config key names for help text.
 pub const ALL_CONFIG_KEYS: &str = "features, skills.community-registry, skills.personal-registry, \
-     artifacts.remote, artifacts.dir, artifacts.auto-push";
+     artifacts.remote, artifacts.dir, artifacts.auto-push, \
+     update.url, update.check-interval, update.auto-check";
 
 impl std::str::FromStr for ConfigKey {
     type Err = Error;
@@ -346,6 +426,9 @@ impl std::str::FromStr for ConfigKey {
             "artifacts.remote" => Ok(ConfigKey::ArtifactsRemote),
             "artifacts.dir" => Ok(ConfigKey::ArtifactsDir),
             "artifacts.auto-push" => Ok(ConfigKey::ArtifactsAutoPush),
+            "update.url" => Ok(ConfigKey::UpdateUrl),
+            "update.check-interval" => Ok(ConfigKey::UpdateCheckInterval),
+            "update.auto-check" => Ok(ConfigKey::UpdateAutoCheck),
             other => Err(Error::UnknownConfigKey {
                 key: other.to_string(),
                 available: ALL_CONFIG_KEYS.to_string(),
@@ -378,6 +461,9 @@ impl ConfigKey {
                 .map(|p| p.display().to_string())
                 .unwrap_or_default(),
             ConfigKey::ArtifactsAutoPush => config.artifacts.auto_push.to_string(),
+            ConfigKey::UpdateUrl => config.update.url.clone(),
+            ConfigKey::UpdateCheckInterval => config.update.check_interval.to_string(),
+            ConfigKey::UpdateAutoCheck => config.update.auto_check.to_string(),
         }
     }
 
@@ -435,6 +521,29 @@ impl ConfigKey {
                         });
                     }
                 };
+            }
+            ConfigKey::UpdateUrl => {
+                config.update.url = value.to_string();
+            }
+            ConfigKey::UpdateCheckInterval => {
+                let secs: u64 = value.parse().map_err(|_| Error::ConfigValidation {
+                    key: "update.check-interval".into(),
+                    message: format!("Expected a positive integer (seconds), got '{value}'"),
+                })?;
+                config.update.check_interval = secs;
+            }
+            ConfigKey::UpdateAutoCheck => {
+                let b = match value {
+                    "true" | "1" | "yes" => true,
+                    "false" | "0" | "no" => false,
+                    _ => {
+                        return Err(Error::ConfigValidation {
+                            key: "update.auto-check".into(),
+                            message: format!("Expected true/false, got '{value}'"),
+                        });
+                    }
+                };
+                config.update.auto_check = b;
             }
         }
         Ok(())

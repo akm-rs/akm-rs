@@ -247,6 +247,31 @@ pub enum Error {
     /// One or more domains failed during `akm sync`.
     #[error("One or more domains failed to sync. See errors above.")]
     SyncPartialFailure,
+
+    /// HTTP request for update check failed.
+    #[error("Update check failed: {message}")]
+    UpdateCheck { message: String },
+
+    /// Failed to download update binary.
+    #[error("Failed to download update from {url}: {message}")]
+    UpdateDownload { url: String, message: String },
+
+    /// Failed to replace the binary (permission denied, read-only filesystem, etc.).
+    #[error(
+        "Failed to replace binary at {path}: {source}\nTry running with appropriate permissions."
+    )]
+    UpdateReplace {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    /// The downloaded binary appears to be invalid (zero size, too small, etc.).
+    #[error("Downloaded binary appears invalid ({reason}). Update aborted.\nThe existing binary was not modified.")]
+    UpdateInvalidBinary { reason: String },
+
+    /// Could not determine the path of the currently running binary.
+    #[error("Could not determine the path of the running binary: {message}")]
+    UpdateSelfPath { message: String },
 }
 
 /// Convenience alias used throughout the codebase.

@@ -6,3 +6,4 @@ pub mod instructions;
 pub mod setup;
 pub mod skills;
 pub mod sync;
+pub mod update;
