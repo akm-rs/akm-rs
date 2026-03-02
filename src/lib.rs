@@ -9,3 +9,4 @@ pub mod git;
 pub mod library;
 pub mod paths;
 pub mod registry;
+pub mod shell;

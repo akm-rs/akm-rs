@@ -1,0 +1,6 @@
+[
+  {"name": "Claude Code", "command": "claude", "dir": ".claude"},
+  {"name": "Github Copilot CLI", "command": "copilot", "dir": ".copilot"},
+  {"name": "Mistral Vibe", "command": "vibe", "dir": ".vibe"},
+  {"name": "OpenCode", "command": "opencode", "dir": ".agents"}
+]

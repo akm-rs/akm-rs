@@ -215,6 +215,37 @@ pub enum Error {
     /// Bash: bin/akm:2316 "Error: Directory not found: $spec_path"
     #[error("Directory not found: {path}")]
     PromoteDirNotFound { path: PathBuf },
+
+    /// .bashrc does not exist and could not be created.
+    ///
+    /// Bash: _patch_bashrc assumes .bashrc exists or can be appended to.
+    /// Rust: explicitly handles the case where .bashrc doesn't exist.
+    #[error("Could not write shell integration to {path}: {source}")]
+    ShellInitWrite {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    /// Shell init template could not be written to data dir.
+    #[error("Could not install shell init to {path}: {source}")]
+    ShellInitInstall {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    /// Setup was cancelled by the user (Ctrl+C or non-TTY without defaults).
+    #[error("Setup cancelled")]
+    SetupCancelled,
+
+    /// No features configured — `akm sync` requires at least one enabled feature.
+    ///
+    /// Bash: bin/akm:1016–1018
+    #[error("No features configured.\nRun 'akm setup' first.")]
+    NoFeaturesConfigured,
+
+    /// One or more domains failed during `akm sync`.
+    #[error("One or more domains failed to sync. See errors above.")]
+    SyncPartialFailure,
 }
 
 /// Convenience alias used throughout the codebase.

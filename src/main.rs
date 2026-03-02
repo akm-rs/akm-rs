@@ -17,6 +17,15 @@ use std::process::ExitCode;
 #[derive(Parser, Debug)]
 #[command(name = "akm", version, about, long_about = None)]
 #[command(propagate_version = true)]
+#[command(after_help = "\
+Examples:
+  akm setup                      # interactive feature configuration
+  akm sync                       # sync all enabled features
+  akm skills add vitest tdd      # add specs to project manifest
+  akm skills load debugging      # load spec into active session
+  akm skills list --type skill   # list all skills
+  akm artifacts sync             # sync artifacts repo
+  akm config artifacts.auto-push false")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -28,7 +37,17 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Interactive feature configuration
-    Setup,
+    Setup {
+        /// Configure skills only
+        #[arg(long)]
+        skills: bool,
+        /// Configure artifacts only
+        #[arg(long)]
+        artifacts: bool,
+        /// Configure instructions only
+        #[arg(long)]
+        instructions: bool,
+    },
     /// View, get, or set configuration values
     Config {
         /// Config key (e.g. artifacts.auto-push, features)
@@ -152,6 +171,14 @@ enum SkillsCommands {
     },
     /// Regenerate library.json from disk
     Libgen,
+    /// [hidden] Set up session staging from project manifest (used by shell init)
+    #[command(hide = true, name = "session-setup")]
+    SessionSetup {
+        /// Path to the staging directory
+        staging_dir: String,
+        /// Path to the project root
+        project_root: String,
+    },
 }
 
 /// Instructions subcommands.
@@ -191,24 +218,24 @@ fn main() -> ExitCode {
                 })
         }
         Some(Commands::Config { key, value }) => commands::config::run(&paths, key, value),
-        Some(Commands::Setup) => {
-            eprintln!("Not yet implemented: setup");
-            Ok(())
-        }
-        Some(Commands::Sync) => {
-            let config = akm::config::Config::load(&paths).unwrap_or_default();
-
-            if config.is_feature_enabled(akm::config::Feature::Instructions) {
-                println!("==> Instructions");
-                match commands::instructions::sync::run(&paths) {
-                    Ok(()) => {}
-                    Err(e) => eprintln!("  Instructions: sync skipped ({e})"),
+        Some(Commands::Setup {
+            skills,
+            artifacts,
+            instructions,
+        }) => {
+            let scope = if skills || artifacts || instructions {
+                commands::setup::SetupScope {
+                    skills,
+                    artifacts,
+                    instructions,
                 }
-                println!();
-            }
-
-            Ok(())
+            } else {
+                commands::setup::SetupScope::all()
+            };
+            let mut prompter = commands::setup::StdinPrompter;
+            commands::setup::run(&paths, scope, &mut prompter)
         }
+        Some(Commands::Sync) => commands::sync::run(&paths),
         Some(Commands::Update) => {
             eprintln!("Not yet implemented: update");
             Ok(())
@@ -258,6 +285,10 @@ fn main() -> ExitCode {
                     let config = akm::config::Config::load(&paths).unwrap_or_default();
                     commands::skills::publish::run(&paths, &config, &id, dry_run)
                 }
+                Some(SkillsCommands::SessionSetup {
+                    staging_dir,
+                    project_root,
+                }) => commands::skills::session_setup::run(&paths, &staging_dir, &project_root),
                 None => {
                     // Default: `akm skills` with no subcommand → show status
                     // Bash: `local subcommand="${1:-status}"` at bin/akm:404
