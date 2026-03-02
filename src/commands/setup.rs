@@ -23,8 +23,11 @@ const DEFAULT_COMMUNITY_REGISTRY: &str = "https://github.com/akm-rs/skillverse.g
 /// Bash: `do_skills`, `do_artifacts`, `do_instructions` flags at bin/akm:647–648
 #[derive(Debug, Clone)]
 pub struct SetupScope {
+    /// Whether to configure the skills domain.
     pub skills: bool,
+    /// Whether to configure the artifacts domain.
     pub artifacts: bool,
+    /// Whether to configure the instructions domain.
     pub instructions: bool,
 }
 

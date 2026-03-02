@@ -26,5 +26,5 @@ fn test_shell_init_syntax_check() {
 /// Snapshot test for the generated shell init
 #[test]
 fn test_shell_init_snapshot() {
-    insta::assert_snapshot!("shell_init", include_str!("../src/shell/akm-init.sh"));
+    insta::assert_snapshot!("shell_init", akm::shell::shell_init_content());
 }

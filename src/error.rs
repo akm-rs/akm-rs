@@ -235,6 +235,7 @@ pub enum Error {
 
     /// Setup was cancelled by the user (Ctrl+C or non-TTY without defaults).
     #[error("Setup cancelled")]
+    #[allow(dead_code)] // Reserved for Ctrl+C / signal handling (future)
     SetupCancelled,
 
     /// No features configured — `akm sync` requires at least one enabled feature.
