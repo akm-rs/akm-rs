@@ -138,6 +138,40 @@ pub enum Error {
         "Failed to clone artifacts from {remote}\n{message}\nCheck the URL and your SSH keys."
     )]
     ArtifactsClone { remote: String, message: String },
+
+    /// Registry sync failed but a cached copy exists.
+    /// The sync can continue with the cached data.
+    /// This is NOT a hard error — it becomes a warning printed to stderr.
+    ///
+    /// Bash: bin/akm:1510 "Warning: Failed to pull community registry..."
+    /// Bash: bin/akm:1571 "Warning: Failed to pull personal registry..."
+    #[error("Failed to sync registry '{name}': {message}")]
+    RegistrySync { name: String, message: String },
+
+    /// No skills available — community clone failed with no cache and no library.
+    ///
+    /// Bash: bin/akm:1522–1524
+    #[error("No cached skills and no existing cold library. Cannot proceed.\nRun 'akm setup' to configure a skills registry.")]
+    NoSkillsAvailable,
+
+    /// Symlink creation failed.
+    ///
+    /// Bash: `ln -sfn` doesn't report errors (failures are silently counted),
+    /// but Rust should surface them.
+    #[error("Failed to create symlink {link} → {target}: {source}")]
+    SymlinkCreate {
+        link: PathBuf,
+        target: PathBuf,
+        source: std::io::Error,
+    },
+
+    /// tools.json parse error (non-fatal, falls back to defaults).
+    /// Printed as warning, not a hard error.
+    #[error("Failed to parse tools.json at {path}: {source}")]
+    ToolsParse {
+        path: PathBuf,
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
 }
 
 /// Convenience alias used throughout the codebase.

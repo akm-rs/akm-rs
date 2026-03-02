@@ -66,9 +66,8 @@ fn run_git_ok(args: &[&str], cwd: Option<&Path>) -> Result<String> {
 /// Git operations used by AKM.
 ///
 /// All methods are stateless functions that shell out to `git`.
-/// The struct exists to allow future dependency injection / trait extraction.
-/// A `GitOps` trait will be extracted at the start of Task 3 (Registry + Sync)
-/// when the `RegistrySource` trait needs to mock Git for testing.
+/// The struct exists as a namespace. Registry sync uses the `RegistrySource`
+/// trait for abstraction, so Git is only called through `registry::git::GitRegistry`.
 pub struct Git;
 
 impl Git {

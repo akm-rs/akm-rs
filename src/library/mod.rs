@@ -8,6 +8,8 @@ pub mod frontmatter;
 pub mod libgen;
 pub mod manifest;
 pub mod spec;
+pub mod symlinks;
+pub mod tool_dirs;
 
 use crate::error::{Error, IoContext, Result};
 use crate::paths::Paths;

@@ -204,6 +204,7 @@ fn main() -> ExitCode {
             Ok(())
         }
         Some(Commands::Skills { command }) => match command {
+            Some(SkillsCommands::Sync { quiet }) => commands::skills::sync::run_cli(&paths, quiet),
             Some(SkillsCommands::Libgen) => commands::skills::libgen::run(&paths),
             Some(_) => {
                 eprintln!("Not yet implemented");
