@@ -65,12 +65,17 @@ pub fn restore_terminal() {
 ///
 /// Without this, a panic in TUI code would leave the terminal in raw mode
 /// with the alternate screen active, making it unusable.
+/// Uses `Once` to ensure the hook is installed at most once.
 fn install_panic_hook() {
-    let original_hook = panic::take_hook();
-    panic::set_hook(Box::new(move |panic_info| {
-        restore_terminal();
-        original_hook(panic_info);
-    }));
+    use std::sync::Once;
+    static HOOK_INSTALLED: Once = Once::new();
+    HOOK_INSTALLED.call_once(|| {
+        let original_hook = panic::take_hook();
+        panic::set_hook(Box::new(move |panic_info| {
+            restore_terminal();
+            original_hook(panic_info);
+        }));
+    });
 }
 
 /// Outcome of processing a single event in any view.

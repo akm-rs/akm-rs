@@ -1,7 +1,8 @@
-//! Inline metadata editor — edits tags, core flag, and triggers for a spec.
+//! Inline metadata editor — edits description, tags, and core flag for a spec.
 //!
 //! Opened by pressing `e` in the list view. Unlike `akm skills edit` which
 //! opens $EDITOR on raw JSON, this provides a structured form-like interface.
+//! Triggers editing is deferred (read-only structured data).
 
 use crate::error::Result;
 use crate::tui::app::App;
