@@ -163,14 +163,19 @@ impl Git {
     /// git -C "$dir" ls-files --others --exclude-standard
     /// ```
     ///
-    /// Note: This checks working-tree changes and untracked files.
-    /// Staged changes (in the index but not committed) are not detected,
-    /// matching the original Bash behavior.
+    /// Also detects staged-but-uncommitted changes (`git diff --cached`).
     pub fn has_changes(repo_dir: &Path) -> Result<bool> {
+        // Working tree changes
         let diff = run_git(&["diff", "--quiet"], Some(repo_dir))?;
         if !diff.success {
             return Ok(true);
         }
+        // Staged changes
+        let staged = run_git(&["diff", "--cached", "--quiet"], Some(repo_dir))?;
+        if !staged.success {
+            return Ok(true);
+        }
+        // Untracked files
         let untracked = run_git(
             &["ls-files", "--others", "--exclude-standard"],
             Some(repo_dir),
@@ -198,5 +203,27 @@ impl Git {
     pub fn pull_ff_only(repo_dir: &Path) -> Result<()> {
         run_git_ok(&["pull", "--ff-only"], Some(repo_dir))?;
         Ok(())
+    }
+
+    /// Count how many local commits are ahead of the upstream tracking branch.
+    ///
+    /// Returns 0 if there is no upstream configured or if the count cannot
+    /// be determined (matches Bash `|| echo "0"` fallback).
+    ///
+    /// Bash: `git -C "$dir" rev-list --count @{upstream}..HEAD 2>/dev/null || echo "0"`
+    pub fn commits_ahead(repo_dir: &Path) -> Result<u32> {
+        let result = run_git(
+            &["rev-list", "--count", "@{upstream}..HEAD"],
+            Some(repo_dir),
+        )?;
+        if result.success {
+            result.stdout.trim().parse::<u32>().map_err(|_| Error::Git {
+                args: "rev-list --count @{upstream}..HEAD".into(),
+                stderr: format!("Could not parse commit count: '{}'", result.stdout.trim()),
+            })
+        } else {
+            // No upstream or other error — treat as 0 ahead (Bash: `|| echo "0"`)
+            Ok(0)
+        }
     }
 }

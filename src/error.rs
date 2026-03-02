@@ -114,6 +114,30 @@ pub enum Error {
         path: PathBuf,
         source: std::io::Error,
     },
+
+    /// No artifacts remote configured.
+    ///
+    /// Bash: bin/akm:480–482 — warning that returns 0.
+    /// In Rust we model it as a distinct error so the caller can decide presentation.
+    #[error(
+        "No artifacts remote configured.\nRun 'akm setup' to configure an artifacts repository."
+    )]
+    #[allow(dead_code)] // Available for callers that need an error representation of NoRemote
+    ArtifactsNoRemote,
+
+    /// Artifacts sync failed (pull or push).
+    ///
+    /// Bash: bin/akm:488–491 / bin/akm:501–504
+    #[error("Artifacts sync failed: {operation}\n{message}\nCheck your connection or SSH keys.")]
+    ArtifactsSync { operation: String, message: String },
+
+    /// Artifacts clone failed on first-time setup.
+    ///
+    /// Bash: bin/akm:511–514
+    #[error(
+        "Failed to clone artifacts from {remote}\n{message}\nCheck the URL and your SSH keys."
+    )]
+    ArtifactsClone { remote: String, message: String },
 }
 
 /// Convenience alias used throughout the codebase.

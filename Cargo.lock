@@ -19,6 +19,7 @@ dependencies = [
  "clap",
  "dirs",
  "insta",
+ "libc",
  "predicates",
  "serde",
  "serde_json",

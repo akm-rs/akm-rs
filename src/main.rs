@@ -48,7 +48,7 @@ enum Commands {
     /// Artifact sync
     Artifacts {
         #[command(subcommand)]
-        command: ArtifactsCommands,
+        command: commands::artifacts::ArtifactsCommands,
     },
     /// Global instruction management
     Instructions {
@@ -154,13 +154,6 @@ enum SkillsCommands {
     Libgen,
 }
 
-/// Artifacts subcommands.
-#[derive(Subcommand, Debug)]
-enum ArtifactsCommands {
-    /// Bidirectional sync with artifacts remote
-    Sync,
-}
-
 /// Instructions subcommands.
 #[derive(Subcommand, Debug)]
 enum InstructionsCommands {
@@ -233,9 +226,12 @@ fn main() -> ExitCode {
             })(),
         },
         Some(Commands::Artifacts { command }) => {
-            let _ = command;
-            eprintln!("Not yet implemented: artifacts");
-            Ok(())
+            let config = akm::config::Config::load(&paths).unwrap_or_default();
+            match command {
+                commands::artifacts::ArtifactsCommands::Sync => {
+                    commands::artifacts::sync::run(&config, &paths)
+                }
+            }
         }
         Some(Commands::Instructions { command }) => {
             let _ = command;
