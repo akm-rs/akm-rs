@@ -63,3 +63,38 @@ jobs:
           toolchain: "1.80.0"
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --all-features
+
+  installer-test:
+    name: Test installer script
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Shellcheck
+        run: shellcheck scripts/install.sh
+
+      - name: Test platform detection
+        run: |
+          bash -c '
+            set -euo pipefail
+            export AKM_DRY_RUN=1
+            source scripts/install.sh
+            detect_platform
+            [[ "$PLATFORM" == "linux" ]]
+            [[ "$ARCH" == "x86_64" ]]
+            [[ "$ASSET_NAME" == "akm-linux-x86_64" ]]
+            echo "Platform detection: OK"
+          '
+
+      - name: Test error handling
+        run: |
+          bash -c '
+            uname() { echo "Darwin"; }
+            export -f uname
+            set +e
+            bash scripts/install.sh 2>&1
+            status=$?
+            set -e
+            [[ $status -ne 0 ]]
+            echo "Error handling: OK"
+          '

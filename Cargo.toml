@@ -8,7 +8,6 @@ license = "MIT"
 repository = "https://github.com/akm-rs/akm"
 homepage = "https://akm.raphaelsimon.fr"
 documentation = "https://docs.rs/akm"
-readme = "README.md"
 keywords = ["cli", "llm", "skills", "agent", "developer-tools"]
 categories = ["command-line-utilities", "development-tools"]
 exclude = [
