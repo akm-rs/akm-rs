@@ -213,29 +213,58 @@ fn main() -> ExitCode {
             eprintln!("Not yet implemented: update");
             Ok(())
         }
-        Some(Commands::Skills { command }) => match command {
-            Some(SkillsCommands::Sync { quiet }) => commands::skills::sync::run_cli(&paths, quiet),
-            Some(SkillsCommands::Libgen) => commands::skills::libgen::run(&paths),
-            Some(_) => {
-                eprintln!("Not yet implemented");
-                Ok(())
-            }
-            None => (|| -> error::Result<()> {
-                use clap::CommandFactory;
-                let mut cmd = Cli::command();
-                for sub in cmd.get_subcommands_mut() {
-                    if sub.get_name() == "skills" {
-                        sub.print_help().map_err(|e| error::Error::Io {
-                            context: "printing skills help".into(),
-                            source: e,
-                        })?;
-                        println!();
-                        break;
-                    }
+        Some(Commands::Skills { command }) => {
+            let tool_dirs = akm::library::tool_dirs::ToolDirs::load(&paths);
+
+            match command {
+                Some(SkillsCommands::Libgen) => commands::skills::libgen::run(&paths),
+                Some(SkillsCommands::Sync { quiet }) => {
+                    commands::skills::sync::run_cli(&paths, quiet)
                 }
-                Ok(())
-            })(),
-        },
+                Some(SkillsCommands::Add { ids }) => {
+                    commands::skills::add::run(&paths, &ids, &tool_dirs)
+                }
+                Some(SkillsCommands::Remove { ids }) => {
+                    commands::skills::remove::run(&paths, &ids, &tool_dirs)
+                }
+                Some(SkillsCommands::List {
+                    tag,
+                    r#type,
+                    plain: _,
+                }) => commands::skills::list::run(&paths, tag.as_deref(), r#type.as_deref()),
+                Some(SkillsCommands::Search { query, plain: _ }) => {
+                    commands::skills::search::run(&paths, &query)
+                }
+                Some(SkillsCommands::Status { plain: _ }) => {
+                    commands::skills::status::run(&paths, &tool_dirs)
+                }
+                Some(SkillsCommands::Load { ids }) => {
+                    commands::skills::load::run(&paths, &ids, &tool_dirs)
+                }
+                Some(SkillsCommands::Unload { ids }) => {
+                    commands::skills::unload::run(&paths, &ids, &tool_dirs)
+                }
+                Some(SkillsCommands::Loaded) => commands::skills::loaded::run(&paths, &tool_dirs),
+                Some(SkillsCommands::Clean { project, dry_run }) => {
+                    commands::skills::clean::run(&paths, &tool_dirs, project, dry_run)
+                }
+                Some(SkillsCommands::Promote { path, force }) => {
+                    commands::skills::promote::run(&paths, &path, force, &tool_dirs)
+                }
+                Some(SkillsCommands::Edit { id }) => {
+                    commands::skills::edit::run(&paths, &id, &tool_dirs)
+                }
+                Some(SkillsCommands::Publish { id, dry_run }) => {
+                    let config = akm::config::Config::load(&paths).unwrap_or_default();
+                    commands::skills::publish::run(&paths, &config, &id, dry_run)
+                }
+                None => {
+                    // Default: `akm skills` with no subcommand → show status
+                    // Bash: `local subcommand="${1:-status}"` at bin/akm:404
+                    commands::skills::status::run(&paths, &tool_dirs)
+                }
+            }
+        }
         Some(Commands::Artifacts { command }) => {
             let config = akm::config::Config::load(&paths).unwrap_or_default();
             match command {

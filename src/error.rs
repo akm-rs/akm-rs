@@ -180,6 +180,33 @@ pub enum Error {
     /// Editor command exited with non-zero status.
     #[error("Editor '{editor}' exited with status {status}")]
     EditorFailed { editor: String, status: i32 },
+
+    /// Session directory does not exist (AKM_SESSION env var set but dir missing).
+    /// Bash: bin/akm:124 "Error: Session directory does not exist: $AKM_SESSION"
+    #[error("Session directory does not exist: {path}\nThe session may have been cleaned up. Start a new session.")]
+    SessionDirNotFound { path: PathBuf },
+
+    /// Spec already exists in cold storage (promote without --force).
+    /// Bash: bin/akm:2397 "Error: Skill '$id' already exists in cold storage. Use --force to overwrite."
+    #[error("Spec '{id}' already exists in cold storage.\nUse --force to overwrite.")]
+    SpecAlreadyExists { id: String },
+
+    /// No personal registry configured (publish requires it).
+    /// Bash: bin/akm:2130 "Error: No personal registry configured."
+    #[error(
+        "No personal registry configured.\nRun 'akm setup' to add a personal skills registry."
+    )]
+    NoPersonalRegistry,
+
+    /// No SKILL.md found in directory.
+    /// Bash: bin/akm:2323 "Error: No SKILL.md found in $spec_path"
+    #[error("No SKILL.md found in {path}\nThe directory must contain a SKILL.md file (with optional supporting files).")]
+    NoSkillMd { path: PathBuf },
+
+    /// Promote: directory not found.
+    /// Bash: bin/akm:2316 "Error: Directory not found: $spec_path"
+    #[error("Directory not found: {path}")]
+    PromoteDirNotFound { path: PathBuf },
 }
 
 /// Convenience alias used throughout the codebase.

@@ -225,4 +225,34 @@ impl Git {
             Ok(0)
         }
     }
+
+    /// Get diff stats for staged changes.
+    ///
+    /// Bash: `git -C "$dir" diff --cached --stat`
+    pub fn diff_cached_stat(repo_dir: &Path) -> Result<String> {
+        run_git_ok(&["diff", "--cached", "--stat"], Some(repo_dir))
+    }
+
+    /// Get full diff for staged changes.
+    ///
+    /// Bash: `git -C "$dir" diff --cached`
+    pub fn diff_cached(repo_dir: &Path) -> Result<String> {
+        run_git_ok(&["diff", "--cached"], Some(repo_dir))
+    }
+
+    /// Reset staging area (unstage all staged changes).
+    ///
+    /// Bash: `git -C "$dir" reset --quiet`
+    pub fn reset(repo_dir: &Path) -> Result<()> {
+        run_git_ok(&["reset", "--quiet"], Some(repo_dir))?;
+        Ok(())
+    }
+
+    /// Check if staging area is clean (no staged changes after `add_all`).
+    ///
+    /// Bash: `git -C "$dir" diff --cached --quiet`
+    pub fn is_staging_clean(repo_dir: &Path) -> Result<bool> {
+        let output = run_git(&["diff", "--cached", "--quiet"], Some(repo_dir))?;
+        Ok(output.success)
+    }
 }
