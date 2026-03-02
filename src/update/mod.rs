@@ -4,7 +4,9 @@
 //! replacement. The version check runs in a background thread to avoid
 //! blocking command execution.
 
+/// Binary download and atomic self-replacement.
 pub mod download;
+/// Background version checking with cache TTL.
 pub mod version_check;
 
 use serde::{Deserialize, Serialize};

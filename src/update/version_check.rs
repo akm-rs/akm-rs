@@ -137,12 +137,9 @@ pub(crate) fn fetch_latest_release(
         .call()
         .map_err(|e| format!("HTTP request failed: {e}"))?;
 
-    let body_str = response
+    let body: serde_json::Value = response
         .body_mut()
-        .read_to_string()
-        .map_err(|e| format!("Failed to read response body: {e}"))?;
-
-    let body: serde_json::Value = serde_json::from_str(&body_str)
+        .read_json()
         .map_err(|e| format!("Failed to parse JSON response: {e}"))?;
 
     let tag_name = body["tag_name"]
@@ -203,6 +200,14 @@ pub fn spawn_background_check_with<F: ReleaseFetcher>(
     });
 
     rx
+}
+
+/// Core check logic, runs inside the background thread.
+///
+/// Separated from `spawn_background_check` for testability — this function
+/// can be called directly in tests without spawning a thread.
+pub fn run_check(paths: &Paths, url: &str, check_interval: u64) -> CheckResult {
+    run_check_with(paths, url, check_interval, &UreqFetcher::default())
 }
 
 /// Core check logic with injectable fetcher.
