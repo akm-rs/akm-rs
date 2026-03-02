@@ -210,11 +210,32 @@ fn main() -> ExitCode {
             eprintln!("Not yet implemented: update");
             Ok(())
         }
-        Some(Commands::Skills { command }) => {
-            let _ = command;
-            eprintln!("Not yet implemented: skills");
-            Ok(())
-        }
+        Some(Commands::Skills { command }) => match command {
+            Some(SkillsCommands::Libgen) => commands::skills::libgen::run(&paths),
+            Some(_) => {
+                eprintln!("Not yet implemented");
+                Ok(())
+            }
+            None => {
+                use clap::CommandFactory;
+                let mut cmd = Cli::command();
+                for sub in cmd.get_subcommands_mut() {
+                    if sub.get_name() == "skills" {
+                        return match sub.print_help() {
+                            Ok(()) => {
+                                println!();
+                                ExitCode::SUCCESS
+                            }
+                            Err(e) => {
+                                eprintln!("Error: printing skills help: {e}");
+                                ExitCode::FAILURE
+                            }
+                        };
+                    }
+                }
+                Ok(())
+            }
+        },
         Some(Commands::Artifacts { command }) => {
             let _ = command;
             eprintln!("Not yet implemented: artifacts");

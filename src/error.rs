@@ -62,6 +62,58 @@ pub enum Error {
         "No active skill session.\nLaunch via claude/copilot/opencode wrapper to start a session."
     )]
     NoActiveSession,
+
+    /// Spec not found in library.
+    #[error("Spec not found in library: '{id}'\nRun 'akm skills sync' to update your library, or 'akm skills list' to browse.")]
+    SpecNotFound { id: String },
+
+    /// Invalid spec type.
+    #[error("Invalid spec type: '{value}' (expected 'skill' or 'agent')")]
+    InvalidSpecType { value: String },
+
+    /// Frontmatter missing required field.
+    #[error("Missing required frontmatter field '{field}' in {path}\nAdd '{field}: ...' to the YAML frontmatter.")]
+    FrontmatterMissing { field: String, path: PathBuf },
+
+    /// Frontmatter parse error.
+    #[error("Failed to parse frontmatter in {path}: {message}")]
+    FrontmatterParse { path: PathBuf, message: String },
+
+    /// No skills or agents directories found for libgen.
+    #[error("Cannot locate a directory with skills/ or agents/ in {path}")]
+    NoSpecDirs { path: PathBuf },
+
+    /// Manifest error — not in a git repo.
+    #[error("Cannot manage project manifest: not in a git repository")]
+    ManifestNoProject,
+
+    /// Library JSON deserialization error.
+    #[error("Failed to parse library.json at {path}: {source}")]
+    LibraryParse {
+        path: PathBuf,
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    /// Library JSON write error.
+    #[error("Failed to write library.json to {path}: {source}")]
+    LibraryWrite {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+
+    /// Manifest JSON deserialization error.
+    #[error("Failed to parse manifest at {path}: {source}")]
+    ManifestParse {
+        path: PathBuf,
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
+
+    /// Manifest JSON write error.
+    #[error("Failed to write manifest to {path}: {source}")]
+    ManifestWrite {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 }
 
 /// Convenience alias used throughout the codebase.
