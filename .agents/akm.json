@@ -1,0 +1,8 @@
+{
+  "skills": [
+    "memory-safety-patterns",
+    "rust-async-patterns",
+    "rust-cli-builder"
+  ],
+  "agents": []
+}

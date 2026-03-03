@@ -1,0 +1,5 @@
+---
+source: tests/completions_test.rs
+expression: script
+---
+COMPLETE=fish akm | source

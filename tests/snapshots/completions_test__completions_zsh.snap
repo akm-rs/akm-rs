@@ -1,0 +1,6 @@
+---
+source: tests/completions_test.rs
+expression: script
+---
+#compdef akm
+eval "$(COMPLETE=zsh akm)"

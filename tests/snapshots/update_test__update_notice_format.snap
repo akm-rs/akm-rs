@@ -1,0 +1,5 @@
+---
+source: tests/update_test.rs
+expression: notice
+---
+A new version of akm is available: 1.0.0 → 1.1.0 — run `akm update` to install.
