@@ -10,7 +10,7 @@
 #   AKM_INSTALL_DIR — Install directory (default: ~/.local/bin)
 set -euo pipefail
 
-REPO="akm-rs/akm"
+REPO="akm-rs/akm-rs"
 INSTALL_DIR="${AKM_INSTALL_DIR:-$HOME/.local/bin}"
 
 # --- Helpers ---
