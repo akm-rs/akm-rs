@@ -11,7 +11,7 @@ fn is_inside_work_tree_false_outside_repo() {
 fn is_inside_work_tree_true_inside_repo() {
     let tmp = TempDir::new().unwrap();
     Command::new("git")
-        .args(["init"])
+        .args(["init", "-b", "main"])
         .current_dir(tmp.path())
         .output()
         .unwrap();
@@ -22,7 +22,7 @@ fn is_inside_work_tree_true_inside_repo() {
 fn toplevel_returns_repo_root() {
     let tmp = TempDir::new().unwrap();
     Command::new("git")
-        .args(["init"])
+        .args(["init", "-b", "main"])
         .current_dir(tmp.path())
         .output()
         .unwrap();
@@ -38,7 +38,7 @@ fn toplevel_returns_repo_root() {
 fn repo_name_returns_dirname() {
     let tmp = TempDir::new().unwrap();
     Command::new("git")
-        .args(["init"])
+        .args(["init", "-b", "main"])
         .current_dir(tmp.path())
         .output()
         .unwrap();
@@ -56,7 +56,7 @@ fn repo_name_returns_dirname() {
 fn has_changes_detects_new_file() {
     let tmp = TempDir::new().unwrap();
     Command::new("git")
-        .args(["init"])
+        .args(["init", "-b", "main"])
         .current_dir(tmp.path())
         .output()
         .unwrap();

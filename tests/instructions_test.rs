@@ -128,7 +128,7 @@ fn instructions_scaffold_creates_files_in_git_repo() {
     let repo = tmp.path().join("myproject");
     fs::create_dir_all(&repo).unwrap();
     std::process::Command::new("git")
-        .args(["init", "--quiet"])
+        .args(["init", "--quiet", "-b", "main"])
         .current_dir(&repo)
         .status()
         .unwrap();
@@ -155,7 +155,7 @@ fn instructions_scaffold_skips_existing_files() {
     let repo = tmp.path().join("myproject");
     fs::create_dir_all(&repo).unwrap();
     std::process::Command::new("git")
-        .args(["init", "--quiet"])
+        .args(["init", "--quiet", "-b", "main"])
         .current_dir(&repo)
         .status()
         .unwrap();
@@ -250,7 +250,7 @@ fn snapshot_instructions_scaffold_fresh() {
     let repo = tmp.path().join("myproject");
     fs::create_dir_all(&repo).unwrap();
     std::process::Command::new("git")
-        .args(["init", "--quiet"])
+        .args(["init", "--quiet", "-b", "main"])
         .current_dir(&repo)
         .status()
         .unwrap();

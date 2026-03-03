@@ -13,7 +13,7 @@ use tempfile::TempDir;
 /// Helper: initialize a bare git repo (simulates a remote).
 fn init_bare_repo(dir: &Path) {
     Command::new("git")
-        .args(["init", "--bare", "--quiet"])
+        .args(["init", "--bare", "--quiet", "-b", "main"])
         .arg(dir)
         .status()
         .expect("git init --bare");
@@ -22,7 +22,7 @@ fn init_bare_repo(dir: &Path) {
 /// Helper: initialize a regular git repo with an initial commit.
 fn init_repo_with_commit(dir: &Path) {
     Command::new("git")
-        .args(["init", "--quiet"])
+        .args(["init", "--quiet", "-b", "main"])
         .arg(dir)
         .status()
         .expect("git init");

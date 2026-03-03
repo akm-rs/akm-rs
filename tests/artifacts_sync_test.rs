@@ -36,7 +36,7 @@ fn test_artifacts_sync_clones_on_first_run() {
 
     // Create bare remote
     std::process::Command::new("git")
-        .args(["init", "--bare", "--quiet"])
+        .args(["init", "--bare", "--quiet", "-b", "main"])
         .arg(&bare_dir)
         .status()
         .unwrap();

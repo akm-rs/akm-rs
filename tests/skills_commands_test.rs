@@ -710,7 +710,7 @@ fn git_diff_cached_stat_empty_repo() {
     let repo = tmp.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
     std::process::Command::new("git")
-        .args(["init", "--quiet"])
+        .args(["init", "--quiet", "-b", "main"])
         .current_dir(&repo)
         .output()
         .unwrap();
@@ -727,7 +727,7 @@ fn git_is_staging_clean_empty() {
     let repo = tmp.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
     std::process::Command::new("git")
-        .args(["init", "--quiet"])
+        .args(["init", "--quiet", "-b", "main"])
         .current_dir(&repo)
         .output()
         .unwrap();
@@ -742,7 +742,7 @@ fn git_is_staging_clean_with_staged_changes() {
     let repo = tmp.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
     std::process::Command::new("git")
-        .args(["init", "--quiet"])
+        .args(["init", "--quiet", "-b", "main"])
         .current_dir(&repo)
         .output()
         .unwrap();
@@ -760,7 +760,7 @@ fn git_reset_unstages_changes() {
     let repo = tmp.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
     std::process::Command::new("git")
-        .args(["init", "--quiet"])
+        .args(["init", "--quiet", "-b", "main"])
         .current_dir(&repo)
         .output()
         .unwrap();
