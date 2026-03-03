@@ -3,7 +3,7 @@
 # Downloads the latest release from GitHub and installs to ~/.local/bin.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/akm-rs/akm/main/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/akm-rs/akm-rs/main/scripts/install.sh | bash
 #
 # Options (via environment variables):
 #   AKM_VERSION    — Install a specific version (e.g., "1.0.0" or "v1.0.0")
