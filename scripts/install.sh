@@ -98,7 +98,7 @@ check_deps() {
 download_and_install() {
   local tmpdir
   tmpdir="$(mktemp -d)" || error "Failed to create temporary directory."
-  trap 'rm -rf "$tmpdir"' EXIT
+  trap 'rm -rf "${tmpdir:-}"' EXIT
 
   info "Downloading akm ${VERSION}..."
   local http_code
