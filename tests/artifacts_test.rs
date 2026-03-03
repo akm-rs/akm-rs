@@ -22,7 +22,13 @@ fn init_bare_repo(dir: &Path) {
 /// Helper: configure git identity in a repo (required in CI).
 fn set_git_identity(dir: &Path) {
     Command::new("git")
-        .args(["-C", &dir.to_string_lossy(), "config", "user.email", "test@example.com"])
+        .args([
+            "-C",
+            &dir.to_string_lossy(),
+            "config",
+            "user.email",
+            "test@example.com",
+        ])
         .status()
         .expect("git config user.email");
     Command::new("git")
