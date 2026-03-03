@@ -86,6 +86,8 @@ jobs:
     name: Publish to crates.io
     needs: ci
     runs-on: ubuntu-latest
+    # Only run if the CARGO_REGISTRY_TOKEN secret is configured
+    if: ${{ secrets.CARGO_REGISTRY_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
 
