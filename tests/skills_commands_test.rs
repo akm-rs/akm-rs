@@ -765,7 +765,17 @@ fn git_reset_unstages_changes() {
         .output()
         .unwrap();
 
-    // Need an initial commit for reset to work
+    // Need an initial commit for reset to work — configure identity for CI
+    std::process::Command::new("git")
+        .args(["config", "user.email", "test@example.com"])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    std::process::Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
     std::fs::write(repo.join("init.txt"), "init").unwrap();
     akm::git::Git::add_all(&repo).unwrap();
     akm::git::Git::commit(&repo, "init").unwrap();

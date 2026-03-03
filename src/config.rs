@@ -15,7 +15,7 @@ use std::path::PathBuf;
 pub const DEFAULT_COMMUNITY_REGISTRY: &str = "https://github.com/akm-rs/skillverse.git";
 
 /// Default GitHub Releases API URL for update checks.
-pub const DEFAULT_UPDATE_URL: &str = "https://api.github.com/repos/akm-rs/akm/releases/latest";
+pub const DEFAULT_UPDATE_URL: &str = "https://api.github.com/repos/akm-rs/akm-rs/releases/latest";
 
 /// Default interval between update checks (24 hours in seconds).
 pub const DEFAULT_CHECK_INTERVAL_SECS: u64 = 86400;
@@ -139,7 +139,7 @@ impl Default for ArtifactsConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateConfig {
     /// URL for the GitHub Releases API (or compatible endpoint).
-    /// Default: `https://api.github.com/repos/akm-rs/akm/releases/latest`
+    /// Default: `https://api.github.com/repos/akm-rs/akm-rs/releases/latest`
     #[serde(default = "default_update_url")]
     pub url: String,
 

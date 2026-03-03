@@ -19,6 +19,24 @@ fn init_bare_repo(dir: &Path) {
         .expect("git init --bare");
 }
 
+/// Helper: configure git identity in a repo (required in CI).
+fn set_git_identity(dir: &Path) {
+    Command::new("git")
+        .args([
+            "-C",
+            &dir.to_string_lossy(),
+            "config",
+            "user.email",
+            "test@example.com",
+        ])
+        .status()
+        .expect("git config user.email");
+    Command::new("git")
+        .args(["-C", &dir.to_string_lossy(), "config", "user.name", "Test"])
+        .status()
+        .expect("git config user.name");
+}
+
 /// Helper: initialize a regular git repo with an initial commit.
 fn init_repo_with_commit(dir: &Path) {
     Command::new("git")
@@ -26,6 +44,7 @@ fn init_repo_with_commit(dir: &Path) {
         .arg(dir)
         .status()
         .expect("git init");
+    set_git_identity(dir);
     Command::new("git")
         .args([
             "-C",
@@ -47,6 +66,7 @@ fn clone_repo(bare: &Path, work: &Path) {
         .arg(work)
         .status()
         .expect("git clone");
+    set_git_identity(work);
 }
 
 /// Helper: create a file, stage, and commit in a repo.
