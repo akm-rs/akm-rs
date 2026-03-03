@@ -70,8 +70,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Shellcheck
-        run: shellcheck scripts/install.sh
+      - name: Shellcheck (POSIX)
+        run: shellcheck -s sh scripts/install.sh
+
+      - name: Test runs under sh
+        run: |
+          export AKM_DRY_RUN=1
+          sh scripts/install.sh
+          echo "POSIX sh dry-run: OK"
 
       - name: Test platform detection
         run: |

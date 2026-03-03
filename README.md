@@ -1,6 +1,7 @@
 # AKM — Agent Kit Manager
 
 [![CI](https://github.com/akm-rs/akm-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/akm-rs/akm-rs/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/akm.svg)](https://crates.io/crates/akm)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 A CLI tool for managing reusable LLM skills, artifacts, and instructions across projects and AI coding agents.
@@ -11,20 +12,20 @@ AKM is a **client** of skill registries — it fetches, organizes, and wires ski
 
 ### Quick install (Linux x86_64)
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/akm-rs/akm-rs/main/scripts/install.sh | bash
+```sh
+curl -fsSL https://akm.raphaelsimon.fr/install | sh
 ```
 
 This downloads the latest release binary to `~/.local/bin/akm`.
 
 Options:
 
-```bash
+```sh
 # Install a specific version
-AKM_VERSION=1.0.0 curl -fsSL https://raw.githubusercontent.com/akm-rs/akm-rs/main/scripts/install.sh | bash
+AKM_VERSION=1.0.0 curl -fsSL https://akm.raphaelsimon.fr/install | sh
 
 # Install to a custom directory
-AKM_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/akm-rs/akm-rs/main/scripts/install.sh | bash
+AKM_INSTALL_DIR=/usr/local/bin curl -fsSL https://akm.raphaelsimon.fr/install | sh
 ```
 
 ### From source

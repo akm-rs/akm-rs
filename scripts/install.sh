@@ -1,14 +1,14 @@
-#!/bin/bash
+#!/bin/sh
 # AKM (Agent Kit Manager) — Binary installer
 # Downloads the latest release from GitHub and installs to ~/.local/bin.
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/akm-rs/akm-rs/main/scripts/install.sh | bash
+#   curl -fsSL https://akm.raphaelsimon.fr/install | sh
 #
 # Options (via environment variables):
 #   AKM_VERSION    — Install a specific version (e.g., "1.0.0" or "v1.0.0")
 #   AKM_INSTALL_DIR — Install directory (default: ~/.local/bin)
-set -euo pipefail
+set -eu
 
 REPO="akm-rs/akm-rs"
 INSTALL_DIR="${AKM_INSTALL_DIR:-$HOME/.local/bin}"
@@ -51,7 +51,7 @@ detect_platform() {
 # --- Resolve version ---
 
 resolve_version() {
-  if [[ -n "${AKM_VERSION:-}" ]]; then
+  if [ -n "${AKM_VERSION:-}" ]; then
     # Strip leading 'v' if present
     VERSION="${AKM_VERSION#v}"
     TAG="v${VERSION}"
@@ -65,7 +65,7 @@ resolve_version() {
       -H "Accept: application/vnd.github+json")" \
       || error "Failed to connect to GitHub API. Check your network connection."
 
-    if [[ "$http_code" -lt 200 || "$http_code" -ge 300 ]]; then
+    if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
       rm -f "$api_response"
       error "GitHub API returned HTTP ${http_code}. The repository may not exist or you may be rate-limited."
     fi
@@ -75,7 +75,7 @@ resolve_version() {
     rm -f "$api_response"
 
     TAG="$(printf '%s' "$response" | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
-    if [[ -z "$TAG" ]]; then
+    if [ -z "$TAG" ]; then
       error "Could not determine latest version from GitHub API response."
     fi
     VERSION="${TAG#v}"
@@ -88,7 +88,7 @@ resolve_version() {
 # --- Check dependencies ---
 
 check_deps() {
-  if ! command -v curl &>/dev/null; then
+  if ! command -v curl >/dev/null 2>&1; then
     error "curl is required but not installed. Install curl and try again."
   fi
 }
@@ -106,7 +106,7 @@ download_and_install() {
     -o "${tmpdir}/${ASSET_NAME}" "${DOWNLOAD_URL}")" \
     || error "Download failed. Check your network connection. URL: ${DOWNLOAD_URL}"
 
-  if [[ "$http_code" -lt 200 || "$http_code" -ge 300 ]]; then
+  if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
     rm -f "${tmpdir}/${ASSET_NAME}"
     error "Download failed with HTTP ${http_code}. Version ${VERSION} may not exist."
   fi
@@ -114,12 +114,12 @@ download_and_install() {
   # Verify file is non-empty and reasonably sized (> 64 KB)
   local file_size
   file_size="$(wc -c < "${tmpdir}/${ASSET_NAME}")"
-  if [[ "$file_size" -lt 65536 ]]; then
+  if [ "$file_size" -lt 65536 ]; then
     error "Downloaded file is too small (${file_size} bytes). The download may be corrupt."
   fi
 
   # Verify checksum if sha256sum is available
-  if command -v sha256sum &>/dev/null; then
+  if command -v sha256sum >/dev/null 2>&1; then
     info "Verifying checksum..."
     if curl -fsSL -o "${tmpdir}/${ASSET_NAME}.sha256" "${CHECKSUM_URL}" 2>/dev/null; then
       (cd "$tmpdir" && sha256sum -c "${ASSET_NAME}.sha256") \
@@ -144,16 +144,19 @@ download_and_install() {
 
 post_install() {
   # Check PATH
-  if [[ ":$PATH:" != *":${INSTALL_DIR}:"* ]]; then
-    info ""
-    info "Warning: ${INSTALL_DIR} is not on your PATH."
-    info "Add to your shell profile:"
-    info "  export PATH=\"${INSTALL_DIR}:\$PATH\""
-    info ""
-  fi
+  case ":$PATH:" in
+    *":${INSTALL_DIR}:"*) ;;
+    *)
+      info ""
+      info "Warning: ${INSTALL_DIR} is not on your PATH."
+      info "Add to your shell profile:"
+      info "  export PATH=\"${INSTALL_DIR}:\$PATH\""
+      info ""
+      ;;
+  esac
 
   # Check for existing Bash version
-  if [[ -f "${XDG_DATA_HOME:-$HOME/.local/share}/akm/shell/akm-init.sh" ]]; then
+  if [ -f "${XDG_DATA_HOME:-$HOME/.local/share}/akm/shell/akm-init.sh" ]; then
     info "Note: An existing AKM shell init was detected."
     info "The Rust version uses 'akm setup' to configure shell integration."
     info ""
@@ -174,6 +177,6 @@ main() {
 }
 
 # Allow sourcing for tests: AKM_DRY_RUN=1 source scripts/install.sh
-if [[ -z "${AKM_DRY_RUN:-}" ]]; then
+if [ -z "${AKM_DRY_RUN:-}" ]; then
   main
 fi
