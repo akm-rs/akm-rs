@@ -27,7 +27,6 @@ error() {
 # --- Platform detection ---
 
 detect_platform() {
-  local os arch
   os="$(uname -s)"
   arch="$(uname -m)"
 
@@ -57,7 +56,6 @@ resolve_version() {
     TAG="v${VERSION}"
   else
     info "Fetching latest release..."
-    local api_response http_code
     api_response="$(mktemp)"
     http_code="$(curl -sSL -w '%{http_code}' \
       -o "$api_response" \
@@ -70,7 +68,6 @@ resolve_version() {
       error "GitHub API returned HTTP ${http_code}. The repository may not exist or you may be rate-limited."
     fi
 
-    local response
     response="$(cat "$api_response")"
     rm -f "$api_response"
 
@@ -96,12 +93,10 @@ check_deps() {
 # --- Download and install ---
 
 download_and_install() {
-  local tmpdir
   tmpdir="$(mktemp -d)" || error "Failed to create temporary directory."
   trap 'rm -rf "${tmpdir:-}"' EXIT
 
   info "Downloading akm ${VERSION}..."
-  local http_code
   http_code="$(curl -sSL --retry 3 --retry-delay 2 -w '%{http_code}' \
     -o "${tmpdir}/${ASSET_NAME}" "${DOWNLOAD_URL}")" \
     || error "Download failed. Check your network connection. URL: ${DOWNLOAD_URL}"
@@ -112,7 +107,6 @@ download_and_install() {
   fi
 
   # Verify file is non-empty and reasonably sized (> 64 KB)
-  local file_size
   file_size="$(wc -c < "${tmpdir}/${ASSET_NAME}")"
   if [ "$file_size" -lt 65536 ]; then
     error "Downloaded file is too small (${file_size} bytes). The download may be corrupt."
