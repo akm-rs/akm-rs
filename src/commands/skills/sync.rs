@@ -812,7 +812,7 @@ mod tests {
 
         // User's existing library.json: test-skill is core: true
         let library_dir = paths.data_dir();
-        std::fs::create_dir_all(&library_dir).unwrap();
+        std::fs::create_dir_all(library_dir).unwrap();
         let user_lib = r#"{"version":1,"specs":[{"id":"test-skill","type":"skill","name":"Test Skill","description":"A test","core":true,"tags":[],"triggers":{}}]}"#;
         std::fs::write(paths.library_json(), user_lib).unwrap();
 
