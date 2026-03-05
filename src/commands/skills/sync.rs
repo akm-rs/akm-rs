@@ -33,6 +33,8 @@ pub struct SyncReport {
     pub personal_overlaid: bool,
     /// Whether libgen ran and how many specs were found.
     pub spec_count: Option<usize>,
+    /// Number of user core overrides preserved across sync.
+    pub core_overrides_preserved: usize,
     /// Number of core symlinks created.
     pub symlink_count: usize,
     /// Number of global tool directories.
@@ -82,10 +84,21 @@ pub fn execute(
             library_copied: false,
             personal_overlaid: false,
             spec_count: None,
+            core_overrides_preserved: 0,
             symlink_count: 0,
             tool_dir_count: tool_dirs.count(),
         });
     }
+
+    // --- Snapshot user core overrides (before community copy overwrites library.json) ---
+    // Bash equivalent: bin/akm:1542–1548
+    let core_overrides: std::collections::HashSet<String> = Library::load_or_default(&library_json)
+        .unwrap_or_default()
+        .specs
+        .iter()
+        .filter(|s| s.core)
+        .map(|s| s.id.clone())
+        .collect();
 
     // --- Step 2: Copy community cache → cold library ---
     let library_copied = if community.is_cached() {
@@ -123,6 +136,25 @@ pub fn execute(
         None
     };
 
+    // --- Step 4b: Restore user core overrides ---
+    // Bash equivalent: bin/akm:1619–1629
+    let core_overrides_preserved = if !core_overrides.is_empty() && library_json.is_file() {
+        let mut library = Library::load_from(&library_json)?;
+        let mut restored = 0usize;
+        for spec in &mut library.specs {
+            if core_overrides.contains(&spec.id) && !spec.core {
+                spec.core = true;
+                restored += 1;
+            }
+        }
+        if restored > 0 {
+            library.save_to(&library_json)?;
+        }
+        restored
+    } else {
+        0
+    };
+
     // --- Step 5: Rebuild global symlinks ---
     let symlink_count = if library_json.is_file() {
         let library = Library::load_from(&library_json)?;
@@ -138,6 +170,7 @@ pub fn execute(
         library_copied,
         personal_overlaid,
         spec_count,
+        core_overrides_preserved,
         symlink_count,
         tool_dir_count: tool_dirs.count(),
     })
@@ -374,6 +407,13 @@ pub fn print_report(report: &SyncReport, quiet: bool) {
 
     if let Some(count) = report.spec_count {
         println!("Library regenerated ({count} specs)");
+    }
+
+    if report.core_overrides_preserved > 0 {
+        println!(
+            "Preserved {} local core override(s)",
+            report.core_overrides_preserved
+        );
     }
 
     println!(
@@ -741,5 +781,53 @@ mod tests {
             std::fs::read_to_string(dest.join("file.txt")).unwrap(),
             "hello"
         );
+    }
+
+    /// User core overrides must survive a full sync cycle.
+    ///
+    /// Regression test: the community registry ships `core: false` for a
+    /// skill, but the user previously set it to `core: true`. After sync,
+    /// the user's preference must be preserved.
+    #[test]
+    fn core_overrides_preserved_across_sync() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path().join("home");
+
+        let paths = Paths::from_roots(
+            &tmp.path().join("data"),
+            &tmp.path().join("config"),
+            &tmp.path().join("cache"),
+            &home,
+        );
+
+        // Community cache: ships test-skill with core: false
+        let community_cache = tmp
+            .path()
+            .join("cache")
+            .join("akm")
+            .join("skills-community-registry");
+        create_mock_registry_cache(&community_cache);
+        let cache_lib = r#"{"version":1,"specs":[{"id":"test-skill","type":"skill","name":"Test Skill","description":"A test","core":false,"tags":[],"triggers":{}}]}"#;
+        std::fs::write(community_cache.join("library.json"), cache_lib).unwrap();
+
+        // User's existing library.json: test-skill is core: true
+        let library_dir = paths.data_dir();
+        std::fs::create_dir_all(library_dir).unwrap();
+        let user_lib = r#"{"version":1,"specs":[{"id":"test-skill","type":"skill","name":"Test Skill","description":"A test","core":true,"tags":[],"triggers":{}}]}"#;
+        std::fs::write(paths.library_json(), user_lib).unwrap();
+
+        let community = MockRegistry::new("community", community_cache)
+            .with_pull_result(Ok(PullOutcome::Updated));
+
+        let tool_dirs = ToolDirs::builtin(&home);
+
+        let report = execute(&paths, &community, None, &tool_dirs).unwrap();
+
+        assert_eq!(report.core_overrides_preserved, 1);
+
+        // Verify library.json on disk still has core: true
+        let library = Library::load_from(&paths.library_json()).unwrap();
+        let spec = library.get("test-skill").expect("test-skill must exist");
+        assert!(spec.core, "User core override must survive sync");
     }
 }
