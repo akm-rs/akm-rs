@@ -817,6 +817,9 @@ auto_check = true
         config.save(&paths).unwrap();
 
         let loaded = Config::load(&paths).unwrap();
-        assert_eq!(loaded.update.url, "https://custom.example.com/releases/latest");
+        assert_eq!(
+            loaded.update.url,
+            "https://custom.example.com/releases/latest"
+        );
     }
 }
