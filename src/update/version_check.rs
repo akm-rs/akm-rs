@@ -129,13 +129,23 @@ pub(crate) fn fetch_latest_release(
         .build()
         .new_agent();
 
-    let mut response = agent
+    let mut request = agent
         .get(url)
         .header("Accept", "application/vnd.github+json")
         .header("User-Agent", &format!("akm/{}", CURRENT_VERSION))
-        .header("X-GitHub-Api-Version", "2022-11-28")
-        .call()
-        .map_err(|e| format!("HTTP request failed: {e}"))?;
+        .header("X-GitHub-Api-Version", "2022-11-28");
+
+    if let Ok(token) = std::env::var("GITHUB_TOKEN") {
+        request = request.header("Authorization", &format!("Bearer {token}"));
+    }
+
+    let mut response = request.call().map_err(|e| match e {
+        ureq::Error::StatusCode(403) => "GitHub API rate limit exceeded or access forbidden. \
+                 Try again later, or set GITHUB_TOKEN in your environment."
+            .to_string(),
+        ureq::Error::StatusCode(404) => "No releases found for this repository.".to_string(),
+        _ => format!("HTTP request failed: {e}"),
+    })?;
 
     let body: serde_json::Value = response
         .body_mut()
