@@ -2,5 +2,5 @@
 source: tests/update_test.rs
 expression: stdout.trim()
 ---
-akm 1.0.0-alpha.4 — checking for updates...
-Already up to date (version 1.0.0-alpha.4).
+akm 1.0.0-alpha.5 — checking for updates...
+Already up to date (version 1.0.0-alpha.5).
