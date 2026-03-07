@@ -17,6 +17,10 @@ pub const DEFAULT_COMMUNITY_REGISTRY: &str = "https://github.com/akm-rs/skillver
 /// Default GitHub Releases API URL for update checks.
 pub const DEFAULT_UPDATE_URL: &str = "https://api.github.com/repos/akm-rs/akm-rs/releases/latest";
 
+/// Old (incorrect) update URL that pointed to the Bash repo instead of the Rust repo.
+/// Used for automatic migration of existing configs created before the fix.
+const OLD_UPDATE_URL: &str = "https://api.github.com/repos/akm-rs/akm/releases/latest";
+
 /// Default interval between update checks (24 hours in seconds).
 pub const DEFAULT_CHECK_INTERVAL_SECS: u64 = 86400;
 
@@ -140,7 +144,7 @@ impl Default for ArtifactsConfig {
 pub struct UpdateConfig {
     /// URL for the GitHub Releases API (or compatible endpoint).
     /// Default: `https://api.github.com/repos/akm-rs/akm-rs/releases/latest`
-    #[serde(default = "default_update_url")]
+    #[serde(default = "default_update_url", skip_serializing_if = "is_default_url")]
     pub url: String,
 
     /// Interval between automatic update checks, in seconds.
@@ -160,6 +164,10 @@ fn default_update_url() -> String {
 
 fn default_check_interval() -> u64 {
     DEFAULT_CHECK_INTERVAL_SECS
+}
+
+fn is_default_url(url: &String) -> bool {
+    url == DEFAULT_UPDATE_URL
 }
 
 impl Default for UpdateConfig {
@@ -185,6 +193,18 @@ impl Default for Config {
             artifacts: ArtifactsConfig::default(),
             update: UpdateConfig::default(),
         }
+    }
+}
+
+/// Migrate known-bad update URL from the old Bash repo to the correct Rust repo.
+///
+/// Early releases shipped with `DEFAULT_UPDATE_URL` pointing to `akm-rs/akm`
+/// (the Bash version). Once `akm setup` serialized this to `config.toml`, the
+/// wrong URL persisted even after the code default was fixed. This migration
+/// silently corrects it on load.
+fn migrate_update_url(config: &mut Config) {
+    if config.update.url == OLD_UPDATE_URL {
+        config.update.url = DEFAULT_UPDATE_URL.to_string();
     }
 }
 
@@ -266,7 +286,10 @@ impl Config {
 
         // Step 3: Deserialize into Config, warning about section-level failures
         match toml::from_str::<Config>(&content) {
-            Ok(config) => Ok(config),
+            Ok(mut config) => {
+                migrate_update_url(&mut config);
+                Ok(config)
+            }
             Err(_) => {
                 // Partial parse: deserialize each section independently
                 let mut config = Config::default();
@@ -309,6 +332,7 @@ impl Config {
                         }
                     }
                 }
+                migrate_update_url(&mut config);
                 Ok(config)
             }
         }
@@ -728,5 +752,71 @@ bogus_field = "also fine"
             config.skills.community_registry.as_deref(),
             Some("https://example.com")
         );
+    }
+
+    #[test]
+    fn config_load_migrates_old_update_url() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let paths = crate::paths::Paths::from_roots(
+            &tmp.path().join("data"),
+            &tmp.path().join("config"),
+            &tmp.path().join("cache"),
+            tmp.path(),
+        );
+        let config_dir = tmp.path().join("config").join("akm");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(
+            config_dir.join("config.toml"),
+            r#"
+features = ["skills"]
+
+[update]
+url = "https://api.github.com/repos/akm-rs/akm/releases/latest"
+check_interval = 86400
+auto_check = true
+"#,
+        )
+        .unwrap();
+
+        let config = Config::load(&paths).unwrap();
+        assert_eq!(config.update.url, DEFAULT_UPDATE_URL);
+    }
+
+    #[test]
+    fn config_save_does_not_serialize_default_url() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let paths = crate::paths::Paths::from_roots(
+            &tmp.path().join("data"),
+            &tmp.path().join("config"),
+            &tmp.path().join("cache"),
+            tmp.path(),
+        );
+
+        let config = Config::default();
+        config.save(&paths).unwrap();
+
+        let content = std::fs::read_to_string(paths.config_file()).unwrap();
+        assert!(
+            !content.contains("api.github.com"),
+            "Default update URL should not be serialized to config"
+        );
+    }
+
+    #[test]
+    fn config_save_preserves_custom_url() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let paths = crate::paths::Paths::from_roots(
+            &tmp.path().join("data"),
+            &tmp.path().join("config"),
+            &tmp.path().join("cache"),
+            tmp.path(),
+        );
+
+        let mut config = Config::default();
+        config.update.url = "https://custom.example.com/releases/latest".to_string();
+        config.save(&paths).unwrap();
+
+        let loaded = Config::load(&paths).unwrap();
+        assert_eq!(loaded.update.url, "https://custom.example.com/releases/latest");
     }
 }
