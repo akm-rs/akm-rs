@@ -29,6 +29,8 @@ pub enum SyncOutcome {
     PulledAndPushed {
         /// Number of local commits that were pushed.
         commits_pushed: u32,
+        /// Whether local uncommitted changes were auto-committed.
+        local_changes_committed: bool,
     },
 }
 
@@ -63,15 +65,14 @@ impl ArtifactRepo {
     ///
     /// This is the implementation behind `akm artifacts sync`.
     ///
-    /// Logic (mirrors Bash cmd_artifacts_sync exactly):
+    /// Logic:
     /// 1. Check if remote is configured → if not, return NoRemote
     /// 2. If local repo exists (.git dir present):
-    ///    a. Pull with rebase+autostash
-    ///    b. Count commits ahead of upstream
-    ///    c. If ahead > 0, push
+    ///    a. Commit any local changes (untracked + modified)
+    ///    b. Pull with rebase+autostash
+    ///    c. Count commits ahead of upstream
+    ///    d. If ahead > 0, push
     /// 3. If no local repo: clone from remote
-    ///
-    /// Bash: `cmd_artifacts_sync()` (bin/akm:474–518)
     pub fn sync(config: &Config, paths: &Paths) -> Result<SyncOutcome> {
         let remote = match &config.artifacts.remote {
             Some(r) if !r.is_empty() => r.clone(),
@@ -81,32 +82,42 @@ impl ArtifactRepo {
         let dir = Self::artifacts_dir(config, paths);
 
         if Git::is_repo(&dir) {
+            // Commit any local changes before pulling
+            let committed = if Git::has_changes(&dir).unwrap_or(false) {
+                Git::add_all(&dir).map_err(|e| Error::ArtifactsSync {
+                    operation: "stage local changes".into(),
+                    message: e.to_string(),
+                })?;
+                let timestamp = local_timestamp();
+                let message = format!("sync: {timestamp}");
+                // Commit may fail if nothing staged after all (race) — that's OK
+                Git::commit(&dir, &message).is_ok()
+            } else {
+                false
+            };
+
             // Pull with rebase
-            // Bash: bin/akm:488 `git -C "$dir" pull --rebase --autostash`
             Git::pull(&dir).map_err(|e| Error::ArtifactsSync {
                 operation: format!("pull from {remote}"),
                 message: e.to_string(),
             })?;
 
             // Check if local commits need pushing
-            // Bash: bin/akm:497 `ahead="$(git -C "$dir" rev-list --count @{upstream}..HEAD)"`
             let ahead = Git::commits_ahead(&dir).unwrap_or(0);
             if ahead > 0 {
-                // Bash: bin/akm:500 `git -C "$dir" push`
                 Git::push(&dir).map_err(|e| Error::ArtifactsSync {
                     operation: format!("push to {remote}"),
                     message: e.to_string(),
                 })?;
                 Ok(SyncOutcome::PulledAndPushed {
                     commits_pushed: ahead,
+                    local_changes_committed: committed,
                 })
             } else {
                 Ok(SyncOutcome::Pulled)
             }
         } else {
             // First-time clone
-            // Bash: bin/akm:509 `mkdir -p "$(dirname "$dir")"`
-            // Bash: bin/akm:511 `git clone "$remote" "$dir"`
             Git::clone(&remote, &dir).map_err(|e| Error::ArtifactsClone {
                 remote: remote.clone(),
                 message: e.to_string(),
@@ -249,7 +260,10 @@ mod tests {
         let _no_remote = SyncOutcome::NoRemote;
         let _cloned = SyncOutcome::Cloned;
         let _pulled = SyncOutcome::Pulled;
-        let _pushed = SyncOutcome::PulledAndPushed { commits_pushed: 3 };
+        let _pushed = SyncOutcome::PulledAndPushed {
+            commits_pushed: 3,
+            local_changes_committed: false,
+        };
     }
 
     #[test]

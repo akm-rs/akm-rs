@@ -92,13 +92,21 @@ pub fn execute(
 
     // --- Snapshot user core overrides (before community copy overwrites library.json) ---
     // Bash equivalent: bin/akm:1542–1548
-    let core_overrides: std::collections::HashSet<String> = Library::load_or_default(&library_json)
-        .unwrap_or_default()
-        .specs
-        .iter()
-        .filter(|s| s.core)
-        .map(|s| s.id.clone())
-        .collect();
+    let core_overrides: std::collections::HashSet<String> =
+        match Library::load_or_default(&library_json) {
+            Ok(library) => library
+                .specs
+                .iter()
+                .filter(|s| s.core)
+                .map(|s| s.id.clone())
+                .collect(),
+            Err(e) => {
+                eprintln!(
+                    "Warning: Could not read existing library to preserve core overrides: {e}"
+                );
+                std::collections::HashSet::new()
+            }
+        };
 
     // --- Step 2: Copy community cache → cold library ---
     let library_copied = if community.is_cached() {
@@ -829,5 +837,83 @@ mod tests {
         let library = Library::load_from(&paths.library_json()).unwrap();
         let spec = library.get("test-skill").expect("test-skill must exist");
         assert!(spec.core, "User core override must survive sync");
+    }
+
+    /// Personal skill core overrides must survive sync when skill only exists
+    /// in personal registry (not in community).
+    ///
+    /// Regression test: user marks a personal skill as core, then runs sync.
+    /// The personal skill is NOT in the community registry. After sync, the
+    /// user's core preference must be preserved.
+    #[test]
+    fn personal_skill_core_override_preserved_across_sync() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path().join("home");
+
+        let paths = Paths::from_roots(
+            &tmp.path().join("data"),
+            &tmp.path().join("config"),
+            &tmp.path().join("cache"),
+            &home,
+        );
+
+        // Community cache: has one community skill, no "personal-skill"
+        let community_cache = tmp
+            .path()
+            .join("cache")
+            .join("akm")
+            .join("skills-community-registry");
+        create_mock_registry_cache(&community_cache); // creates test-skill
+        let cache_lib = r#"{"version":1,"specs":[{"id":"test-skill","type":"skill","name":"Test Skill","description":"A test","core":false,"tags":[],"triggers":{}}]}"#;
+        std::fs::write(community_cache.join("library.json"), cache_lib).unwrap();
+
+        // Personal cache: has "personal-skill"
+        let personal_cache = tmp
+            .path()
+            .join("cache")
+            .join("akm")
+            .join("skills-personal-registry");
+        let personal_skill_dir = personal_cache.join("skills").join("personal-skill");
+        std::fs::create_dir_all(&personal_skill_dir).unwrap();
+        std::fs::write(
+            personal_skill_dir.join("SKILL.md"),
+            "---\nname: Personal Skill\ndescription: A personal skill\n---\nContent",
+        )
+        .unwrap();
+
+        // User's existing library.json: has both test-skill and personal-skill,
+        // personal-skill is core: true
+        let library_dir = paths.data_dir();
+        std::fs::create_dir_all(library_dir).unwrap();
+        let user_lib = r#"{"version":1,"specs":[{"id":"test-skill","type":"skill","name":"Test Skill","description":"A test","core":false,"tags":[],"triggers":{}},{"id":"personal-skill","type":"skill","name":"Personal Skill","description":"A personal skill","core":true,"tags":[],"triggers":{}}]}"#;
+        std::fs::write(paths.library_json(), user_lib).unwrap();
+
+        let community = MockRegistry::new("community", community_cache)
+            .with_pull_result(Ok(PullOutcome::Updated));
+
+        let personal = MockRegistry::new("personal", personal_cache)
+            .with_pull_result(Ok(PullOutcome::Updated));
+
+        let tool_dirs = ToolDirs::builtin(&home);
+
+        let report = execute(
+            &paths,
+            &community,
+            Some(&personal as &dyn RegistrySource),
+            &tool_dirs,
+        )
+        .unwrap();
+
+        assert_eq!(
+            report.core_overrides_preserved, 1,
+            "personal-skill core override should be preserved"
+        );
+
+        // Verify library.json on disk still has personal-skill as core: true
+        let library = Library::load_from(&paths.library_json()).unwrap();
+        let spec = library
+            .get("personal-skill")
+            .expect("personal-skill must exist after sync");
+        assert!(spec.core, "Personal skill core override must survive sync");
     }
 }
