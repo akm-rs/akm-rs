@@ -214,7 +214,13 @@ fn test_sync_pull_and_push() {
     config.artifacts.dir = Some(artifacts_dir.clone());
 
     let outcome = ArtifactRepo::sync(&config, &paths).unwrap();
-    assert_eq!(outcome, SyncOutcome::PulledAndPushed { commits_pushed: 1 });
+    assert_eq!(
+        outcome,
+        SyncOutcome::PulledAndPushed {
+            commits_pushed: 1,
+            local_changes_committed: false,
+        }
+    );
 }
 
 #[test]
@@ -428,7 +434,7 @@ fn test_sync_push_failure_is_warning() {
 }
 
 #[test]
-fn test_sync_pull_with_dirty_worktree() {
+fn test_sync_commits_untracked_files() {
     let tmp = TempDir::new().unwrap();
     let bare_dir = tmp.path().join("remote.git");
     let artifacts_dir = tmp.path().join("artifacts");
@@ -443,8 +449,8 @@ fn test_sync_pull_with_dirty_worktree() {
         .unwrap();
     clone_repo(&bare_dir, &artifacts_dir);
 
-    // Create dirty worktree (uncommitted changes)
-    std::fs::write(artifacts_dir.join("dirty.md"), "uncommitted content").unwrap();
+    // Create an untracked file (simulating local artifact work)
+    std::fs::write(artifacts_dir.join("session.md"), "session notes").unwrap();
 
     let paths = Paths::from_roots(
         &tmp.path().join("data"),
@@ -456,12 +462,61 @@ fn test_sync_pull_with_dirty_worktree() {
     config.artifacts.remote = Some(bare_dir.to_string_lossy().to_string());
     config.artifacts.dir = Some(artifacts_dir.clone());
 
-    // Pull should succeed thanks to --autostash
+    // Sync should commit the untracked file, pull, and push
     let outcome = ArtifactRepo::sync(&config, &paths).unwrap();
-    assert_eq!(outcome, SyncOutcome::Pulled);
+    assert_eq!(
+        outcome,
+        SyncOutcome::PulledAndPushed {
+            commits_pushed: 1,
+            local_changes_committed: true,
+        }
+    );
 
-    // Dirty file should still be present (autostash restores it)
-    assert!(artifacts_dir.join("dirty.md").exists());
+    // File should still be present and now tracked
+    assert!(artifacts_dir.join("session.md").exists());
+    assert!(!Git::has_changes(&artifacts_dir).unwrap());
+}
+
+#[test]
+fn test_sync_commits_modified_files() {
+    let tmp = TempDir::new().unwrap();
+    let bare_dir = tmp.path().join("remote.git");
+    let artifacts_dir = tmp.path().join("artifacts");
+
+    init_bare_repo(&bare_dir);
+    let staging = tmp.path().join("staging");
+    clone_repo(&bare_dir, &staging);
+    add_and_commit(&staging, "README.md", "# test", "init");
+    Command::new("git")
+        .args(["-C", &staging.to_string_lossy(), "push", "--quiet"])
+        .status()
+        .unwrap();
+    clone_repo(&bare_dir, &artifacts_dir);
+
+    // Modify an existing tracked file
+    std::fs::write(artifacts_dir.join("README.md"), "# updated content").unwrap();
+
+    let paths = Paths::from_roots(
+        &tmp.path().join("data"),
+        &tmp.path().join("config"),
+        &tmp.path().join("cache"),
+        tmp.path(),
+    );
+    let mut config = Config::default();
+    config.artifacts.remote = Some(bare_dir.to_string_lossy().to_string());
+    config.artifacts.dir = Some(artifacts_dir.clone());
+
+    let outcome = ArtifactRepo::sync(&config, &paths).unwrap();
+    assert_eq!(
+        outcome,
+        SyncOutcome::PulledAndPushed {
+            commits_pushed: 1,
+            local_changes_committed: true,
+        }
+    );
+
+    // File should be committed
+    assert!(!Git::has_changes(&artifacts_dir).unwrap());
 }
 
 #[test]

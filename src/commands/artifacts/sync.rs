@@ -39,7 +39,13 @@ pub fn run(config: &Config, paths: &Paths) -> Result<()> {
                 SyncOutcome::Pulled => {
                     println!("Artifacts pulled");
                 }
-                SyncOutcome::PulledAndPushed { commits_pushed } => {
+                SyncOutcome::PulledAndPushed {
+                    commits_pushed,
+                    local_changes_committed,
+                } => {
+                    if local_changes_committed {
+                        println!("Artifacts committed local changes");
+                    }
                     println!("Artifacts pulled");
                     println!("Artifacts pushed ({commits_pushed} commits)");
                 }

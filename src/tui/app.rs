@@ -220,12 +220,21 @@ impl App {
         Ok(RemoveResult::Removed)
     }
 
-    /// Save any dirty state to disk. Called on TUI exit.
+    /// Save any dirty state to disk and rebuild symlinks. Called on TUI exit.
     ///
     /// This is the single point where mutations are persisted.
+    /// When the library is dirty (e.g., core flag toggled), symlinks are
+    /// rebuilt to match the new core state.
     pub fn save_if_dirty(&self) -> Result<()> {
         if self.library_dirty {
             self.library.save(&self.paths)?;
+            // Rebuild symlinks to reflect core changes
+            let core_specs = self.library.core_specs();
+            crate::library::symlinks::rebuild_core(
+                &core_specs,
+                self.paths.data_dir(),
+                self.tool_dirs.dirs(),
+            )?;
         }
         if self.manifest_dirty {
             if let Some(manifest) = &self.manifest {
