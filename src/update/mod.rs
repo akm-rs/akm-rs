@@ -54,13 +54,17 @@ pub fn normalize_version(tag: &str) -> &str {
 /// Compare two semver strings. Returns true if `latest` is newer than `current`.
 ///
 /// Uses numeric comparison on split version components. Handles pre-release
-/// suffixes: a stable release (no suffix) is always newer than a pre-release
-/// with the same base version (e.g., `1.0.0` > `1.0.0-alpha.1`).
+/// suffixes according to semver ordering:
+/// - A stable release is always newer than a pre-release with the same base
+///   (e.g., `1.0.0` > `1.0.0-alpha.1`).
+/// - Pre-release identifiers are compared left-to-right: numeric segments
+///   compare numerically, string segments compare lexically
+///   (e.g., `alpha.5` < `alpha.6`, `alpha.6` < `beta.1`).
 pub fn is_newer(current: &str, latest: &str) -> bool {
-    fn split_pre(v: &str) -> (&str, bool) {
+    fn split_pre(v: &str) -> (&str, Option<&str>) {
         match v.split_once('-') {
-            Some((base, _)) => (base, true),
-            None => (v, false),
+            Some((base, pre)) => (base, Some(pre)),
+            None => (v, None),
         }
     }
 
@@ -70,8 +74,8 @@ pub fn is_newer(current: &str, latest: &str) -> bool {
             .collect()
     };
 
-    let (current_base, current_is_pre) = split_pre(current);
-    let (latest_base, latest_is_pre) = split_pre(latest);
+    let (current_base, current_pre) = split_pre(current);
+    let (latest_base, latest_pre) = split_pre(latest);
 
     let current_parts = parse(current_base);
     let latest_parts = parse(latest_base);
@@ -91,12 +95,56 @@ pub fn is_newer(current: &str, latest: &str) -> bool {
         return latest_parts.len() > current_parts.len();
     }
 
-    // Same base version — pre-release < stable
-    if current_is_pre && !latest_is_pre {
-        return true;
+    // Same base version — compare pre-release status
+    match (current_pre, latest_pre) {
+        // pre-release → stable is an upgrade
+        (Some(_), None) => true,
+        // stable → pre-release is a downgrade
+        (None, Some(_)) => false,
+        // both stable, same base → equal
+        (None, None) => false,
+        // both pre-release — compare identifiers per semver
+        (Some(cur), Some(lat)) => compare_pre(cur, lat),
+    }
+}
+
+/// Compare two pre-release strings per semver 2.0.0 §11.
+///
+/// Identifiers are split by `.` and compared left-to-right.
+/// Numeric identifiers compare numerically; string identifiers
+/// compare lexically; numeric < string when types differ.
+fn compare_pre(current: &str, latest: &str) -> bool {
+    let cur_ids: Vec<&str> = current.split('.').collect();
+    let lat_ids: Vec<&str> = latest.split('.').collect();
+
+    for (c, l) in cur_ids.iter().zip(lat_ids.iter()) {
+        match (c.parse::<u64>(), l.parse::<u64>()) {
+            // Both numeric — compare numerically
+            (Ok(cn), Ok(ln)) => {
+                if ln > cn {
+                    return true;
+                }
+                if ln < cn {
+                    return false;
+                }
+            }
+            // Numeric < string per semver
+            (Ok(_), Err(_)) => return true,
+            (Err(_), Ok(_)) => return false,
+            // Both strings — compare lexically
+            (Err(_), Err(_)) => {
+                if l > c {
+                    return true;
+                }
+                if l < c {
+                    return false;
+                }
+            }
+        }
     }
 
-    false
+    // All matched identifiers are equal — more identifiers = higher precedence
+    lat_ids.len() > cur_ids.len()
 }
 
 #[cfg(test)]
@@ -153,6 +201,23 @@ mod tests {
         assert!(is_newer("0.9.9", "1.0.0"));
         assert!(!is_newer("2.0.0", "1.9.9"));
         assert!(is_newer("1.0.0-alpha.1", "1.0.1"));
+    }
+
+    #[test]
+    fn test_is_newer_prerelease_bump() {
+        // The exact scenario: alpha.5 → alpha.6
+        assert!(is_newer("1.0.0-alpha.5", "1.0.0-alpha.6"));
+        assert!(!is_newer("1.0.0-alpha.6", "1.0.0-alpha.5"));
+        assert!(!is_newer("1.0.0-alpha.5", "1.0.0-alpha.5"));
+    }
+
+    #[test]
+    fn test_is_newer_prerelease_channel_progression() {
+        // alpha < beta < rc < stable
+        assert!(is_newer("1.0.0-alpha.1", "1.0.0-beta.1"));
+        assert!(is_newer("1.0.0-beta.1", "1.0.0-rc.1"));
+        assert!(is_newer("1.0.0-rc.1", "1.0.0"));
+        assert!(!is_newer("1.0.0-beta.1", "1.0.0-alpha.1"));
     }
 
     #[test]
