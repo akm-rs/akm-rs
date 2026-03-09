@@ -1,3 +1,12 @@
+# alpha.7 
+
+Add a script for automated release checklist issue
+Fix version comparison in a`akm update` 
+
+# alpha.6 
+
+Fix `akm skills status` to correctly regenerate symlinks 
+
 # alpha.5
 
 Breaking fix: akm update was broken due to a misconfigured URL. To fix:
