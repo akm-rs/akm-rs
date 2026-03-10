@@ -160,6 +160,17 @@ _akm_session_start() {
     fi
   fi
 
+  # Bridge artifacts into the staging tree via symlinks.
+  # Each tool's subdir gets an artifacts/ symlink pointing to the real
+  # artifacts dir. Writes go straight through — no copy step needed.
+  # This lets every wrapper pass a single dir (staging) to its tool.
+  if [[ -n "$artifact_dir" && -n "$staging_dir" ]]; then
+    local tool_dir
+    for tool_dir in .claude .copilot .agents; do
+      ln -sfn "$artifact_dir" "$staging_dir/$tool_dir/artifacts"
+    done
+  fi
+
   # Export for use in _akm_session_end and _akm_wrap_tool
   export _AKM_ARTIFACT_DIR="${artifact_dir}"
   export _AKM_STAGING_DIR="${staging_dir}"
@@ -192,19 +203,40 @@ _akm_wrap_tool() {
   _akm_session_start
 
   local cmd=(command "$tool")
-  [[ -n "${_AKM_ARTIFACT_DIR:-}" ]] && cmd+=(--add-dir "$_AKM_ARTIFACT_DIR")
-  [[ -n "${_AKM_STAGING_DIR:-}" ]] && cmd+=(--add-dir "$_AKM_STAGING_DIR")
+
+  case "$tool" in
+    opencode)
+      # opencode uses OPENCODE_CONFIG_DIR instead of --add-dir.
+      # Artifacts are symlinked into the staging dir (see _akm_session_start).
+      if [[ -n "${_AKM_STAGING_DIR:-}" ]]; then
+        export OPENCODE_CONFIG_DIR="${_AKM_STAGING_DIR}/.agents"
+      fi
+      ;;
+    *)
+      # claude, copilot, vibe support --add-dir.
+      # Artifacts are symlinked into the staging dir, so one dir is enough.
+      # If only artifacts (no skills/staging), pass the artifact dir directly.
+      if [[ -n "${_AKM_STAGING_DIR:-}" ]]; then
+        cmd+=(--add-dir "$_AKM_STAGING_DIR")
+      elif [[ -n "${_AKM_ARTIFACT_DIR:-}" ]]; then
+        cmd+=(--add-dir "$_AKM_ARTIFACT_DIR")
+      fi
+      ;;
+  esac
+
   cmd+=("$@")
 
   "${cmd[@]}"
   local exit_code=$?
 
+  unset OPENCODE_CONFIG_DIR 2>/dev/null || true
   _akm_session_end
   return $exit_code
 }
 
 # --- Exported wrappers ---
-# Hardcoded for the three tools that support --add-dir.
+# Each tool gets the staging dir (which includes artifacts via symlink).
+# claude, copilot use --add-dir; opencode uses OPENCODE_CONFIG_DIR.
 # Vibe is excluded (doesn't support --add-dir).
 
 claude()   { _akm_wrap_tool claude   "$@"; }
