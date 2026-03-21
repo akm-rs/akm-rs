@@ -171,18 +171,10 @@ fn set_executable(path: &Path) -> Result<()> {
 pub fn download_and_replace(config: &UpdateConfig, paths: &Paths) -> Result<()> {
     let current = normalize_version(CURRENT_VERSION);
 
-    // Fast path: if a fresh cache says we're already on latest, skip network.
-    if let Some(cached) = version_check::read_cache(paths) {
-        if version_check::cache_is_fresh(&cached, config.check_interval) {
-            let latest = normalize_version(&cached.latest_version);
-            if !is_newer(current, latest) {
-                println!("Already up to date (version {current}).");
-                return Ok(());
-            }
-        }
-    }
-
-    // Step 1: Resolve URL (may fetch from network)
+    // Step 1: Resolve URL (always fetches from network if cache doesn't
+    // indicate a newer version — no fast-path cache shortcut here because
+    // this function is called from the explicit `akm update` command and
+    // the user expects a fresh check)
     let (url, latest_version) = resolve_download_url(config, paths)?;
 
     if !is_newer(current, &latest_version) {
