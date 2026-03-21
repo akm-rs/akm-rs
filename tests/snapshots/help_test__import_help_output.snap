@@ -1,0 +1,16 @@
+---
+source: tests/help_test.rs
+expression: "String::from_utf8_lossy(&output.stdout).to_string()"
+---
+Import a skill from a GitHub URL into cold storage
+
+Usage: akm skills import [OPTIONS] <URL>
+
+Arguments:
+  <URL>  GitHub URL to a directory containing SKILL.md
+
+Options:
+      --force    Overwrite without confirmation
+      --id <ID>  Override the skill ID (default: last path segment from URL)
+  -h, --help     Print help
+  -V, --version  Print version

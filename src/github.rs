@@ -511,4 +511,266 @@ mod tests {
             "https://github.com/acme/repo/tree/main/skills/tdd"
         );
     }
+
+    // -----------------------------------------------------------------------
+    // Mock client + download tests
+    // -----------------------------------------------------------------------
+
+    /// Mock GitHub client for testing download logic without network access.
+    struct MockGitHubClient {
+        /// Map from subpath to entries.
+        entries: std::collections::HashMap<String, Vec<GitHubEntry>>,
+        /// Map from download_url to file content bytes.
+        files: std::collections::HashMap<String, Vec<u8>>,
+    }
+
+    impl MockGitHubClient {
+        fn new() -> Self {
+            Self {
+                entries: std::collections::HashMap::new(),
+                files: std::collections::HashMap::new(),
+            }
+        }
+
+        /// Add a directory listing response for a given subpath.
+        fn add_listing(&mut self, subpath: &str, entries: Vec<GitHubEntry>) {
+            self.entries.insert(subpath.to_string(), entries);
+        }
+
+        /// Add a downloadable file.
+        fn add_file(&mut self, download_url: &str, content: &[u8]) {
+            self.files
+                .insert(download_url.to_string(), content.to_vec());
+        }
+    }
+
+    impl GitHubClient for MockGitHubClient {
+        fn list_contents(
+            &self,
+            _parsed: &ParsedGitHubUrl,
+            subpath: &str,
+        ) -> Result<Vec<GitHubEntry>> {
+            self.entries
+                .get(subpath)
+                .cloned()
+                .ok_or_else(|| Error::ImportApiFailed {
+                    url: format!("mock://subpath/{subpath}"),
+                    status: 404,
+                    message: "Not found in mock".to_string(),
+                })
+        }
+
+        fn download_file(&self, download_url: &str) -> Result<Vec<u8>> {
+            self.files
+                .get(download_url)
+                .cloned()
+                .ok_or_else(|| Error::ImportDownloadFailed {
+                    url: download_url.to_string(),
+                    file: download_url.to_string(),
+                    reason: "Not found in mock".to_string(),
+                })
+        }
+    }
+
+    fn make_file_entry(name: &str, download_url: &str) -> GitHubEntry {
+        GitHubEntry {
+            name: name.to_string(),
+            entry_type: "file".to_string(),
+            download_url: Some(download_url.to_string()),
+            path: name.to_string(),
+        }
+    }
+
+    fn make_dir_entry(name: &str) -> GitHubEntry {
+        GitHubEntry {
+            name: name.to_string(),
+            entry_type: "dir".to_string(),
+            download_url: None,
+            path: name.to_string(),
+        }
+    }
+
+    #[test]
+    fn download_directory_flat() {
+        let mut client = MockGitHubClient::new();
+
+        client.add_listing(
+            "",
+            vec![
+                make_file_entry("SKILL.md", "https://example.com/SKILL.md"),
+                make_file_entry("README.md", "https://example.com/README.md"),
+            ],
+        );
+        client.add_file(
+            "https://example.com/SKILL.md",
+            b"---\nname: Test\ndescription: A test\n---\nContent",
+        );
+        client.add_file("https://example.com/README.md", b"# README");
+
+        let parsed =
+            parse_github_url("https://github.com/acme/repo/tree/main/skills/my-skill").unwrap();
+
+        let tmp = tempfile::tempdir().unwrap();
+        let files = download_directory(&client, &parsed, tmp.path()).unwrap();
+
+        assert_eq!(files.len(), 2);
+        assert!(files.contains(&"SKILL.md".to_string()));
+        assert!(files.contains(&"README.md".to_string()));
+        assert!(tmp.path().join("SKILL.md").is_file());
+        assert!(tmp.path().join("README.md").is_file());
+    }
+
+    #[test]
+    fn download_directory_recursive_with_subdirs() {
+        let mut client = MockGitHubClient::new();
+
+        // Root listing
+        client.add_listing(
+            "",
+            vec![
+                make_file_entry("SKILL.md", "https://example.com/SKILL.md"),
+                make_dir_entry("references"),
+            ],
+        );
+        // Subdirectory listing
+        client.add_listing(
+            "references",
+            vec![make_file_entry("ref.md", "https://example.com/ref.md")],
+        );
+        client.add_file(
+            "https://example.com/SKILL.md",
+            b"---\nname: Test\ndescription: A test\n---\nContent",
+        );
+        client.add_file("https://example.com/ref.md", b"# Reference");
+
+        let parsed =
+            parse_github_url("https://github.com/acme/repo/tree/main/skills/my-skill").unwrap();
+
+        let tmp = tempfile::tempdir().unwrap();
+        let files = download_directory(&client, &parsed, tmp.path()).unwrap();
+
+        assert_eq!(files.len(), 2);
+        assert!(files.contains(&"SKILL.md".to_string()));
+        assert!(files.contains(&"references/ref.md".to_string()));
+        assert!(tmp.path().join("SKILL.md").is_file());
+        assert!(tmp.path().join("references").join("ref.md").is_file());
+    }
+
+    #[test]
+    fn download_directory_empty() {
+        let mut client = MockGitHubClient::new();
+        client.add_listing("", vec![]);
+
+        let parsed =
+            parse_github_url("https://github.com/acme/repo/tree/main/skills/my-skill").unwrap();
+
+        let tmp = tempfile::tempdir().unwrap();
+        let files = download_directory(&client, &parsed, tmp.path()).unwrap();
+
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn download_directory_api_error_propagates() {
+        let client = MockGitHubClient::new(); // no entries registered
+
+        let parsed =
+            parse_github_url("https://github.com/acme/repo/tree/main/skills/my-skill").unwrap();
+
+        let tmp = tempfile::tempdir().unwrap();
+        let result = download_directory(&client, &parsed, tmp.path());
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), Error::ImportApiFailed { .. }));
+    }
+
+    #[test]
+    fn download_directory_skips_unsupported_types() {
+        let mut client = MockGitHubClient::new();
+
+        client.add_listing(
+            "",
+            vec![
+                make_file_entry("SKILL.md", "https://example.com/SKILL.md"),
+                GitHubEntry {
+                    name: "submodule".to_string(),
+                    entry_type: "submodule".to_string(),
+                    download_url: None,
+                    path: "submodule".to_string(),
+                },
+            ],
+        );
+        client.add_file(
+            "https://example.com/SKILL.md",
+            b"---\nname: Test\ndescription: Test\n---\nContent",
+        );
+
+        let parsed =
+            parse_github_url("https://github.com/acme/repo/tree/main/skills/my-skill").unwrap();
+
+        let tmp = tempfile::tempdir().unwrap();
+        let files = download_directory(&client, &parsed, tmp.path()).unwrap();
+
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0], "SKILL.md");
+    }
+
+    #[test]
+    fn download_file_missing_url_errors() {
+        let mut client = MockGitHubClient::new();
+
+        client.add_listing(
+            "",
+            vec![GitHubEntry {
+                name: "SKILL.md".to_string(),
+                entry_type: "file".to_string(),
+                download_url: None, // missing!
+                path: "SKILL.md".to_string(),
+            }],
+        );
+
+        let parsed =
+            parse_github_url("https://github.com/acme/repo/tree/main/skills/my-skill").unwrap();
+
+        let tmp = tempfile::tempdir().unwrap();
+        let result = download_directory(&client, &parsed, tmp.path());
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            Error::ImportDownloadFailed { .. }
+        ));
+    }
+
+    #[test]
+    fn github_entry_deserialization() {
+        let json = r#"[
+            {
+                "name": "SKILL.md",
+                "type": "file",
+                "download_url": "https://raw.githubusercontent.com/acme/repo/main/skills/tdd/SKILL.md",
+                "path": "skills/tdd/SKILL.md",
+                "size": 1234,
+                "sha": "abc123"
+            },
+            {
+                "name": "references",
+                "type": "dir",
+                "download_url": null,
+                "path": "skills/tdd/references",
+                "size": 0,
+                "sha": "def456"
+            }
+        ]"#;
+
+        let entries: Vec<GitHubEntry> = serde_json::from_str(json).unwrap();
+
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].name, "SKILL.md");
+        assert_eq!(entries[0].entry_type, "file");
+        assert!(entries[0].download_url.is_some());
+        assert_eq!(entries[1].name, "references");
+        assert_eq!(entries[1].entry_type, "dir");
+        assert!(entries[1].download_url.is_none());
+    }
 }
