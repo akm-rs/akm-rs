@@ -28,6 +28,17 @@ All implementation must satisfy these criteria:
 11) Documentation (rustdoc, --help, README)
 12) ureq 3.x API patterns where applicable (match-by-value on errors, body_mut().read_json())
 
+## Supported platforms
+
+Release binaries are built for:
+- Linux x86_64 (static, musl-linked — no libc dependency)
+- macOS aarch64 (Apple Silicon)
+
+The self-update system (`akm update`) and install script both detect the current platform at runtime and select the correct asset. Platform-specific logic lives in:
+- `src/update/mod.rs` — `platform_asset_name()` (compile-time asset selection)
+- `src/update/download.rs` — `validate_binary()` (ELF + Mach-O magic byte checks)
+- `scripts/install.sh` — `detect_platform()` (runtime OS/arch detection)
+
 ## Test commands
 
 - cargo test, cargo clippy, cargo fmt

@@ -1,3 +1,11 @@
+# alpha.11
+
+- Add macOS Apple Silicon (aarch64) binary to releases
+  - Release workflow now builds Linux x86_64 and macOS aarch64 in parallel
+  - Install script (`install.sh`) supports macOS: platform detection, `shasum` checksum verification, Gatekeeper quarantine removal
+  - `akm update` is now platform-aware — picks the correct binary for the current OS/arch
+  - Binary validation accepts Mach-O format alongside ELF
+
 # alpha.10
 
 - Fix `akm update` always saying "Already up to date" — the explicit update

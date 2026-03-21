@@ -10,13 +10,20 @@ AKM is a **client** of skill registries — it fetches, organizes, and wires ski
 
 ## Installation
 
-### Quick install (Linux x86_64)
+### Quick install (Linux x86_64 / macOS ARM)
 
 ```sh
 curl -fsSL https://akm.raphaelsimon.fr/install | sh
 ```
 
-This downloads the latest release binary to `~/.local/bin/akm`.
+This downloads the latest release binary to `~/.local/bin/akm`. The installer auto-detects your platform and downloads the correct binary.
+
+**Supported platforms:**
+
+| Platform | Architecture | Asset |
+|----------|-------------|-------|
+| Linux | x86_64 | `akm-linux-x86_64` (static, musl) |
+| macOS | Apple Silicon (M1+) | `akm-macos-aarch64` |
 
 Options:
 
@@ -27,6 +34,8 @@ AKM_VERSION=1.0.0 curl -fsSL https://akm.raphaelsimon.fr/install | sh
 # Install to a custom directory
 AKM_INSTALL_DIR=/usr/local/bin curl -fsSL https://akm.raphaelsimon.fr/install | sh
 ```
+
+Other platforms (Linux ARM, Intel Mac) can install via `cargo install akm`.
 
 ### From source
 
@@ -160,9 +169,11 @@ git push origin main --tags
 ```
 
 This triggers the release workflow which:
-1. Runs all CI checks (fmt, clippy, test, build, MSRV)
-2. Builds a static Linux x86_64 binary (musl)
-3. Creates a GitHub Release with the binary + SHA256 checksum
+1. Runs all CI checks (fmt, clippy, test, build, MSRV, installer tests)
+2. Builds platform binaries in parallel:
+   - Linux x86_64 (static, musl-linked)
+   - macOS aarch64 (Apple Silicon)
+3. Creates a GitHub Release with all binaries + SHA256 checksums
 4. Publishes to crates.io (requires `CARGO_REGISTRY_TOKEN` secret)
 
 ## Development
