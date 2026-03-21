@@ -177,6 +177,17 @@ enum SkillsCommands {
         #[arg(long)]
         force: bool,
     },
+    /// Import a skill from a GitHub URL into cold storage
+    Import {
+        /// GitHub URL to a directory containing SKILL.md
+        url: String,
+        /// Overwrite without confirmation
+        #[arg(long)]
+        force: bool,
+        /// Override the skill ID (default: last path segment from URL)
+        #[arg(long)]
+        id: Option<String>,
+    },
     /// Edit spec metadata in $EDITOR
     Edit {
         /// Spec ID to edit
@@ -322,6 +333,9 @@ fn main() -> ExitCode {
                 }
                 Some(SkillsCommands::Promote { path, force }) => {
                     commands::skills::promote::run(&paths, &path, force, &tool_dirs)
+                }
+                Some(SkillsCommands::Import { url, force, id }) => {
+                    commands::skills::import::run(&paths, &url, force, id.as_deref(), &tool_dirs)
                 }
                 Some(SkillsCommands::Edit { id }) => {
                     commands::skills::edit::run(&paths, &id, &tool_dirs)
