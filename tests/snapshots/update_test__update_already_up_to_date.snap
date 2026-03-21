@@ -1,6 +1,0 @@
----
-source: tests/update_test.rs
-expression: stdout.trim()
----
-akm 1.0.0-alpha.9 — checking for updates...
-Already up to date (version 1.0.0-alpha.9).

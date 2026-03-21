@@ -1,3 +1,8 @@
+# alpha.10
+
+- Fix `akm update` always saying "Already up to date" — the explicit update
+  command was trusting a stale cache instead of making a fresh API call
+
 # alpha.9
 
 - Add `akm skills import` — import skills directly from GitHub URLs
