@@ -1,4 +1,13 @@
-# alpha.7 
+# alpha.9
+
+- Add `akm skills import` — import skills directly from GitHub URLs
+  - Supports `/tree/` (directory) and `/blob/` (file) URL formats
+  - GITHUB_TOKEN support for private repos and higher rate limits
+  - Interactive prompts for metadata (description, tags, core flag)
+  - `--force` to skip overwrite confirmation, `--id` to set custom skill ID
+  - Source URL persisted in library.json for future update support
+
+# alpha.7
 
 Add a script for automated release checklist issue
 Fix version comparison in a`akm update` 
