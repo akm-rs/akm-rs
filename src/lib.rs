@@ -7,6 +7,7 @@ pub mod config;
 pub mod editor;
 pub mod error;
 pub mod git;
+pub mod github;
 pub mod library;
 pub mod paths;
 pub mod registry;

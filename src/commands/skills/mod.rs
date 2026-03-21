@@ -6,6 +6,7 @@
 pub mod add;
 pub mod clean;
 pub mod edit;
+pub mod import;
 pub mod libgen;
 pub mod list;
 pub mod load;

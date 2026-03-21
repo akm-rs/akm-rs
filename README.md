@@ -86,10 +86,28 @@ akm skills unload debugging      # remove from session
 akm skills loaded                # show active session specs
 akm skills status                # full status dashboard (TUI)
 akm skills edit my-skill         # edit metadata in $EDITOR
-akm skills promote ./my-skill.md # import local skill to cold storage
+akm skills promote ./my-skill     # import local skill to cold storage
+akm skills import <github-url>   # import skill from a GitHub URL
 akm skills publish my-skill      # publish to personal registry
 akm skills clean --dry-run       # preview stale spec removal
 ```
+
+#### Importing skills from GitHub
+
+You can import any skill directory from a GitHub repository:
+
+```bash
+# Import from a directory URL
+akm skills import https://github.com/user/repo/tree/main/skills/my-skill
+
+# Import with a custom ID
+akm skills import https://github.com/user/repo/tree/main/skills/my-skill --id custom-name
+
+# Overwrite without confirmation
+akm skills import https://github.com/user/repo/tree/main/skills/my-skill --force
+```
+
+Both `/tree/` (directory) and `/blob/` (file) GitHub URLs are supported. For private repos, set the `GITHUB_TOKEN` environment variable.
 
 ### Artifacts
 
@@ -166,11 +184,12 @@ src/
 ├── git.rs               # Git helper (wraps std::process::Command)
 ├── paths.rs             # XDG path resolution
 ├── lib.rs               # Library root
+├── github.rs            # GitHub URL parser + Contents API client
 ├── commands/            # CLI command implementations
 │   ├── config.rs        # akm config
 │   ├── setup.rs         # akm setup
 │   ├── sync.rs          # akm sync
-│   └── skills/          # akm skills *
+│   └── skills/          # akm skills * (sync, list, import, promote, …)
 ├── library/             # Spec model, libgen, manifest
 ├── registry/            # RegistrySource trait + GitRegistry
 ├── artifacts/           # Artifact sync

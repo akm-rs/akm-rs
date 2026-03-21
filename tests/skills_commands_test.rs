@@ -701,6 +701,142 @@ fn error_no_skill_md_message() {
 }
 
 // =============================================================================
+// Import error variant tests
+// =============================================================================
+
+#[test]
+fn error_import_invalid_url_message() {
+    let err = Error::ImportInvalidUrl {
+        url: "https://example.com/not-github".into(),
+    };
+    let msg = format!("{err}");
+    assert!(msg.contains("Invalid GitHub URL"));
+    assert!(msg.contains("https://example.com/not-github"));
+    assert!(msg.contains("Expected format"));
+}
+
+#[test]
+fn error_import_not_github_message() {
+    let err = Error::ImportNotGithub {
+        url: "https://gitlab.com/acme/repo".into(),
+    };
+    let msg = format!("{err}");
+    assert!(msg.contains("not from github.com"));
+    assert!(msg.contains("gitlab.com"));
+}
+
+#[test]
+fn error_import_api_failed_message() {
+    let err = Error::ImportApiFailed {
+        url: "https://api.github.com/repos/acme/repo/contents/skills".into(),
+        status: 404,
+        message: "Not Found".into(),
+    };
+    let msg = format!("{err}");
+    assert!(msg.contains("GitHub API error"));
+    assert!(msg.contains("404"));
+}
+
+#[test]
+fn error_import_no_skill_md_message() {
+    let err = Error::ImportNoSkillMd {
+        url: "https://github.com/acme/repo/tree/main/skills/broken".into(),
+    };
+    let msg = format!("{err}");
+    assert!(msg.contains("No SKILL.md"));
+    assert!(msg.contains("must contain a SKILL.md"));
+}
+
+#[test]
+fn error_import_download_failed_message() {
+    let err = Error::ImportDownloadFailed {
+        url: "https://github.com/acme/repo".into(),
+        file: "SKILL.md".into(),
+        reason: "connection timeout".into(),
+    };
+    let msg = format!("{err}");
+    assert!(msg.contains("Failed to download"));
+    assert!(msg.contains("SKILL.md"));
+    assert!(msg.contains("connection timeout"));
+}
+
+// =============================================================================
+// Import CLI integration tests
+// =============================================================================
+
+#[test]
+fn import_invalid_url_returns_error() {
+    use assert_cmd::cargo::cargo_bin_cmd;
+
+    let tmp = TempDir::new().unwrap();
+
+    cargo_bin_cmd!("akm")
+        .args(["skills", "import", "not-a-url"])
+        .env("XDG_DATA_HOME", tmp.path().join("data"))
+        .env("XDG_CONFIG_HOME", tmp.path().join("config"))
+        .env("XDG_CACHE_HOME", tmp.path().join("cache"))
+        .env("HOME", tmp.path().join("home"))
+        .assert()
+        .failure()
+        .stderr(pred_contains("Invalid GitHub URL"));
+}
+
+#[test]
+fn import_non_github_url_returns_error() {
+    use assert_cmd::cargo::cargo_bin_cmd;
+
+    let tmp = TempDir::new().unwrap();
+
+    cargo_bin_cmd!("akm")
+        .args([
+            "skills",
+            "import",
+            "https://gitlab.com/acme/repo/tree/main/skills/tdd",
+        ])
+        .env("XDG_DATA_HOME", tmp.path().join("data"))
+        .env("XDG_CONFIG_HOME", tmp.path().join("config"))
+        .env("XDG_CACHE_HOME", tmp.path().join("cache"))
+        .env("HOME", tmp.path().join("home"))
+        .assert()
+        .failure()
+        .stderr(pred_contains("not from github.com"));
+}
+
+#[test]
+fn import_no_path_url_returns_error() {
+    use assert_cmd::cargo::cargo_bin_cmd;
+
+    let tmp = TempDir::new().unwrap();
+
+    cargo_bin_cmd!("akm")
+        .args(["skills", "import", "https://github.com/acme/repo"])
+        .env("XDG_DATA_HOME", tmp.path().join("data"))
+        .env("XDG_CONFIG_HOME", tmp.path().join("config"))
+        .env("XDG_CACHE_HOME", tmp.path().join("cache"))
+        .env("HOME", tmp.path().join("home"))
+        .assert()
+        .failure()
+        .stderr(pred_contains("Invalid GitHub URL"));
+}
+
+#[test]
+fn import_missing_url_arg_returns_error() {
+    use assert_cmd::cargo::cargo_bin_cmd;
+
+    let tmp = TempDir::new().unwrap();
+
+    cargo_bin_cmd!("akm")
+        .args(["skills", "import"])
+        .env("XDG_DATA_HOME", tmp.path().join("data"))
+        .env("XDG_CONFIG_HOME", tmp.path().join("config"))
+        .env("XDG_CACHE_HOME", tmp.path().join("cache"))
+        .env("HOME", tmp.path().join("home"))
+        .assert()
+        .failure()
+        .stderr(pred_contains("required"));
+}
+
+// =============================================================================
 // Git helper tests
 // =============================================================================
 

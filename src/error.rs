@@ -216,6 +216,37 @@ pub enum Error {
     #[error("Directory not found: {path}")]
     PromoteDirNotFound { path: PathBuf },
 
+    /// GitHub URL is not valid (missing path components, wrong format).
+    /// Used by `akm skills import` to reject malformed URLs.
+    #[error(
+        "Invalid GitHub URL: {url}\nExpected format: https://github.com/owner/repo/tree/ref/path"
+    )]
+    ImportInvalidUrl { url: String },
+
+    /// URL is not from github.com (v1 limitation).
+    #[error("URL is not from github.com: {url}\nOnly GitHub URLs are supported. Use https://github.com/owner/repo/tree/ref/path")]
+    ImportNotGithub { url: String },
+
+    /// GitHub API returned an error.
+    #[error("GitHub API error for {url}: HTTP {status} — {message}")]
+    ImportApiFailed {
+        url: String,
+        status: u16,
+        message: String,
+    },
+
+    /// Remote directory does not contain SKILL.md.
+    #[error("No SKILL.md found at {url}\nThe remote directory must contain a SKILL.md file.")]
+    ImportNoSkillMd { url: String },
+
+    /// Failed to download a specific file from GitHub.
+    #[error("Failed to download {file} from {url}: {reason}")]
+    ImportDownloadFailed {
+        url: String,
+        file: String,
+        reason: String,
+    },
+
     /// .bashrc does not exist and could not be created.
     ///
     /// Bash: _patch_bashrc assumes .bashrc exists or can be appended to.
