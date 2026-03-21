@@ -31,19 +31,23 @@ detect_platform() {
   arch="$(uname -m)"
 
   case "$os" in
-    Linux)  ;;
-    Darwin) error "macOS is not yet supported. Install via: cargo install akm" ;;
+    Linux)  PLATFORM="linux" ;;
+    Darwin) PLATFORM="macos" ;;
     *)      error "Unsupported OS: $os. Install via: cargo install akm" ;;
   esac
 
   case "$arch" in
-    x86_64|amd64) ;;
-    aarch64|arm64) error "ARM64 is not yet supported. Install via: cargo install akm" ;;
+    x86_64|amd64)  ARCH="x86_64" ;;
+    aarch64|arm64) ARCH="aarch64" ;;
     *)             error "Unsupported architecture: $arch. Install via: cargo install akm" ;;
   esac
 
-  PLATFORM="linux"
-  ARCH="x86_64"
+  # Only supported combinations have release binaries
+  case "${PLATFORM}-${ARCH}" in
+    linux-x86_64|macos-aarch64) ;;
+    *) error "No prebuilt binary for ${PLATFORM}-${ARCH}. Install via: cargo install akm" ;;
+  esac
+
   ASSET_NAME="akm-${PLATFORM}-${ARCH}"
 }
 
@@ -112,17 +116,24 @@ download_and_install() {
     error "Downloaded file is too small (${file_size} bytes). The download may be corrupt."
   fi
 
-  # Verify checksum if sha256sum is available
+  # Verify checksum (sha256sum on Linux, shasum on macOS)
+  sha256_cmd=""
   if command -v sha256sum >/dev/null 2>&1; then
+    sha256_cmd="sha256sum"
+  elif command -v shasum >/dev/null 2>&1; then
+    sha256_cmd="shasum -a 256"
+  fi
+
+  if [ -n "$sha256_cmd" ]; then
     info "Verifying checksum..."
     if curl -fsSL -o "${tmpdir}/${ASSET_NAME}.sha256" "${CHECKSUM_URL}" 2>/dev/null; then
-      (cd "$tmpdir" && sha256sum -c "${ASSET_NAME}.sha256") \
+      (cd "$tmpdir" && $sha256_cmd -c "${ASSET_NAME}.sha256") \
         || error "Checksum verification failed. The download may be corrupt."
     else
       info "Warning: Checksum file not available. Skipping verification."
     fi
   else
-    info "Warning: sha256sum not found. Skipping checksum verification."
+    info "Warning: No SHA-256 tool found. Skipping checksum verification."
   fi
 
   # Install
@@ -130,6 +141,11 @@ download_and_install() {
   mv "${tmpdir}/${ASSET_NAME}" "${INSTALL_DIR}/akm" \
     || error "Failed to install binary to ${INSTALL_DIR}/akm. Check permissions."
   chmod +x "${INSTALL_DIR}/akm"
+
+  # Remove macOS quarantine attribute so Gatekeeper doesn't block execution
+  if [ "$(uname -s)" = "Darwin" ]; then
+    xattr -d com.apple.quarantine "${INSTALL_DIR}/akm" 2>/dev/null || true
+  fi
 
   info "Installed akm ${VERSION} to ${INSTALL_DIR}/akm"
 }

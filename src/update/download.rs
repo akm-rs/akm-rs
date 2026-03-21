@@ -45,9 +45,11 @@ fn resolve_download_url(config: &UpdateConfig, paths: &Paths) -> Result<(String,
     let latest = normalize_version(&release.tag_name).to_string();
     let url = release.download_url.ok_or_else(|| Error::UpdateDownload {
         url: config.url.clone(),
-        message: "No compatible binary asset found in the release. \
-                  Expected a Linux x86_64 binary."
-            .to_string(),
+        message: format!(
+            "No compatible binary asset found in the release. \
+             Expected '{}'.",
+            super::platform_asset_name()
+        ),
     })?;
 
     Ok((url, latest))
@@ -115,7 +117,7 @@ fn validate_binary(path: &Path) -> Result<()> {
         });
     }
 
-    // Check for ELF magic bytes on Linux
+    // Check magic bytes: ELF on Linux, Mach-O on macOS
     let mut file = std::fs::File::open(path).map_err(|e| Error::UpdateReplace {
         path: path.to_path_buf(),
         source: e,
@@ -128,9 +130,19 @@ fn validate_binary(path: &Path) -> Result<()> {
             source: e,
         })?;
 
-    if magic != [0x7f, b'E', b'L', b'F'] {
+    let is_valid = match () {
+        // ELF magic: 0x7f 'E' 'L' 'F'
+        _ if magic == [0x7f, b'E', b'L', b'F'] => true,
+        // Mach-O 64-bit: 0xFEEDFACF (little-endian on ARM64)
+        _ if magic == [0xCF, 0xFA, 0xED, 0xFE] => true,
+        // Mach-O universal/fat binary: 0xCAFEBABE (big-endian)
+        _ if magic == [0xCA, 0xFE, 0xBA, 0xBE] => true,
+        _ => false,
+    };
+
+    if !is_valid {
         return Err(Error::UpdateInvalidBinary {
-            reason: "file does not appear to be a valid ELF binary".to_string(),
+            reason: "file does not appear to be a valid executable binary".to_string(),
         });
     }
 

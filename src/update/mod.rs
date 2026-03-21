@@ -22,7 +22,7 @@ pub struct ReleaseInfo {
     /// The version tag (e.g., "v1.0.0" or "1.0.0").
     pub tag_name: String,
 
-    /// Direct download URL for the Linux x86_64 binary asset.
+    /// Direct download URL for the platform-specific binary asset.
     /// Populated by scanning the `assets` array for a matching filename.
     pub download_url: Option<String>,
 
@@ -41,6 +41,31 @@ pub struct CachedCheck {
 
     /// Direct download URL, if available.
     pub download_url: Option<String>,
+}
+
+/// Return the expected release asset name for the current platform.
+///
+/// Maps compile-time `target_os` and `target_arch` to the asset names
+/// produced by the release workflow (e.g., `akm-linux-x86_64`,
+/// `akm-macos-aarch64`).
+pub fn platform_asset_name() -> &'static str {
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    {
+        "akm-linux-x86_64"
+    }
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    {
+        "akm-macos-aarch64"
+    }
+    // Fallback for unsupported platforms — the asset won't match any
+    // release artifact, so the update will report "no compatible binary".
+    #[cfg(not(any(
+        all(target_os = "linux", target_arch = "x86_64"),
+        all(target_os = "macos", target_arch = "aarch64"),
+    )))]
+    {
+        "akm-unsupported"
+    }
 }
 
 /// Normalize a version tag by stripping a leading "v" prefix.

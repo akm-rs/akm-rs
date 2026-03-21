@@ -11,7 +11,9 @@
 
 use crate::config::UpdateConfig;
 use crate::paths::Paths;
-use crate::update::{is_newer, normalize_version, CachedCheck, ReleaseInfo, CURRENT_VERSION};
+use crate::update::{
+    is_newer, normalize_version, platform_asset_name, CachedCheck, ReleaseInfo, CURRENT_VERSION,
+};
 
 use std::sync::mpsc;
 use std::thread;
@@ -157,13 +159,12 @@ pub(crate) fn fetch_latest_release(
         .ok_or_else(|| "Missing 'tag_name' in release response".to_string())?
         .to_string();
 
-    // Find the Linux x86_64 binary asset
+    // Find the binary asset matching the current platform
+    let expected_asset = platform_asset_name();
     let download_url = body["assets"].as_array().and_then(|assets| {
         assets.iter().find_map(|asset| {
             let name = asset["name"].as_str().unwrap_or("");
-            if (name.contains("linux") && (name.contains("x86_64") || name.contains("amd64")))
-                || name == "akm"
-            {
+            if name == expected_asset || name == "akm" {
                 asset["browser_download_url"].as_str().map(String::from)
             } else {
                 None

@@ -18,41 +18,55 @@ jobs:
     uses: ./.github/workflows/ci.yml
 
   build-release:
-    name: Build release binary
+    name: Build ${{ matrix.asset }}
     needs: ci
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            asset: akm-linux-x86_64
+            musl: true
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            asset: akm-macos-aarch64
+            musl: false
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-musl
+          targets: ${{ matrix.target }}
 
       - name: Install musl-tools
+        if: matrix.musl
         run: sudo apt-get update && sudo apt-get install -y musl-tools
 
       - uses: Swatinem/rust-cache@v2
         with:
-          key: release-musl
+          key: release-${{ matrix.target }}
 
-      - name: Build static binary
-        run: cargo build --release --target x86_64-unknown-linux-musl
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
 
       - name: Prepare release asset
         run: |
-          cp target/x86_64-unknown-linux-musl/release/akm akm-linux-x86_64
-          sha256sum akm-linux-x86_64 > akm-linux-x86_64.sha256
-          # Verify the binary is static
-          file akm-linux-x86_64
-          ldd akm-linux-x86_64 2>&1 || true
+          cp target/${{ matrix.target }}/release/akm ${{ matrix.asset }}
+          if command -v sha256sum >/dev/null 2>&1; then
+            sha256sum ${{ matrix.asset }} > ${{ matrix.asset }}.sha256
+          else
+            shasum -a 256 ${{ matrix.asset }} > ${{ matrix.asset }}.sha256
+          fi
+          file ${{ matrix.asset }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: release-binary
+          name: release-${{ matrix.target }}
           path: |
-            akm-linux-x86_64
-            akm-linux-x86_64.sha256
+            ${{ matrix.asset }}
+            ${{ matrix.asset }}.sha256
           retention-days: 1
 
   github-release:
@@ -62,10 +76,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download artifact
+      - name: Download all release artifacts
         uses: actions/download-artifact@v4
         with:
-          name: release-binary
+          pattern: release-*
+          merge-multiple: true
 
       - name: Extract version from tag
         id: version
@@ -79,6 +94,8 @@ jobs:
           files: |
             akm-linux-x86_64
             akm-linux-x86_64.sha256
+            akm-macos-aarch64
+            akm-macos-aarch64.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

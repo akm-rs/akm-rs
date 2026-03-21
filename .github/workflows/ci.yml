@@ -79,7 +79,7 @@ jobs:
           sh scripts/install.sh
           echo "POSIX sh dry-run: OK"
 
-      - name: Test platform detection
+      - name: Test platform detection (Linux x86_64)
         run: |
           bash -c '
             set -euo pipefail
@@ -89,18 +89,38 @@ jobs:
             [[ "$PLATFORM" == "linux" ]]
             [[ "$ARCH" == "x86_64" ]]
             [[ "$ASSET_NAME" == "akm-linux-x86_64" ]]
-            echo "Platform detection: OK"
+            echo "Platform detection (Linux x86_64): OK"
           '
 
-      - name: Test error handling
+      - name: Test unsupported platform error
         run: |
           bash -c '
-            uname() { echo "Darwin"; }
+            uname() { echo "FreeBSD"; }
             export -f uname
             set +e
             bash scripts/install.sh 2>&1
             status=$?
             set -e
             [[ $status -ne 0 ]]
-            echo "Error handling: OK"
+            echo "Unsupported platform error: OK"
+          '
+
+      - name: Test unsupported combination error (linux-aarch64)
+        run: |
+          bash -c '
+            # Mock uname to return Linux + arm64 (no prebuilt binary)
+            uname() {
+              case "$1" in
+                -s) echo "Linux" ;;
+                -m) echo "aarch64" ;;
+                *)  command uname "$@" ;;
+              esac
+            }
+            export -f uname
+            set +e
+            bash scripts/install.sh 2>&1
+            status=$?
+            set -e
+            [[ $status -ne 0 ]]
+            echo "Unsupported combination error: OK"
           '
