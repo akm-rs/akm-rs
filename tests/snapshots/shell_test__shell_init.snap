@@ -1,5 +1,6 @@
 ---
 source: tests/shell_test.rs
+assertion_line: 29
 expression: "akm::shell::shell_init_content()"
 ---
 #!/bin/bash
@@ -165,10 +166,11 @@ _akm_session_start() {
   fi
 
   # Bridge artifacts into the staging tree via symlinks.
-  # Each tool's subdir gets an artifacts/ symlink pointing to the real
-  # artifacts dir. Writes go straight through — no copy step needed.
-  # This lets every wrapper pass a single dir (staging) to its tool.
+  # A top-level artifacts/ symlink makes the path obvious to LLMs
+  # (they see the staging root as an "additional working directory").
+  # Per-tool symlinks are kept for tools that only read their own subdir.
   if [[ -n "$artifact_dir" && -n "$staging_dir" ]]; then
+    ln -sfn "$artifact_dir" "$staging_dir/artifacts"
     local tool_dir
     for tool_dir in .claude .copilot .agents; do
       ln -sfn "$artifact_dir" "$staging_dir/$tool_dir/artifacts"
