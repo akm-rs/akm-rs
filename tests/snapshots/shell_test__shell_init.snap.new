@@ -1,3 +1,8 @@
+---
+source: tests/shell_test.rs
+assertion_line: 29
+expression: "akm::shell::shell_init_content()"
+---
 #!/bin/bash
 # akm-init.sh — Source this file in your .bashrc to enable AKM session lifecycle
 # and LLM tool wrappers (claude, copilot, opencode).
