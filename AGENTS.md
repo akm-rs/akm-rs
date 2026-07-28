@@ -98,12 +98,27 @@ depend on one. It should not, for now.
   marginal gain for a TypeScript build, test and publish pipeline in a Rust repo,
   benefiting exactly one harness.
 
-The one capability flags genuinely cannot provide is **live re-sync**: `akm
-skills add` mid-session does not take effect until the harness restarts. That is
-not Pi-specific — it is true of every harness AKM supports — so it wants a
-cross-harness design, not a Pi-only extension. Pi is however the only one of the
-four with a documented runtime hook (`resources_discover`) for it, so it would
-likely be the first implementation if that work is ever taken on.
+Note on `resources_discover`: it is the hook by which an *extension* contributes
+extra skill paths at startup and on `/reload`. It is not a mechanism AKM needs —
+`--skill` already puts the staging dir in front of the same loader, and `/reload`
+re-scans it.
+
+There is no capability gap to close. Mid-session re-sync — `akm skills add`
+taking effect without restarting the harness — already works:
+
+- **Claude Code** watches the skill directories with chokidar (`add`/`change`/
+  `unlink` on `*.md`, `depth: 2`, symlink-aware, `awaitWriteFinish` debounce) and
+  reloads its skill index. The watched set includes `<dir>/.claude/skills` for
+  every working directory, which is exactly what `--add-dir <staging>` gives it.
+  So AKM's staging tree is live-watched with no extra work.
+- **Pi** does not watch, but `/reload` is a built-in slash command that reloads
+  "keybindings, extensions, skills, prompts, themes, and context files".
+  `AgentSession.reload()` calls `ResourceLoader.reload()`, which re-runs
+  discovery over `additionalSkillPaths` — the `--skill` directories. One keystroke,
+  no extension.
+- **OpenCode and Copilot** are unverified. Both ship stripped/compiled binaries
+  and a strings probe found no skill watcher or reload machinery in OpenCode.
+  Treat as unknown, not as "does not work".
 
 ## Supported platforms
 
