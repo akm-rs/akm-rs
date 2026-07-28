@@ -106,7 +106,6 @@ impl Paths {
     }
 
     /// `$XDG_CONFIG_HOME/akm/config.toml`
-    /// Note: Rust version uses `.toml` extension (fresh start, no migration).
     pub fn config_file(&self) -> PathBuf {
         self.config_dir.join("config.toml")
     }

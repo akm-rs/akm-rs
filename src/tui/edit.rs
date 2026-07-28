@@ -2,7 +2,6 @@
 //!
 //! Opened by pressing `e` in the list view. Unlike `akm skills edit` which
 //! opens $EDITOR on raw JSON, this provides a structured form-like interface.
-//! Triggers editing is deferred (read-only structured data).
 
 use crate::error::Result;
 use crate::tui::app::App;
