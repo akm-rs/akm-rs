@@ -2,10 +2,8 @@
 //!
 //! AKM is a **client** of spec registries. It pulls specs from registries
 //! into the local cold library. The `RegistrySource` trait abstracts the
-//! transport mechanism (git, HTTP, local dir).
-//!
-//! Only `GitRegistry` is implemented at launch. Future backends (HTTP/REST,
-//! local directory) implement the same trait — no sync logic changes needed.
+//! transport mechanism (git, HTTP, local dir). `GitRegistry` is the only
+//! implementation.
 
 pub mod git;
 

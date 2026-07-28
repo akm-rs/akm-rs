@@ -14,8 +14,6 @@ use std::path::Path;
 
 /// Set up session staging: read manifest, create symlinks for each spec.
 ///
-/// Doing the whole manifest in one process avoids N+1 subprocess invocations
-/// from the shell init.
 /// Returns Ok(()) even on partial failures (shell init handles gracefully).
 pub fn run(paths: &Paths, staging_dir: &str, project_root: &str) -> Result<()> {
     let staging = Path::new(staging_dir);

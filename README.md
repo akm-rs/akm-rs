@@ -22,14 +22,11 @@ AKM wires the same library of skills, agents and instructions into every harness
 
 `akm setup` installs shell functions that shadow `claude`, `copilot`, `opencode` and `pi`. Each one builds a per-session staging directory of symlinks into the cold library, hands it to the tool in whatever form that tool understands, and tears it down on exit.
 
-### Pi specifics
+### Pi
 
-Pi is supported as a first-tier harness, with two differences from the others:
+Pi has no `--add-dir`. Session skills mount with `--skill`, and the artifacts directory — which Pi's file tools can already reach — is named in the system prompt with `--append-system-prompt`. Your own `.pi/APPEND_SYSTEM.md` (project, else `~/.pi/agent/APPEND_SYSTEM.md`) is passed alongside it.
 
-- **Skills mount with `--skill`, not `--add-dir`.** Pi has no `--add-dir` flag. `--skill` is repeatable, accepts a directory, and follows symlinked skill directories, so the standard AKM staging tree works unchanged.
-- **The artifacts directory is announced, not mounted.** Pi does not sandbox its file tools to the working directory, so the artifacts path is already reachable; the wrapper appends a short note naming it via `--append-system-prompt`. Because a CLI `--append-system-prompt` replaces the `APPEND_SYSTEM.md` Pi would otherwise discover, the wrapper re-passes that file (project `.pi/APPEND_SYSTEM.md`, else `~/.pi/agent/APPEND_SYSTEM.md`) so your own append prompt survives.
-
-Pi has no subagent concept, so AKM `agents` specs are not mounted for it — only skills. `akm instructions sync` writes global instructions to `~/.pi/agent/AGENTS.md`, and `akm skills sync` symlinks core specs into `~/.pi/agent/skills/`.
+Pi has no subagents, so only skills are mounted for it.
 
 The tool list lives in `~/.local/share/akm/tools.json` and can be edited to add harnesses without recompiling.
 
@@ -41,9 +38,7 @@ The tool list lives in `~/.local/share/akm/tools.json` and can be edited to add 
 curl -fsSL https://akm.raphaelsimon.fr/install | sh
 ```
 
-This downloads the latest release binary to `~/.local/bin/akm`. The installer auto-detects your platform and downloads the correct binary.
-
-**Supported platforms:**
+Installs the latest release binary to `~/.local/bin/akm`, detecting the platform:
 
 | Platform | Architecture | Asset |
 |----------|-------------|-------|
@@ -186,22 +181,13 @@ akm completions fish > ~/.config/fish/completions/akm.fish
 
 Config lives at `~/.config/akm/config.toml` (XDG-compliant). Created by `akm setup` or on first run with defaults.
 
-## Creating a Release
+## How a session works
 
-After merging to `main`:
-
-```bash
-git tag v1.0.0-rc1
-git push origin main --tags
-```
-
-This triggers the release workflow which:
-1. Runs all CI checks (fmt, clippy, test, build, MSRV, installer tests)
-2. Builds platform binaries in parallel:
-   - Linux x86_64 (static, musl-linked)
-   - macOS aarch64 (Apple Silicon)
-3. Creates a GitHub Release with all binaries + SHA256 checksums
-4. Publishes to crates.io (requires `CARGO_REGISTRY_TOKEN` secret)
+1. The wrapper function for a harness (`claude`, `copilot`, `opencode`, `pi`) creates a staging directory under `$XDG_CACHE_HOME/akm/<repo>-<ts>-<pid>`, with one subdirectory per harness.
+2. `akm skills session-setup` reads the project manifest (`.agents/akm.json`) and symlinks each declared spec from the cold library into every harness subdirectory.
+3. If the artifacts feature is on, the project's artifacts directory is symlinked in at the staging root and per harness — except for Pi, which is given the absolute path instead.
+4. The harness is launched with whatever flag or environment variable it uses to pick the staging tree up.
+5. On exit the staging directory is removed and artifacts are optionally committed and pushed.
 
 ## Development
 
@@ -212,46 +198,7 @@ cargo fmt --check                 # format check
 cargo build --release             # release build
 ```
 
-### Project Structure
-
-```
-src/
-├── main.rs              # Entry point, clap CLI
-├── lib.rs               # Library root
-├── config.rs            # TOML config
-├── paths.rs             # XDG path resolution
-├── error.rs             # Error hierarchy (thiserror)
-├── git.rs               # Git helper (wraps std::process::Command)
-├── github.rs            # GitHub URL parser + Contents API client
-├── editor.rs            # $EDITOR invocation
-├── commands/            # CLI command implementations
-│   ├── config.rs        # akm config
-│   ├── setup.rs         # akm setup
-│   ├── sync.rs          # akm sync
-│   ├── update.rs        # akm update
-│   ├── completions.rs   # akm completions
-│   ├── artifacts/       # akm artifacts sync
-│   ├── instructions/    # akm instructions sync/edit/scaffold-project
-│   └── skills/          # akm skills * (sync, list, import, promote, …)
-├── library/             # Spec model, libgen, manifest, symlinks, tool dirs
-├── registry/            # RegistrySource trait + GitRegistry
-├── artifacts/           # Artifact repo sync
-├── update/              # Self-update + version check
-├── completions/         # clap_complete generation + dynamic completions
-├── tui/                 # Interactive views (ratatui)
-└── shell/               # Shell init generation
-    ├── akm-init.sh      # Session lifecycle + per-harness tool wrappers
-    └── tools.json       # Harness definitions (name, command, global dir)
-```
-
-### How a session works
-
-1. The wrapper function for a harness (`claude`, `copilot`, `opencode`, `pi`) runs `_akm_session_start`.
-2. That creates a staging directory under `$XDG_CACHE_HOME/akm/<repo>-<ts>-<pid>` with one subdirectory per harness.
-3. `akm skills session-setup` reads the project manifest (`.agents/akm.json`) and symlinks each declared spec from the cold library into every harness subdirectory.
-4. If the artifacts feature is on, the project's artifacts directory is symlinked in at the staging root (and per harness), except for Pi which is given the absolute path instead.
-5. The harness is launched with whatever flag or environment variable it uses to pick the staging tree up.
-6. On exit the staging directory is removed and artifacts are optionally committed and pushed.
+See [docs/development.md](docs/development.md) for the source layout and the release process, and [docs/harnesses.md](docs/harnesses.md) for how harnesses are wired.
 
 ## License
 

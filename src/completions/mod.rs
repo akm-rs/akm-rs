@@ -4,9 +4,6 @@
 //! command outputs a registration script that tells the shell to invoke
 //! `COMPLETE=<shell> akm` on Tab press. The binary then returns candidates
 //! (both static subcommands/flags and dynamic spec IDs).
-//!
-//! This module does NOT use `clap_complete::generate()` (the legacy AOT approach),
-//! which produces static scripts that cannot call back for dynamic completions.
 
 pub mod dynamic;
 
@@ -15,9 +12,6 @@ use crate::paths::Paths;
 use std::path::{Path, PathBuf};
 
 /// Supported shells for completion registration.
-///
-/// Uses clap's `ValueEnum` derive for CLI argument parsing, avoiding
-/// a redundant custom `from_str` implementation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum Shell {
     Bash,

@@ -18,12 +18,11 @@ expression: "akm::shell::shell_init_content()"
 
 # --- Config ---
 
-# Reads config via the akm binary's proper TOML parser.
-# This avoids fragile grep/sed parsing and eliminates the jq dependency.
-# Each value is cached in a shell variable for the session lifetime.
+# Reads config through the akm binary, caching each value in a shell variable
+# for the session lifetime.
 #
-# Note: `akm config <key>` prints "(not set)" for unset values.
-# We guard against this with explicit empty-check fallbacks.
+# `akm config <key>` prints "(not set)" for unset values — hence the explicit
+# empty-check fallbacks.
 _akm_load_config() {
   local raw
   raw="$(akm config features 2>/dev/null || true)"
@@ -72,16 +71,14 @@ _akm_skills_session_start() {
   local session_id="${project_name:-anon}-$(date +%s)-$$"
   local staging="${XDG_CACHE_HOME:-$HOME/.cache}/akm/$session_id"
 
-  # Create staging directory structure.
-  # Pi is included: it has no subagent concept, but keeping the layout uniform
-  # keeps this in step with `akm skills load`, which creates both subdirs.
+  # Create staging directory structure. Pi gets an agents/ subdir it never
+  # reads, so the layout matches `akm skills load`, which creates both.
   local tool_dir
   for tool_dir in .claude .copilot .agents .pi; do
     mkdir -p "$staging/$tool_dir"/{skills,agents}
   done
 
-  # Delegate all manifest loading and symlink creation to the Rust binary
-  # in a single process invocation (avoids N+1 subprocess overhead).
+  # Manifest loading and symlink creation happen in one binary invocation.
   akm skills session-setup "$staging" "$project_root" 2>/dev/null || true
 
   export AKM_SESSION="$staging"
@@ -166,12 +163,10 @@ _akm_session_start() {
     fi
   fi
 
-  # Bridge artifacts into the staging tree via symlinks.
-  # A top-level artifacts/ symlink makes the path obvious to LLMs
-  # (they see the staging root as an "additional working directory").
-  # Per-tool symlinks are kept for tools that only read their own subdir.
-  # Pi is excluded: it never reads the staging root, and it is told the
-  # artifact dir by absolute path instead (see the `pi)` branch below).
+  # Bridge artifacts into the staging tree via symlinks: one at the root, where
+  # a tool given the staging dir as a working directory will see it, and one per
+  # tool for those that only read their own subdir. Pi reads neither — it is
+  # told the artifact dir by absolute path instead (see the `pi)` branch below).
   if [[ -n "$artifact_dir" && -n "$staging_dir" ]]; then
     ln -sfn "$artifact_dir" "$staging_dir/artifacts"
     local tool_dir
@@ -225,9 +220,6 @@ _akm_pi_append_file() {
 }
 
 # The artifacts announcement appended to Pi's system prompt.
-#
-# Pi has no --add-dir, and needs none: its tools are not sandboxed to the
-# working directory. The artifacts dir only has to be named.
 _akm_pi_artifacts_prompt() {
   cat <<EOF
 ## AKM artifacts directory
@@ -259,9 +251,9 @@ _akm_wrap_tool() {
       fi
       ;;
     pi)
-      # Pi has no --add-dir. Session skills mount explicitly with --skill
-      # (repeatable, and Pi follows symlinked skill directories); the artifacts
-      # dir is announced in the system prompt rather than mounted.
+      # Pi has no --add-dir. Skills mount with --skill (repeatable, and Pi
+      # follows symlinked skill directories); the artifacts dir is announced in
+      # the system prompt rather than mounted.
       if [[ -n "${_AKM_STAGING_DIR:-}" && -d "${_AKM_STAGING_DIR}/.pi/skills" ]]; then
         cmd+=(--skill "${_AKM_STAGING_DIR}/.pi/skills")
       fi
@@ -273,9 +265,9 @@ _akm_wrap_tool() {
       fi
       ;;
     *)
-      # claude, copilot, vibe support --add-dir.
-      # Artifacts are symlinked into the staging dir, so one dir is enough.
-      # If only artifacts (no skills/staging), pass the artifact dir directly.
+      # claude and copilot support --add-dir. Artifacts are symlinked into the
+      # staging dir, so one dir is enough; with artifacts but no staging dir,
+      # pass the artifact dir directly.
       if [[ -n "${_AKM_STAGING_DIR:-}" ]]; then
         cmd+=(--add-dir "$_AKM_STAGING_DIR")
       elif [[ -n "${_AKM_ARTIFACT_DIR:-}" ]]; then
@@ -295,10 +287,7 @@ _akm_wrap_tool() {
 }
 
 # --- Exported wrappers ---
-# claude, copilot get the staging dir (which includes artifacts via symlink)
-# with --add-dir; opencode uses OPENCODE_CONFIG_DIR; pi uses --skill plus a
-# system-prompt note naming the artifacts dir.
-# Vibe is excluded (doesn't support --add-dir).
+# Vibe is excluded — it has no --add-dir, so there is nothing to wrap.
 
 claude()   { _akm_wrap_tool claude   "$@"; }
 copilot()  { _akm_wrap_tool copilot  "$@"; }

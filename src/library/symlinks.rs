@@ -5,8 +5,7 @@
 //! 2. **Session symlinks** — project/JIT specs symlinked into per-session staging dirs
 //! 3. **Cleanup** — remove broken symlinks, clear existing links before rebuild
 //!
-//! All symlink functions take tool dirs as a parameter (no global state).
-//! This makes them testable with temp directories.
+//! All symlink functions take tool dirs as a parameter — no global state.
 
 use crate::error::{Error, IoContext, Result};
 use crate::library::spec::{Spec, SpecType};
