@@ -1,4 +1,4 @@
-# Unreleased
+# 1.0.0-rc1
 
 - Add Pi (https://pi.dev) as a first-tier harness
   - `pi` shell wrapper: mounts session skills with `--skill <staging>/.pi/skills`
@@ -10,6 +10,8 @@
   - Fix session symlink helpers deriving the staging directory name from the
     last component of the global tool dir — wrong for `~/.pi/agent`
   - `tests/shell_test.rs` now exercises the generated wrapper for real
+- Remove all references to the retired Bash implementation from source comments
+  and documentation
 
 # alpha.11
 

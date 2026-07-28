@@ -1,7 +1,5 @@
 //! `akm skills promote` — import a local skill into cold storage.
 //!
-//! Bash: `cmd_skills_promote()` at bin/akm:2273–2449.
-//!
 //! Only skills (directories with SKILL.md) can be promoted, not agents.
 
 use crate::error::{Error, IoContext, Result};
@@ -149,8 +147,6 @@ pub fn run(paths: &Paths, spec_path: &str, force: bool, tool_dirs: &ToolDirs) ->
 }
 
 /// Recursively copy a directory.
-///
-/// Bash: `cp -r "$source" "$dest"`
 ///
 /// `pub(crate)` visibility: also used by `publish.rs`.
 pub(crate) fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {

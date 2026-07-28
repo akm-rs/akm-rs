@@ -1,7 +1,5 @@
 //! `akm skills unload` — remove spec(s) from active session.
 //!
-//! Bash: `cmd_skills_unload()` at bin/akm:1807–1828.
-//!
 //! Idempotency: Unloading an already-unloaded spec warns but succeeds.
 
 use crate::error::Result;

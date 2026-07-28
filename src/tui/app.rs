@@ -129,7 +129,7 @@ impl App {
 
     /// Apply interactive search filter to a list of specs.
     ///
-    /// Mirrors Bash `cmd_skills_search` logic: case-insensitive substring
+    /// Case-insensitive substring
     /// match against id + description + tags.
     pub fn search_filter<'a>(specs: &[&'a Spec], query: &str) -> Vec<&'a Spec> {
         if query.is_empty() {

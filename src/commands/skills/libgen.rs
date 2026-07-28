@@ -1,6 +1,4 @@
 //! `akm skills libgen` — regenerate library.json from disk.
-//!
-//! Bash equivalent: `cmd_skills_libgen()` at bin/akm:2246-2271.
 
 use crate::error::Result;
 use crate::library::libgen;
@@ -8,7 +6,7 @@ use crate::paths::Paths;
 
 /// Run the `akm skills libgen` command.
 ///
-/// Algorithm (matches Bash):
+/// Algorithm:
 /// 1. Locate target directory:
 ///    a. If in a git repo with `skills/` → use repo root
 ///    b. Otherwise → use cold library (`Paths::data_dir()`)

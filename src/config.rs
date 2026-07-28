@@ -1,8 +1,7 @@
 //! TOML configuration for AKM.
 //!
-//! Corresponds to the Bash config at `~/.config/akm/config`.
-//! The Rust version uses TOML format (`config.toml`) instead of flat
-//! key=value shell sourcing. This is a fresh start — no migration needed.
+//! Config lives at `~/.config/akm/config.toml` (XDG-compliant) and is
+//! parsed as TOML into typed structs.
 
 use crate::error::{Error, IoContext, Result};
 use crate::paths::Paths;
@@ -11,13 +10,12 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 /// Default community registry URL.
-/// Bash: `DEFAULT_SKILLS_COMMUNITY_REGISTRY="https://github.com/akm-rs/skillverse.git"`
 pub const DEFAULT_COMMUNITY_REGISTRY: &str = "https://github.com/akm-rs/skillverse.git";
 
 /// Default GitHub Releases API URL for update checks.
 pub const DEFAULT_UPDATE_URL: &str = "https://api.github.com/repos/akm-rs/akm-rs/releases/latest";
 
-/// Old (incorrect) update URL that pointed to the Bash repo instead of the Rust repo.
+/// Old (incorrect) update URL that pointed at the wrong repo.
 /// Used for automatic migration of existing configs created before the fix.
 const OLD_UPDATE_URL: &str = "https://api.github.com/repos/akm-rs/akm/releases/latest";
 
@@ -25,7 +23,6 @@ const OLD_UPDATE_URL: &str = "https://api.github.com/repos/akm-rs/akm/releases/l
 pub const DEFAULT_CHECK_INTERVAL_SECS: u64 = 86400;
 
 /// The three AKM feature domains.
-/// Bash: validated in `_config_validate()` for the `features` key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Feature {
@@ -63,18 +60,10 @@ impl std::str::FromStr for Feature {
 }
 
 /// Top-level AKM configuration.
-///
-/// Maps to the Bash config file variables:
-/// - `FEATURES` → `features`
-/// - `SKILLS_COMMUNITY_REGISTRY` → `skills.community_registry`
-/// - `SKILLS_PERSONAL_REGISTRY` → `skills.personal_registry`
-/// - `ARTIFACTS_REMOTE` → `artifacts.remote`
-/// - `ARTIFACTS_DIR` → `artifacts.dir`
-/// - `ARTIFACTS_AUTO_PUSH` → `artifacts.auto_push`
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     /// Enabled feature domains.
-    /// Bash: `FEATURES="skills,artifacts,instructions"`
+    /// Default: all three domains enabled.
     #[serde(default)]
     pub features: BTreeSet<Feature>,
 
@@ -95,13 +84,11 @@ pub struct Config {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SkillsConfig {
     /// Git URL for the community (read-only) registry.
-    /// Bash: `SKILLS_COMMUNITY_REGISTRY`
     /// Default: `None` (resolved to DEFAULT_COMMUNITY_REGISTRY at point of use)
     #[serde(default)]
     pub community_registry: Option<String>,
 
     /// Git URL for the personal (read-write) registry.
-    /// Bash: `SKILLS_PERSONAL_REGISTRY`
     #[serde(default)]
     pub personal_registry: Option<String>,
 }
@@ -110,17 +97,16 @@ pub struct SkillsConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArtifactsConfig {
     /// Git remote URL for the artifacts repository.
-    /// Bash: `ARTIFACTS_REMOTE`
     #[serde(default)]
     pub remote: Option<String>,
 
     /// Local directory for artifacts.
-    /// Bash: `ARTIFACTS_DIR` (default: `$HOME/.akm/artifacts`)
+    /// Default: `$HOME/.akm/artifacts`.
     #[serde(default)]
     pub dir: Option<PathBuf>,
 
     /// Whether to auto-push artifacts on session exit.
-    /// Bash: `ARTIFACTS_AUTO_PUSH` (default: true)
+    /// Default: true.
     #[serde(default = "default_true")]
     pub auto_push: bool,
 }
@@ -137,9 +123,8 @@ impl Default for ArtifactsConfig {
 
 /// Update-specific configuration.
 ///
-/// New in Rust version — replaces the Bash `AKM_REPO` concept.
-/// The Rust binary downloads pre-built releases from GitHub instead of
-/// pulling from a git repo.
+/// `url` is a full GitHub Releases API URL, so forks can point elsewhere.
+/// Updates download pre-built release binaries rather than building from source.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateConfig {
     /// URL for the GitHub Releases API (or compatible endpoint).
@@ -196,12 +181,11 @@ impl Default for Config {
     }
 }
 
-/// Migrate known-bad update URL from the old Bash repo to the correct Rust repo.
+/// Migrate the known-bad update URL to the correct repo.
 ///
-/// Early releases shipped with `DEFAULT_UPDATE_URL` pointing to `akm-rs/akm`
-/// (the Bash version). Once `akm setup` serialized this to `config.toml`, the
-/// wrong URL persisted even after the code default was fixed. This migration
-/// silently corrects it on load.
+/// Early releases shipped with `DEFAULT_UPDATE_URL` pointing at `akm-rs/akm`.
+/// Once `akm setup` serialized that to `config.toml`, the wrong URL persisted
+/// even after the code default was fixed. This migration corrects it on load.
 fn migrate_update_url(config: &mut Config) {
     if config.update.url == OLD_UPDATE_URL {
         config.update.url = DEFAULT_UPDATE_URL.to_string();
@@ -211,8 +195,8 @@ fn migrate_update_url(config: &mut Config) {
 impl Config {
     /// Load config from the TOML file at the path determined by `Paths`.
     ///
-    /// If the file does not exist, returns a default config (matches Bash
-    /// behavior where `_load_config()` silently returns if file is absent).
+    /// If the file does not exist, returns a default config — an absent
+    /// config file is not an error.
     ///
     /// Unknown keys at any level produce a warning to stderr but do not crash.
     /// Invalid values in sub-sections produce a warning and fall back to defaults.
@@ -340,7 +324,6 @@ impl Config {
 
     /// Save config to TOML file. Creates parent directories if needed.
     ///
-    /// Bash equivalent: `_write_config()`
     /// Idempotent — safe to call multiple times.
     pub fn save(&self, paths: &Paths) -> Result<()> {
         let config_file = paths.config_file();
@@ -363,18 +346,11 @@ impl Config {
     }
 
     /// Check if a feature is enabled.
-    ///
-    /// Bash equivalent: `_feature_enabled()`
-    /// ```bash
-    /// [[ ",$features," == *",$feature,"* ]]
-    /// ```
     pub fn is_feature_enabled(&self, feature: Feature) -> bool {
         self.features.contains(&feature)
     }
 
     /// Resolve the artifacts directory, falling back to the default.
-    ///
-    /// Bash: `ARTIFACTS_DIR="${ARTIFACTS_DIR:-$HOME/.akm/artifacts}"`
     pub fn artifacts_dir(&self, paths: &Paths) -> PathBuf {
         self.artifacts
             .dir
@@ -384,7 +360,6 @@ impl Config {
 
     /// Get the effective community registry URL, falling back to the default.
     ///
-    /// Bash: `SKILLS_COMMUNITY_REGISTRY="${SKILLS_COMMUNITY_REGISTRY:-$DEFAULT_SKILLS_COMMUNITY_REGISTRY}"`
     /// Returns the configured value or the built-in default. Use
     /// `community_registry_is_explicit()` to distinguish user-set from default.
     pub fn community_registry_url(&self) -> &str {
@@ -407,8 +382,6 @@ impl Config {
 }
 
 /// Addressable config keys for the `akm config <key> [value]` command.
-///
-/// Maps 1:1 to Bash `_config_key_to_var()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConfigKey {
     /// `features` — comma-separated enabled features
@@ -440,8 +413,6 @@ impl std::str::FromStr for ConfigKey {
     type Err = Error;
 
     /// Parse a CLI key string to ConfigKey.
-    ///
-    /// Bash equivalent: `_config_key_to_var()`
     fn from_str(s: &str) -> Result<Self> {
         match s {
             "features" => Ok(ConfigKey::Features),
@@ -492,8 +463,6 @@ impl ConfigKey {
     }
 
     /// Set a value on a Config, with validation.
-    ///
-    /// Bash equivalent: `_config_validate()` + `eval "$var_name=\"$value\""`
     pub fn set(&self, config: &mut Config, value: &str) -> Result<()> {
         match self {
             ConfigKey::Features => {

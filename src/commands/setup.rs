@@ -1,7 +1,5 @@
 //! `akm setup` — interactive feature configuration wizard.
 //!
-//! Bash equivalent: `cmd_setup()` at bin/akm:645.
-//!
 //! Prompts the user to enable/disable each domain (skills, artifacts,
 //! instructions), configure remotes, then writes config, installs shell
 //! init, patches .bashrc, and runs initial sync.
@@ -14,13 +12,9 @@ use crate::shell;
 use std::io::{self, BufRead, Write};
 
 /// Default community registry URL.
-///
-/// Bash: `DEFAULT_SKILLS_COMMUNITY_REGISTRY` at bin/akm:11
 const DEFAULT_COMMUNITY_REGISTRY: &str = "https://github.com/akm-rs/skillverse.git";
 
 /// Scoped setup flags — which domains to configure.
-///
-/// Bash: `do_skills`, `do_artifacts`, `do_instructions` flags at bin/akm:647–648
 #[derive(Debug, Clone)]
 pub struct SetupScope {
     /// Whether to configure the skills domain.
@@ -115,8 +109,6 @@ impl Prompter for StdinPrompter {
 
 /// Run the setup wizard.
 ///
-/// Bash equivalent: `cmd_setup()` at bin/akm:645.
-///
 /// Flow:
 /// 1. Load existing config (for defaults on re-run)
 /// 2. Display header with supported tools
@@ -178,8 +170,6 @@ pub fn run(paths: &Paths, scope: SetupScope, prompter: &mut dyn Prompter) -> Res
 }
 
 /// Configure the skills domain interactively.
-///
-/// Bash equivalent: bin/akm:687–733
 fn configure_skills(config: &mut Config, prompter: &mut dyn Prompter) -> Result<()> {
     println!("Skills management (cold library, session loading, project manifests)");
 
@@ -220,8 +210,6 @@ fn configure_skills(config: &mut Config, prompter: &mut dyn Prompter) -> Result<
 }
 
 /// Configure the artifacts domain interactively.
-///
-/// Bash equivalent: bin/akm:737–783
 fn configure_artifacts(
     config: &mut Config,
     paths: &Paths,
@@ -270,8 +258,6 @@ fn configure_artifacts(
 }
 
 /// Configure the instructions domain interactively.
-///
-/// Bash equivalent: bin/akm:786–819
 fn configure_instructions(
     config: &mut Config,
     paths: &Paths,
@@ -331,7 +317,6 @@ fn configure_instructions(
 
 /// Run initial sync for all enabled features.
 ///
-/// Bash equivalent: bin/akm:841–865
 /// Errors are caught and printed as warnings (non-fatal).
 fn run_initial_sync(paths: &Paths, config: &Config) {
     if config.is_feature_enabled(Feature::Skills) {

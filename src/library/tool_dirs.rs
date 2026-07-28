@@ -1,13 +1,8 @@
 //! Tool directory resolution — maps LLM tools to their global directories.
 //!
-//! Bash uses a hardcoded array:
-//! ```bash
-//! GLOBAL_TOOL_DIRS=("$HOME/.claude" "$HOME/.copilot" "$HOME/.agents" "$HOME/.vibe")
-//! ```
-//!
-//! The Rust version loads from `tools.json` (in the data dir) and falls back
-//! to built-in defaults matching the Bash list. This allows new tools to be
-//! added without recompiling.
+//! Definitions load from `tools.json` in the data dir, falling back to the
+//! built-in defaults below. New harnesses can therefore be added without
+//! recompiling.
 //!
 //! `tools.json` format:
 //! ```json
@@ -171,8 +166,6 @@ impl ToolDirs {
     }
 
     /// Get display names of all tools (for help text).
-    ///
-    /// Bash: `_supported_tools_names()` at bin/akm:60
     pub fn display_names(&self) -> String {
         self.tools
             .iter()
@@ -205,7 +198,7 @@ mod tests {
     }
 
     #[test]
-    fn display_names_matches_bash() {
+    fn display_names_lists_every_tool() {
         let tmp = TempDir::new().unwrap();
         let td = ToolDirs::builtin(tmp.path());
         assert_eq!(

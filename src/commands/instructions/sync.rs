@@ -1,15 +1,10 @@
 //! `akm instructions sync` — distribute global instructions to tool directories.
 //!
-//! Bash: `cmd_instructions_sync()` at bin/akm:549–584.
-//!
 //! Behavior:
 //! 1. Check if global-instructions.md exists at `~/.akm/global-instructions.md`
-//! 2. If not, print warning and return Ok (not an error — same as Bash)
+//! 2. If not, print warning and return Ok (not an error)
 //! 3. For each target (tool dir + filename): create dir, copy file
 //! 4. Print count of distributed copies
-//!
-//! The Bash version also has a migration from the old XDG location. The Rust
-//! version is v1.0 (no backward compat), so migration is omitted.
 
 use crate::commands::instructions::{default_targets, InstructionsTarget};
 use crate::error::{IoContext, Result};
@@ -23,7 +18,7 @@ use std::path::Path;
 ///
 /// # Errors
 /// Returns `Err` only on filesystem failures (permission denied, disk full).
-/// Missing source file is a warning, not an error (matches Bash behavior).
+/// Missing source file is a warning, not an error.
 pub fn run(paths: &Paths) -> Result<()> {
     let source = paths.global_instructions();
     let home = paths.home();

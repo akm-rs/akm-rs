@@ -191,7 +191,7 @@ Config lives at `~/.config/akm/config.toml` (XDG-compliant). Created by `akm set
 After merging to `main`:
 
 ```bash
-git tag v1.0.0-alpha.1
+git tag v1.0.0-rc1
 git push origin main --tags
 ```
 

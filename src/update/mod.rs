@@ -245,6 +245,16 @@ mod tests {
         assert!(!is_newer("1.0.0-beta.1", "1.0.0-alpha.1"));
     }
 
+    /// The upgrade path shipped users actually take into 1.0.0-rc1, which
+    /// spells the pre-release without a dot separator.
+    #[test]
+    fn test_is_newer_alpha_to_rc1() {
+        assert!(is_newer("1.0.0-alpha.11", "1.0.0-rc1"));
+        assert!(!is_newer("1.0.0-rc1", "1.0.0-alpha.11"));
+        assert!(!is_newer("1.0.0-rc1", "1.0.0-rc1"));
+        assert!(is_newer("1.0.0-rc1", "1.0.0"));
+    }
+
     #[test]
     fn test_normalize_version_variants() {
         assert_eq!(normalize_version("v1.0.0"), "1.0.0");

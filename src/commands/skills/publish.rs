@@ -1,7 +1,5 @@
 //! `akm skills publish` — publish spec to personal registry.
 //!
-//! Bash: `cmd_skills_publish()` at bin/akm:2084–2244.
-//!
 //! All git operations go through the RegistrySource trait / GitRegistry.
 
 use crate::config::Config;

@@ -3,8 +3,6 @@
 //! Frontmatter is YAML enclosed between two `---` markers at the start of
 //! a Markdown file. This is the standard format used by the Agent Skills
 //! specification.
-//!
-//! Bash equivalent: `_extract_fm_field()` at bin/akm:177
 
 use crate::error::{Error, IoContext, Result};
 use std::path::Path;
@@ -12,7 +10,7 @@ use std::path::Path;
 /// Parsed frontmatter fields from a spec markdown file.
 ///
 /// Only the fields AKM cares about are extracted. Unknown YAML keys are
-/// silently ignored (matching the Bash behavior).
+/// silently ignored.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Frontmatter {
     /// The `name:` field. Required by the Agent Skills spec.
@@ -25,7 +23,7 @@ pub struct Frontmatter {
 ///
 /// Returns `None` if no frontmatter block is found.
 fn extract_yaml_block(content: &str) -> Option<String> {
-    // Normalize line endings (matches Bash: sed 's/\r$//')
+    // Normalize line endings
     let content = content.replace("\r\n", "\n");
     let content = content.trim_start();
 
@@ -33,13 +31,8 @@ fn extract_yaml_block(content: &str) -> Option<String> {
         return None;
     }
 
-    let after_first = match content.strip_prefix("---") {
-        Some(rest) => {
-            let rest = rest.strip_prefix('\n').unwrap_or(rest);
-            rest
-        }
-        None => return None,
-    };
+    let after_first = content.strip_prefix("---")?;
+    let after_first = after_first.strip_prefix('\n').unwrap_or(after_first);
 
     let mut yaml_lines = Vec::new();
     let mut found_end = false;
@@ -159,8 +152,6 @@ impl Frontmatter {
 }
 
 /// Strip surrounding YAML quotes from a value.
-///
-/// Bash: `sed "s/^[\"']//; s/[\"']$//"`
 fn strip_yaml_quotes(s: &str) -> String {
     let s = s.trim();
     for quote in ['"', '\''] {

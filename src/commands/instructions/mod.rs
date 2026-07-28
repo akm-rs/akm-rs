@@ -13,8 +13,6 @@ use std::path::{Path, PathBuf};
 ///
 /// Each tool expects global instructions at a different path with a different
 /// filename. This struct captures that mapping.
-///
-/// Bash: the `targets` associative array in `cmd_instructions_sync()` (bin/akm:567–572).
 #[derive(Debug, Clone)]
 pub struct InstructionsTarget {
     /// Absolute path to the target directory.
@@ -32,21 +30,19 @@ impl InstructionsTarget {
 
 /// Build the list of instructions sync targets.
 ///
-/// Maps the Bash associative array:
-/// ```bash
-/// local -A targets=(
-///     ["$HOME/.claude"]="CLAUDE.md"
-///     ["$HOME/.copilot"]="copilot-instructions.md"
-///     ["$HOME/.vibe/prompts"]="cli.md"
-///     ["$HOME/.agents"]="AGENTS.md"
-/// )
-/// ```
+/// | Directory | Filename |
+/// |-----------|----------|
+/// | `~/.claude` | `CLAUDE.md` |
+/// | `~/.copilot` | `copilot-instructions.md` |
+/// | `~/.vibe/prompts` | `cli.md` |
+/// | `~/.agents` | `AGENTS.md` |
+/// | `~/.pi/agent` | `AGENTS.md` |
 ///
 /// Note: The `.vibe` target uses a subdirectory (`prompts/`), which differs from
 /// the generic tool dir (`.vibe`). This is instructions-specific behavior.
 ///
-/// Pi extends the Bash list: it reads a global context file from its config dir
-/// (`~/.pi/agent/AGENTS.md`), using the same `AGENTS.md` name as OpenCode.
+/// Pi reads its global context file from its config dir (`~/.pi/agent`), using
+/// the same `AGENTS.md` name as OpenCode.
 ///
 /// # Arguments
 /// * `home` — User home directory (for resolving `~/.claude`, etc.)

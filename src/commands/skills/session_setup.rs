@@ -1,8 +1,7 @@
 //! Hidden helper: set up session staging from project manifest in a single invocation.
 //!
 //! Called by the generated akm-init.sh to populate a staging directory with
-//! symlinks for all specs declared in the project manifest. Replaces the
-//! Bash version's per-spec jq lookups with a single process.
+//! symlinks for all specs declared in the project manifest.
 //!
 //! Not intended for direct user invocation (hidden from help).
 
@@ -15,10 +14,8 @@ use std::path::Path;
 
 /// Set up session staging: read manifest, create symlinks for each spec.
 ///
-/// Bash equivalent: the loop in `_akm_skills_session_start()` that calls
-/// `_akm_create_session_symlink()` for each manifest entry.
-///
-/// This replaces N+1 subprocess invocations with a single one.
+/// Doing the whole manifest in one process avoids N+1 subprocess invocations
+/// from the shell init.
 /// Returns Ok(()) even on partial failures (shell init handles gracefully).
 pub fn run(paths: &Paths, staging_dir: &str, project_root: &str) -> Result<()> {
     let staging = Path::new(staging_dir);

@@ -1,6 +1,4 @@
 //! Library generation (libgen) — scan directories and build library.json.
-//!
-//! Bash equivalent: `_skills_libgen_for_dir()` at bin/akm:1412.
 
 use crate::error::{Error, IoContext, Result};
 use crate::library::frontmatter::Frontmatter;
@@ -24,8 +22,6 @@ pub struct LibgenResult {
 /// 2. Scans `target_dir/skills/` and `target_dir/agents/`
 /// 3. Preserves metadata for existing specs, creates entries for new ones
 /// 4. Writes the updated library.json
-///
-/// Bash: `_skills_libgen_for_dir()` at bin/akm:1412-1488
 pub fn generate(target_dir: &Path) -> Result<LibgenResult> {
     let skills_dir = target_dir.join("skills");
     let agents_dir = target_dir.join("agents");

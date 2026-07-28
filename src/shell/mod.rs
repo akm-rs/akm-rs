@@ -5,7 +5,6 @@
 //! artifact pull/push) and tool wrappers (claude, copilot, opencode) that
 //! pass `--add-dir` flags to the underlying tools.
 //!
-//! Bash equivalents:
 //! - Template: `shell/akm-init.sh` (entire file)
 //! - Install: `install.sh:36–38` (cp to data dir)
 //! - .bashrc wiring: `_patch_bashrc()` at bin/akm:93
@@ -35,8 +34,6 @@ const BASHRC_MARKER_END: &str = "# <<< akm <<<";
 ///
 /// Creates `$XDG_DATA_HOME/akm/shell/akm-init.sh` from the embedded template.
 /// Idempotent — overwrites any existing file (picks up new version on update).
-///
-/// Bash equivalent: `install.sh:36–37`
 pub fn install_shell_init(paths: &Paths) -> Result<()> {
     let shell_dir = paths.data_dir().join("shell");
     std::fs::create_dir_all(&shell_dir).io_context(format!(
@@ -57,8 +54,6 @@ pub fn install_shell_init(paths: &Paths) -> Result<()> {
 ///
 /// Creates `$XDG_DATA_HOME/akm/tools.json` from the embedded content.
 /// Idempotent — overwrites any existing file.
-///
-/// Bash equivalent: `install.sh:38`
 pub fn install_tools_json(paths: &Paths) -> Result<()> {
     let tools_path = paths.tools_json();
     if let Some(parent) = tools_path.parent() {
@@ -77,8 +72,6 @@ pub fn install_tools_json(paths: &Paths) -> Result<()> {
 /// Uses marker blocks (`# >>> akm >>>` / `# <<< akm <<<`) for idempotent
 /// insertion. If the markers already exist, the block between them is replaced.
 /// If .bashrc doesn't exist, it is created.
-///
-/// Bash equivalent: `_patch_bashrc()` at bin/akm:93
 pub fn patch_bashrc(paths: &Paths) -> Result<()> {
     let home = paths.home();
     let bashrc = home.join(".bashrc");

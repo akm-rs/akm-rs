@@ -1,7 +1,5 @@
 //! `akm skills edit` — edit spec metadata in $EDITOR.
 //!
-//! Bash: `cmd_skills_edit()` at bin/akm:2452–2588.
-//!
 //! This command is interactive (requires a TTY for the editor).
 
 use crate::editor::resolve_editor;

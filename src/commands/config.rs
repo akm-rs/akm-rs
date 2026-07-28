@@ -1,6 +1,4 @@
 //! `akm config [key] [value]` — view, get, or set configuration.
-//!
-//! Bash equivalent: `cmd_config()` at bin/akm:877.
 
 use crate::config::{Config, ConfigKey};
 use crate::error::Result;
@@ -43,8 +41,6 @@ pub fn run(paths: &Paths, key: Option<String>, value: Option<String>) -> Result<
 }
 
 /// Print all config values.
-///
-/// Bash equivalent: `_config_print_all()` at bin/akm:957.
 fn print_all(paths: &Paths, config: &Config) {
     let config_file = paths.config_file();
     if !config_file.exists() {

@@ -1,7 +1,5 @@
 //! `akm instructions edit` — edit global instructions in $EDITOR.
 //!
-//! Bash: `cmd_instructions_edit()` at bin/akm:614–643.
-//!
 //! Behavior:
 //! 1. Ensure global-instructions.md exists (create with starter header if not)
 //! 2. Resolve editor ($EDITOR → git var GIT_EDITOR → nano)
@@ -22,8 +20,6 @@ use std::path::Path;
 use std::process::Command;
 
 /// Ensure global instructions file exists, creating with starter header if needed.
-///
-/// Bash: `echo "# Global LLM Instructions" > "$instructions_file"` (bin/akm:627)
 ///
 /// This is extracted as a helper for testability — `run()` opens an editor
 /// which is inherently untestable in unit tests.
@@ -78,7 +74,6 @@ pub fn run(paths: &Paths) -> Result<()> {
     }
 
     // Prompt to sync after editing (only if interactive TTY)
-    // Bash: `read -rp "Sync changes to tool directories? [Y/n]: " sync_answer`
     if io::stdin().is_terminal() && prompt_sync()? {
         let home = paths.home();
         let targets = default_targets(home);
@@ -90,7 +85,6 @@ pub fn run(paths: &Paths) -> Result<()> {
 
 /// Prompt "Sync changes to tool directories? [Y/n]: " and return true for yes.
 ///
-/// Bash: `read -rp "Sync changes to tool directories? [Y/n]: " sync_answer`
 /// Default is Y (Enter = yes).
 fn prompt_sync() -> Result<bool> {
     print!("Sync changes to tool directories? [Y/n]: ");

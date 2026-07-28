@@ -17,8 +17,6 @@ const SPEC_SUBDIRS: &[&str] = &["skills", "agents"];
 
 /// Create global symlinks for a single spec across all tool directories.
 ///
-/// Bash: `_create_symlink()` at bin/akm:214–248
-///
 /// Returns `Ok(false)` if source doesn't exist on disk.
 /// Returns `Ok(true)` if symlinks were created.
 pub fn create_global(spec: &Spec, library_dir: &Path, tool_dirs: &[PathBuf]) -> Result<bool> {
@@ -69,8 +67,6 @@ pub fn create_global(spec: &Spec, library_dir: &Path, tool_dirs: &[PathBuf]) -> 
 /// `staging_names` are the per-tool directory names inside the staging tree
 /// (see [`crate::library::tool_dirs::ToolDirs::staging_names`]), not the
 /// absolute global tool dirs used by [`create_global`].
-///
-/// Bash: `_create_session_symlink()` at bin/akm:251–277
 pub fn create_session(
     spec: &Spec,
     library_dir: &Path,
@@ -106,8 +102,6 @@ pub fn create_session(
 
 /// Remove session symlinks for a spec from a staging directory.
 ///
-/// Bash: `_remove_session_symlink()` at bin/akm:280–307
-///
 /// Returns `Ok(true)` if any symlinks were found and removed.
 ///
 /// `staging_names` matches [`create_session`].
@@ -137,8 +131,6 @@ pub fn remove_session(id: &str, staging_dir: &Path, staging_names: &[&str]) -> R
 }
 
 /// Clear all symlinks (not regular files/dirs) from tool dirs.
-///
-/// Bash: bin/akm:1617–1624
 ///
 /// Only removes symlinks — real files and directories are left intact.
 /// Returns the number of symlinks removed.
@@ -173,8 +165,6 @@ pub fn clear_all(tool_dirs: &[PathBuf]) -> Result<usize> {
 }
 
 /// Clean broken symlinks from tool dirs.
-///
-/// Bash: bin/akm:1627–1633
 ///
 /// A broken symlink is one where `is_symlink()` is true but `exists()` is false.
 /// Returns the number of broken symlinks removed.
@@ -211,8 +201,6 @@ pub fn clean_broken(tool_dirs: &[PathBuf]) -> Result<usize> {
 
 /// Rebuild global symlinks for all core specs.
 ///
-/// Bash: bin/akm:1611–1641 (steps 5 of cmd_skills_sync)
-///
 /// This is the high-level function called by the sync command.
 /// It clears all existing symlinks, cleans broken ones, then creates
 /// fresh symlinks for every core spec.
@@ -235,10 +223,10 @@ pub fn rebuild_core(
         match create_global(spec, library_dir, tool_dirs) {
             Ok(true) => count += 1,
             Ok(false) => {
-                // Source doesn't exist — skip silently (matches Bash || true)
+                // Source doesn't exist — skip silently
             }
             Err(e) => {
-                // Log warning but continue (matches Bash || true)
+                // Log warning but continue
                 eprintln!("Warning: Failed to create symlink for '{}': {e}", spec.id);
             }
         }

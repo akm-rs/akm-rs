@@ -1,7 +1,5 @@
 //! `akm skills sync` — pull registries → cold library → libgen → symlinks.
 //!
-//! Bash equivalent: `cmd_skills_sync()` at bin/akm:1490–1642.
-//!
 //! Pipeline:
 //! 1. Pull community registry to cache (clone if first time)
 //! 2. Copy community cache → cold library (clean slate)
@@ -62,8 +60,6 @@ pub enum RegistryOutcome {
 ///
 /// This is the main entry point called by the CLI handler. It takes
 /// trait objects for registries to allow testing with mocks.
-///
-/// Bash: `cmd_skills_sync()` at bin/akm:1490–1642
 pub fn execute(
     paths: &Paths,
     community: &dyn RegistrySource,
@@ -91,7 +87,6 @@ pub fn execute(
     }
 
     // --- Snapshot user core overrides (before community copy overwrites library.json) ---
-    // Bash equivalent: bin/akm:1542–1548
     let core_overrides: std::collections::HashSet<String> =
         match Library::load_or_default(&library_json) {
             Ok(library) => library
@@ -145,7 +140,6 @@ pub fn execute(
     };
 
     // --- Step 4b: Restore user core overrides ---
-    // Bash equivalent: bin/akm:1619–1629
     let core_overrides_preserved = if !core_overrides.is_empty() && library_json.is_file() {
         let mut library = Library::load_from(&library_json)?;
         let mut restored = 0usize;
@@ -231,8 +225,6 @@ fn sync_registry(
 }
 
 /// Copy registry cache contents to the cold library (clean slate).
-///
-/// Bash: bin/akm:1542–1561
 fn copy_registry_to_library(cache_dir: &Path, library_dir: &Path) -> Result<()> {
     std::fs::create_dir_all(library_dir).io_context(format!(
         "Creating cold library dir {}",
@@ -275,8 +267,6 @@ fn copy_registry_to_library(cache_dir: &Path, library_dir: &Path) -> Result<()> 
 }
 
 /// Overlay registry cache onto the cold library (additive merge).
-///
-/// Bash: bin/akm:1589–1603
 ///
 /// Unlike `copy_registry_to_library`, this does NOT delete existing content.
 /// Personal specs are copied on top — personal wins on conflict.

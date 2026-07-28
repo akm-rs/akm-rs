@@ -1,16 +1,18 @@
 # Project LLM Instructions
 
-akm-rs is a CLI tool for AKM (Agent Kit Manager).
-It's a rewrite of akm, the initial mvp in Bash (https://github.com/akm-rs/akm/) 
-
-It has reached feature parity with the Bash version and now extends beyond it
-(e.g. `akm skills import` for GitHub URL imports, and Pi harness support).
+akm-rs is a CLI tool for AKM (Agent Kit Manager). It manages a shared library of
+skills, agents and instructions and wires them into coding harnesses per project
+and per session.
 
 ## Tech stack
 
-Rust
-Packages:
-clap, clap_complete, serde, toml, serde_json, ratatui, crossterm, ureq (HTTP client for GitHub API), thiserror, dirs, tempfile, assert_cmd, predicates, insta
+Rust (MSRV 1.88).
+
+Packages: clap, clap_complete, serde, toml, serde_json, ratatui, crossterm,
+ureq (HTTP client for the GitHub API), thiserror, dirs, tempfile, assert_cmd,
+predicates, insta.
+
+No runtime dependencies beyond git — the release artifact is a single binary.
 
 ## Review Criteria
 
@@ -78,6 +80,30 @@ Verified against pi `0.82.1` (`@earendil-works/pi-coding-agent`); docs at
 - **Config dir override.** `PI_CODING_AGENT_DIR` relocates `~/.pi/agent`, but
   `auth.json`, `models-store.json` and `sessions/` live there too — do not hijack
   it the way `OPENCODE_CONFIG_DIR` is hijacked for OpenCode.
+
+#### Pi extensions — evaluated and declined
+
+Pi is extension-first, so the obvious question is whether AKM should ship or
+depend on one. It should not, for now.
+
+- **`itisbryan/pi-add-dir`** is the community `/add-dir`. It cannot be driven at
+  launch — no flag, no env var, no settings key — and its directory list is
+  rebuilt from session entries on `session_start`, which also overwrites the
+  temp file that `resources_discover` reads. A wrapper cannot seed it. Its real
+  value is interactive *discovery* of related directories, which AKM does not
+  need: it already knows the path.
+- **A first-party AKM extension** would duplicate `--skill` via
+  `resources_discover`, and could inject the artifacts note via
+  `before_agent_start` without the `APPEND_SYSTEM.md` workaround. That is a
+  marginal gain for a TypeScript build, test and publish pipeline in a Rust repo,
+  benefiting exactly one harness.
+
+The one capability flags genuinely cannot provide is **live re-sync**: `akm
+skills add` mid-session does not take effect until the harness restarts. That is
+not Pi-specific — it is true of every harness AKM supports — so it wants a
+cross-harness design, not a Pi-only extension. Pi is however the only one of the
+four with a documented runtime hook (`resources_discover`) for it, so it would
+likely be the first implementation if that work is ever taken on.
 
 ## Supported platforms
 

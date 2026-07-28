@@ -2,8 +2,6 @@
 //!
 //! The manifest declares which specs a project uses. These are loaded into
 //! the per-session staging directory at session start (Layer 2 activation).
-//!
-//! Bash: `_manifest_path()`, `_ensure_manifest()`, `_read_manifest_ids()`
 
 use crate::error::{Error, IoContext, Result};
 use crate::library::spec::SpecType;
@@ -29,8 +27,6 @@ pub struct Manifest {
 
 impl Manifest {
     /// Compute the manifest path for a given project root.
-    ///
-    /// Bash: `_manifest_path()` at bin/akm:182
     pub fn path(project_root: &Path) -> PathBuf {
         project_root.join(".agents").join("akm.json")
     }
@@ -59,7 +55,6 @@ impl Manifest {
 
     /// Load manifest if it exists, or create a new empty one.
     ///
-    /// Bash: `_ensure_manifest()` at bin/akm:192
     /// Idempotent — safe to call multiple times.
     pub fn load_or_create(project_root: &Path) -> Result<Self> {
         let file_path = Self::path(project_root);
@@ -114,15 +109,11 @@ impl Manifest {
     }
 
     /// Get skill IDs.
-    ///
-    /// Bash: `_read_manifest_ids "$manifest" "skill"`
     pub fn skill_ids(&self) -> &[String] {
         &self.skills
     }
 
     /// Get agent IDs.
-    ///
-    /// Bash: `_read_manifest_ids "$manifest" "agent"`
     pub fn agent_ids(&self) -> &[String] {
         &self.agents
     }

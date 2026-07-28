@@ -1,6 +1,5 @@
 //! Skills subcommand handlers.
 //!
-//! Bash: `cmd_skills()` case statement at bin/akm:403–446 dispatches subcommands.
 //! Each submodule corresponds to one subcommand.
 
 pub mod add;
