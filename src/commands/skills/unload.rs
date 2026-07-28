@@ -16,7 +16,7 @@ pub fn run(_paths: &Paths, ids: &[String], tool_dirs: &ToolDirs) -> Result<()> {
     let staging = resolve_session()?;
 
     for id in ids {
-        match symlinks::remove_session(id, &staging, tool_dirs.dirs()) {
+        match symlinks::remove_session(id, &staging, &tool_dirs.staging_names()) {
             Ok(true) => {
                 println!("Unloaded: {id}");
             }

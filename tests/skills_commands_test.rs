@@ -245,9 +245,13 @@ fn load_creates_symlinks_in_session() {
     // Manually test the symlink creation (since we can't set env var safely in parallel)
     let library = Library::load_checked(&paths).unwrap();
     let spec = library.get("tdd").unwrap();
-    let created =
-        akm::library::symlinks::create_session(spec, paths.data_dir(), &staging, tool_dirs.dirs())
-            .unwrap();
+    let created = akm::library::symlinks::create_session(
+        spec,
+        paths.data_dir(),
+        &staging,
+        &tool_dirs.staging_names(),
+    )
+    .unwrap();
     assert!(created);
 
     // Verify symlink exists
@@ -273,12 +277,20 @@ fn load_idempotent() {
     let spec = library.get("tdd").unwrap();
 
     // Load twice — both should succeed
-    let c1 =
-        akm::library::symlinks::create_session(spec, paths.data_dir(), &staging, tool_dirs.dirs())
-            .unwrap();
-    let c2 =
-        akm::library::symlinks::create_session(spec, paths.data_dir(), &staging, tool_dirs.dirs())
-            .unwrap();
+    let c1 = akm::library::symlinks::create_session(
+        spec,
+        paths.data_dir(),
+        &staging,
+        &tool_dirs.staging_names(),
+    )
+    .unwrap();
+    let c2 = akm::library::symlinks::create_session(
+        spec,
+        paths.data_dir(),
+        &staging,
+        &tool_dirs.staging_names(),
+    )
+    .unwrap();
     assert!(c1);
     assert!(c2);
 }
@@ -301,11 +313,17 @@ fn unload_removes_symlinks() {
     let library = Library::load_checked(&paths).unwrap();
     let spec = library.get("tdd").unwrap();
 
-    akm::library::symlinks::create_session(spec, paths.data_dir(), &staging, tool_dirs.dirs())
-        .unwrap();
+    akm::library::symlinks::create_session(
+        spec,
+        paths.data_dir(),
+        &staging,
+        &tool_dirs.staging_names(),
+    )
+    .unwrap();
 
     let removed =
-        akm::library::symlinks::remove_session("tdd", &staging, tool_dirs.dirs()).unwrap();
+        akm::library::symlinks::remove_session("tdd", &staging, &tool_dirs.staging_names())
+            .unwrap();
     assert!(removed);
     assert!(!staging.join(".claude").join("skills").join("tdd").exists());
 }
@@ -318,7 +336,8 @@ fn unload_not_loaded_returns_false() {
     std::fs::create_dir_all(&staging).unwrap();
 
     let removed =
-        akm::library::symlinks::remove_session("nonexistent", &staging, tool_dirs.dirs()).unwrap();
+        akm::library::symlinks::remove_session("nonexistent", &staging, &tool_dirs.staging_names())
+            .unwrap();
     assert!(!removed);
 }
 
@@ -630,12 +649,22 @@ fn session_symlinks_create_and_scan() {
 
     // Load both specs into session
     let tdd = library.get("tdd").unwrap();
-    akm::library::symlinks::create_session(tdd, paths.data_dir(), &staging, tool_dirs.dirs())
-        .unwrap();
+    akm::library::symlinks::create_session(
+        tdd,
+        paths.data_dir(),
+        &staging,
+        &tool_dirs.staging_names(),
+    )
+    .unwrap();
 
     let reviewer = library.get("reviewer").unwrap();
-    akm::library::symlinks::create_session(reviewer, paths.data_dir(), &staging, tool_dirs.dirs())
-        .unwrap();
+    akm::library::symlinks::create_session(
+        reviewer,
+        paths.data_dir(),
+        &staging,
+        &tool_dirs.staging_names(),
+    )
+    .unwrap();
 
     // Verify symlinks exist
     assert!(staging

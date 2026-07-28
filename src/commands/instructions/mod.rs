@@ -45,6 +45,9 @@ impl InstructionsTarget {
 /// Note: The `.vibe` target uses a subdirectory (`prompts/`), which differs from
 /// the generic tool dir (`.vibe`). This is instructions-specific behavior.
 ///
+/// Pi extends the Bash list: it reads a global context file from its config dir
+/// (`~/.pi/agent/AGENTS.md`), using the same `AGENTS.md` name as OpenCode.
+///
 /// # Arguments
 /// * `home` — User home directory (for resolving `~/.claude`, etc.)
 pub fn default_targets(home: &Path) -> Vec<InstructionsTarget> {
@@ -65,6 +68,10 @@ pub fn default_targets(home: &Path) -> Vec<InstructionsTarget> {
             dir: home.join(".agents"),
             filename: "AGENTS.md".into(),
         },
+        InstructionsTarget {
+            dir: home.join(".pi").join("agent"),
+            filename: "AGENTS.md".into(),
+        },
     ]
 }
 
@@ -74,9 +81,9 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn default_targets_has_four_entries() {
+    fn default_targets_has_five_entries() {
         let targets = default_targets(Path::new("/home/user"));
-        assert_eq!(targets.len(), 4);
+        assert_eq!(targets.len(), 5);
     }
 
     #[test]
@@ -98,6 +105,10 @@ mod tests {
         assert_eq!(
             targets[3].path(),
             PathBuf::from("/home/user/.agents/AGENTS.md")
+        );
+        assert_eq!(
+            targets[4].path(),
+            PathBuf::from("/home/user/.pi/agent/AGENTS.md")
         );
     }
 

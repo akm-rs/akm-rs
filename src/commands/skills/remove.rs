@@ -54,7 +54,7 @@ pub fn run(paths: &Paths, ids: &[String], tool_dirs: &ToolDirs) -> Result<()> {
             // Auto-refresh staging if session is active
             if let Some(ref staging) = session_dir {
                 if staging.is_dir() {
-                    let _ = symlinks::remove_session(id, staging, tool_dirs.dirs());
+                    let _ = symlinks::remove_session(id, staging, &tool_dirs.staging_names());
                 }
             }
         } else {

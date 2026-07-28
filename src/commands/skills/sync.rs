@@ -631,7 +631,7 @@ mod tests {
         assert!(!report.personal_overlaid);
         assert_eq!(report.spec_count, Some(1));
         assert_eq!(report.symlink_count, 1);
-        assert_eq!(report.tool_dir_count, 4);
+        assert_eq!(report.tool_dir_count, 5);
 
         // Verify the symlink was created in all tool dirs
         assert!(home
@@ -641,6 +641,12 @@ mod tests {
             .is_symlink());
         assert!(home
             .join(".copilot")
+            .join("skills")
+            .join("test-skill")
+            .is_symlink());
+        assert!(home
+            .join(".pi")
+            .join("agent")
             .join("skills")
             .join("test-skill")
             .is_symlink());

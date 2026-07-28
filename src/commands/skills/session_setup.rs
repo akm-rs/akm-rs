@@ -61,7 +61,9 @@ pub fn run(paths: &Paths, staging_dir: &str, project_root: &str) -> Result<()> {
 
         // These must match the tool dirs in akm-init.sh's _akm_skills_session_start().
         // Vibe is intentionally excluded (doesn't support --add-dir).
-        for tool_dir in &[".claude", ".copilot", ".agents"] {
+        // Pi only reads `.pi/skills` (mounted with `--skill`) — it has no
+        // subagent concept, so `.pi/agents` stays unused.
+        for tool_dir in &[".claude", ".copilot", ".agents", ".pi"] {
             let target_dir = staging.join(tool_dir).join(subdir);
             let link = if spec.spec_type == SpecType::Skill {
                 target_dir.join(id)

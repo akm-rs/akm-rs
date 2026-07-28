@@ -58,7 +58,7 @@ fn instructions_sync_distributes_to_all_tool_dirs() {
         .env("XDG_CACHE_HOME", home.join(".cache"))
         .assert()
         .success()
-        .stdout(predicate::str::contains("4 tool directories"));
+        .stdout(predicate::str::contains("5 tool directories"));
 
     // Verify each target
     assert_eq!(
@@ -75,6 +75,10 @@ fn instructions_sync_distributes_to_all_tool_dirs() {
     );
     assert_eq!(
         fs::read_to_string(home.join(".agents/AGENTS.md")).unwrap(),
+        "Be concise."
+    );
+    assert_eq!(
+        fs::read_to_string(home.join(".pi/agent/AGENTS.md")).unwrap(),
         "Be concise."
     );
 }

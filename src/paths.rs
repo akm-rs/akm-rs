@@ -183,12 +183,14 @@ impl Paths {
     ///
     /// In the Rust version these come from tools.json, but we provide defaults
     /// matching the Bash hard-coded list for when tools.json is absent.
+    /// Pi extends the Bash list — its config dir is `~/.pi/agent`.
     pub fn default_global_tool_dirs(&self) -> Vec<PathBuf> {
         vec![
             self.home.join(".claude"),
             self.home.join(".copilot"),
             self.home.join(".agents"),
             self.home.join(".vibe"),
+            self.home.join(".pi").join("agent"),
         ]
     }
 }

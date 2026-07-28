@@ -65,7 +65,12 @@ pub fn run(paths: &Paths, ids: &[String], tool_dirs: &ToolDirs) -> Result<()> {
         // Bash: auto-refresh staging if session is active
         if let Some(ref staging) = session_dir {
             if staging.is_dir() {
-                let _ = symlinks::create_session(spec, paths.data_dir(), staging, tool_dirs.dirs());
+                let _ = symlinks::create_session(
+                    spec,
+                    paths.data_dir(),
+                    staging,
+                    &tool_dirs.staging_names(),
+                );
             }
         }
     }
