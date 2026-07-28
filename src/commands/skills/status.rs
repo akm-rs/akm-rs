@@ -1,6 +1,5 @@
 //! `akm skills status` — full status overview.
 //!
-//! Bash: `cmd_skills_status()` at bin/akm:1040–1213.
 //! Task 9 adds a TUI dashboard mode.
 
 use crate::error::Result;
@@ -140,12 +139,13 @@ fn run_plain(paths: &Paths, tool_dirs: &ToolDirs) -> Result<()> {
 pub(crate) fn scan_session_dir(staging: &Path, tool_dirs: &ToolDirs) -> Vec<(String, SpecType)> {
     let mut result = Vec::new();
 
-    // Use first tool dir as representative (Bash uses `.claude`)
+    // Use the first tool dir as representative (`.claude`).
+    // Must be the staging name, not the last component of the global dir —
+    // Pi's global dir is `~/.pi/agent` but its staging dir is `.pi`.
     let first_tool_name = tool_dirs
-        .dirs()
+        .staging_names()
         .first()
-        .and_then(|p| p.file_name())
-        .map(|n| n.to_string_lossy().to_string())
+        .map(|n| n.to_string())
         .unwrap_or_else(|| ".claude".to_string());
 
     // Scan skills/ for directory symlinks

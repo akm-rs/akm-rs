@@ -26,7 +26,7 @@ pub enum Error {
     #[error("Invalid config value for '{key}': {message}")]
     ConfigValidation { key: String, message: String },
 
-    /// Unknown config key (maps to Bash _config_key_to_var default case).
+    /// Unknown config key.
     #[error("Unknown config key: '{key}'\nAvailable keys: {available}")]
     UnknownConfigKey { key: String, available: String },
 
@@ -117,7 +117,6 @@ pub enum Error {
 
     /// No artifacts remote configured.
     ///
-    /// Bash: bin/akm:480–482 — warning that returns 0.
     /// In Rust we model it as a distinct error so the caller can decide presentation.
     #[error(
         "No artifacts remote configured.\nRun 'akm setup' to configure an artifacts repository."
@@ -126,14 +125,10 @@ pub enum Error {
     ArtifactsNoRemote,
 
     /// Artifacts sync failed (pull or push).
-    ///
-    /// Bash: bin/akm:488–491 / bin/akm:501–504
     #[error("Artifacts sync failed: {operation}\n{message}\nCheck your connection or SSH keys.")]
     ArtifactsSync { operation: String, message: String },
 
     /// Artifacts clone failed on first-time setup.
-    ///
-    /// Bash: bin/akm:511–514
     #[error(
         "Failed to clone artifacts from {remote}\n{message}\nCheck the URL and your SSH keys."
     )]
@@ -142,21 +137,15 @@ pub enum Error {
     /// Registry sync failed but a cached copy exists.
     /// The sync can continue with the cached data.
     /// This is NOT a hard error — it becomes a warning printed to stderr.
-    ///
-    /// Bash: bin/akm:1510 "Warning: Failed to pull community registry..."
-    /// Bash: bin/akm:1571 "Warning: Failed to pull personal registry..."
     #[error("Failed to sync registry '{name}': {message}")]
     RegistrySync { name: String, message: String },
 
     /// No skills available — community clone failed with no cache and no library.
-    ///
-    /// Bash: bin/akm:1522–1524
     #[error("No cached skills and no existing cold library. Cannot proceed.\nRun 'akm setup' to configure a skills registry.")]
     NoSkillsAvailable,
 
     /// Symlink creation failed.
     ///
-    /// Bash: `ln -sfn` doesn't report errors (failures are silently counted),
     /// but Rust should surface them.
     #[error("Failed to create symlink {link} → {target}: {source}")]
     SymlinkCreate {
@@ -190,29 +179,24 @@ pub enum Error {
     SpecIdChanged { expected: String, actual: String },
 
     /// Session directory does not exist (AKM_SESSION env var set but dir missing).
-    /// Bash: bin/akm:124 "Error: Session directory does not exist: $AKM_SESSION"
     #[error("Session directory does not exist: {path}\nThe session may have been cleaned up. Start a new session.")]
     SessionDirNotFound { path: PathBuf },
 
     /// Spec already exists in cold storage (promote without --force).
-    /// Bash: bin/akm:2397 "Error: Skill '$id' already exists in cold storage. Use --force to overwrite."
     #[error("Spec '{id}' already exists in cold storage.\nUse --force to overwrite.")]
     SpecAlreadyExists { id: String },
 
     /// No personal registry configured (publish requires it).
-    /// Bash: bin/akm:2130 "Error: No personal registry configured."
     #[error(
         "No personal registry configured.\nRun 'akm setup' to add a personal skills registry."
     )]
     NoPersonalRegistry,
 
     /// No SKILL.md found in directory.
-    /// Bash: bin/akm:2323 "Error: No SKILL.md found in $spec_path"
     #[error("No SKILL.md found in {path}\nThe directory must contain a SKILL.md file (with optional supporting files).")]
     NoSkillMd { path: PathBuf },
 
     /// Promote: directory not found.
-    /// Bash: bin/akm:2316 "Error: Directory not found: $spec_path"
     #[error("Directory not found: {path}")]
     PromoteDirNotFound { path: PathBuf },
 
@@ -249,7 +233,7 @@ pub enum Error {
 
     /// .bashrc does not exist and could not be created.
     ///
-    /// Bash: _patch_bashrc assumes .bashrc exists or can be appended to.
+    /// .bashrc is created if it does not already exist.
     /// Rust: explicitly handles the case where .bashrc doesn't exist.
     #[error("Could not write shell integration to {path}: {source}")]
     ShellInitWrite {
@@ -270,8 +254,6 @@ pub enum Error {
     SetupCancelled,
 
     /// No features configured — `akm sync` requires at least one enabled feature.
-    ///
-    /// Bash: bin/akm:1016–1018
     #[error("No features configured.\nRun 'akm setup' first.")]
     NoFeaturesConfigured,
 

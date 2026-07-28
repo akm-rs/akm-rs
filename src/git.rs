@@ -72,8 +72,6 @@ pub struct Git;
 
 impl Git {
     /// Check if the current (or given) directory is inside a git work tree.
-    ///
-    /// Bash: `_akm_in_git_repo()` / `git rev-parse --is-inside-work-tree`
     pub fn is_inside_work_tree(cwd: Option<&Path>) -> bool {
         run_git(&["rev-parse", "--is-inside-work-tree"], cwd)
             .map(|o| o.success && o.stdout == "true")
@@ -81,8 +79,6 @@ impl Git {
     }
 
     /// Get the repository root (toplevel) directory.
-    ///
-    /// Bash: `_akm_project_root()` / `git rev-parse --show-toplevel`
     pub fn toplevel(cwd: Option<&Path>) -> Result<PathBuf> {
         let stdout = run_git_ok(&["rev-parse", "--show-toplevel"], cwd)?;
         if stdout.is_empty() {
@@ -93,8 +89,6 @@ impl Git {
     }
 
     /// Get the repository name (basename of toplevel).
-    ///
-    /// Bash: `_akm_repo_name()` / `basename "$(git rev-parse --show-toplevel)"`
     pub fn repo_name(cwd: Option<&Path>) -> Result<String> {
         let toplevel = Self::toplevel(cwd)?;
         toplevel
@@ -104,8 +98,6 @@ impl Git {
     }
 
     /// Clone a repository.
-    ///
-    /// Bash: `git clone --quiet "$url" "$dest"`
     pub fn clone(url: &str, dest: &Path) -> Result<()> {
         // Ensure parent directory exists
         if let Some(parent) = dest.parent() {
@@ -120,8 +112,6 @@ impl Git {
     }
 
     /// Pull with rebase and autostash (used for registry + artifacts sync).
-    ///
-    /// Bash: `git -C "$dir" pull --rebase --autostash --quiet`
     pub fn pull(repo_dir: &Path) -> Result<()> {
         run_git_ok(
             &["pull", "--rebase", "--autostash", "--quiet"],
@@ -131,36 +121,24 @@ impl Git {
     }
 
     /// Push (used for artifacts auto-push + publish).
-    ///
-    /// Bash: `git -C "$dir" push --quiet`
     pub fn push(repo_dir: &Path) -> Result<()> {
         run_git_ok(&["push", "--quiet"], Some(repo_dir))?;
         Ok(())
     }
 
     /// Stage all changes.
-    ///
-    /// Bash: `git -C "$dir" add -A`
     pub fn add_all(repo_dir: &Path) -> Result<()> {
         run_git_ok(&["add", "-A"], Some(repo_dir))?;
         Ok(())
     }
 
     /// Commit with a message.
-    ///
-    /// Bash: `git -C "$dir" commit -m "$msg" --quiet`
     pub fn commit(repo_dir: &Path, message: &str) -> Result<()> {
         run_git_ok(&["commit", "-m", message, "--quiet"], Some(repo_dir))?;
         Ok(())
     }
 
     /// Check if the repo has uncommitted changes or untracked files.
-    ///
-    /// Bash equivalent (from _akm_artifacts_commit_and_push):
-    /// ```bash
-    /// git -C "$dir" diff --quiet
-    /// git -C "$dir" ls-files --others --exclude-standard
-    /// ```
     ///
     /// Also detects staged-but-uncommitted changes (`git diff --cached`).
     pub fn has_changes(repo_dir: &Path) -> Result<bool> {
@@ -183,22 +161,16 @@ impl Git {
     }
 
     /// Check if a directory is a git repository (has .git dir).
-    ///
-    /// Bash: `[[ -d "$dir/.git" ]]`
     pub fn is_repo(dir: &Path) -> bool {
         dir.join(".git").is_dir()
     }
 
     /// Get the remote URL for the given remote name.
-    ///
-    /// Bash: `git -C "$repo" remote get-url origin`
     pub fn remote_url(repo_dir: &Path, remote: &str) -> Result<String> {
         run_git_ok(&["remote", "get-url", remote], Some(repo_dir))
     }
 
     /// Pull with ff-only (used for self-update).
-    ///
-    /// Bash: `git -C "$repo" pull --ff-only`
     pub fn pull_ff_only(repo_dir: &Path) -> Result<()> {
         run_git_ok(&["pull", "--ff-only"], Some(repo_dir))?;
         Ok(())
@@ -207,9 +179,7 @@ impl Git {
     /// Count how many local commits are ahead of the upstream tracking branch.
     ///
     /// Returns 0 if there is no upstream configured or if the count cannot
-    /// be determined (matches Bash `|| echo "0"` fallback).
-    ///
-    /// Bash: `git -C "$dir" rev-list --count @{upstream}..HEAD 2>/dev/null || echo "0"`
+    /// be determined.
     pub fn commits_ahead(repo_dir: &Path) -> Result<u32> {
         let result = run_git(
             &["rev-list", "--count", "@{upstream}..HEAD"],
@@ -221,36 +191,28 @@ impl Git {
                 stderr: format!("Could not parse commit count: '{}'", result.stdout.trim()),
             })
         } else {
-            // No upstream or other error — treat as 0 ahead (Bash: `|| echo "0"`)
+            // No upstream or other error — treat as 0 ahead
             Ok(0)
         }
     }
 
     /// Get diff stats for staged changes.
-    ///
-    /// Bash: `git -C "$dir" diff --cached --stat`
     pub fn diff_cached_stat(repo_dir: &Path) -> Result<String> {
         run_git_ok(&["diff", "--cached", "--stat"], Some(repo_dir))
     }
 
     /// Get full diff for staged changes.
-    ///
-    /// Bash: `git -C "$dir" diff --cached`
     pub fn diff_cached(repo_dir: &Path) -> Result<String> {
         run_git_ok(&["diff", "--cached"], Some(repo_dir))
     }
 
     /// Reset staging area (unstage all staged changes).
-    ///
-    /// Bash: `git -C "$dir" reset --quiet`
     pub fn reset(repo_dir: &Path) -> Result<()> {
         run_git_ok(&["reset", "--quiet"], Some(repo_dir))?;
         Ok(())
     }
 
     /// Check if staging area is clean (no staged changes after `add_all`).
-    ///
-    /// Bash: `git -C "$dir" diff --cached --quiet`
     pub fn is_staging_clean(repo_dir: &Path) -> Result<bool> {
         let output = run_git(&["diff", "--cached", "--quiet"], Some(repo_dir))?;
         Ok(output.success)

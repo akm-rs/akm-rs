@@ -1,7 +1,7 @@
 //! `akm update` — download and install the latest version.
 //!
-//! New in the Rust version. Replaces the Bash `cmd_update()` which
-//! ran `git pull` on the AKM_REPO clone.
+//! Downloads the release binary for the current platform and swaps it in
+//! place, rather than building from source.
 
 use crate::config::Config;
 use crate::error::Result;

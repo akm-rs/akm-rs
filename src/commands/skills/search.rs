@@ -1,6 +1,5 @@
 //! `akm skills search` — keyword search across library specs.
 //!
-//! Bash: `cmd_skills_search()` at bin/akm:1250–1277.
 //! Task 9 wraps with TUI (pre-populated filter bar).
 
 use crate::error::Result;

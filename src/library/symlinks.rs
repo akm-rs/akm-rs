@@ -17,8 +17,6 @@ const SPEC_SUBDIRS: &[&str] = &["skills", "agents"];
 
 /// Create global symlinks for a single spec across all tool directories.
 ///
-/// Bash: `_create_symlink()` at bin/akm:214–248
-///
 /// Returns `Ok(false)` if source doesn't exist on disk.
 /// Returns `Ok(true)` if symlinks were created.
 pub fn create_global(spec: &Spec, library_dir: &Path, tool_dirs: &[PathBuf]) -> Result<bool> {
@@ -66,12 +64,14 @@ pub fn create_global(spec: &Spec, library_dir: &Path, tool_dirs: &[PathBuf]) -> 
 
 /// Create session symlinks for a single spec in a staging directory.
 ///
-/// Bash: `_create_session_symlink()` at bin/akm:251–277
+/// `staging_names` are the per-tool directory names inside the staging tree
+/// (see [`crate::library::tool_dirs::ToolDirs::staging_names`]), not the
+/// absolute global tool dirs used by [`create_global`].
 pub fn create_session(
     spec: &Spec,
     library_dir: &Path,
     staging_dir: &Path,
-    tool_dirs: &[PathBuf],
+    staging_names: &[&str],
 ) -> Result<bool> {
     let source_path = spec.source_path(library_dir);
 
@@ -79,14 +79,9 @@ pub fn create_session(
         return Ok(false);
     }
 
-    for tool_dir in tool_dirs {
-        let tool_name = tool_dir
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
-
+    for tool_name in staging_names {
         let subdir = spec.spec_type.subdir();
-        let target_dir = staging_dir.join(&tool_name).join(subdir);
+        let target_dir = staging_dir.join(tool_name).join(subdir);
 
         std::fs::create_dir_all(&target_dir).io_context(format!(
             "Creating staging directory {}",
@@ -107,19 +102,14 @@ pub fn create_session(
 
 /// Remove session symlinks for a spec from a staging directory.
 ///
-/// Bash: `_remove_session_symlink()` at bin/akm:280–307
-///
 /// Returns `Ok(true)` if any symlinks were found and removed.
-pub fn remove_session(id: &str, staging_dir: &Path, tool_dirs: &[PathBuf]) -> Result<bool> {
+///
+/// `staging_names` matches [`create_session`].
+pub fn remove_session(id: &str, staging_dir: &Path, staging_names: &[&str]) -> Result<bool> {
     let mut found = false;
 
-    for tool_dir in tool_dirs {
-        let tool_name = tool_dir
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
-
-        let skill_link = staging_dir.join(&tool_name).join("skills").join(id);
+    for tool_name in staging_names {
+        let skill_link = staging_dir.join(tool_name).join("skills").join(id);
         if skill_link.is_symlink() {
             std::fs::remove_file(&skill_link)
                 .io_context(format!("Removing session symlink {}", skill_link.display()))?;
@@ -127,7 +117,7 @@ pub fn remove_session(id: &str, staging_dir: &Path, tool_dirs: &[PathBuf]) -> Re
         }
 
         let agent_link = staging_dir
-            .join(&tool_name)
+            .join(tool_name)
             .join("agents")
             .join(format!("{id}.md"));
         if agent_link.is_symlink() {
@@ -141,8 +131,6 @@ pub fn remove_session(id: &str, staging_dir: &Path, tool_dirs: &[PathBuf]) -> Re
 }
 
 /// Clear all symlinks (not regular files/dirs) from tool dirs.
-///
-/// Bash: bin/akm:1617–1624
 ///
 /// Only removes symlinks — real files and directories are left intact.
 /// Returns the number of symlinks removed.
@@ -177,8 +165,6 @@ pub fn clear_all(tool_dirs: &[PathBuf]) -> Result<usize> {
 }
 
 /// Clean broken symlinks from tool dirs.
-///
-/// Bash: bin/akm:1627–1633
 ///
 /// A broken symlink is one where `is_symlink()` is true but `exists()` is false.
 /// Returns the number of broken symlinks removed.
@@ -215,8 +201,6 @@ pub fn clean_broken(tool_dirs: &[PathBuf]) -> Result<usize> {
 
 /// Rebuild global symlinks for all core specs.
 ///
-/// Bash: bin/akm:1611–1641 (steps 5 of cmd_skills_sync)
-///
 /// This is the high-level function called by the sync command.
 /// It clears all existing symlinks, cleans broken ones, then creates
 /// fresh symlinks for every core spec.
@@ -239,10 +223,10 @@ pub fn rebuild_core(
         match create_global(spec, library_dir, tool_dirs) {
             Ok(true) => count += 1,
             Ok(false) => {
-                // Source doesn't exist — skip silently (matches Bash || true)
+                // Source doesn't exist — skip silently
             }
             Err(e) => {
-                // Log warning but continue (matches Bash || true)
+                // Log warning but continue
                 eprintln!("Warning: Failed to create symlink for '{}': {e}", spec.id);
             }
         }
@@ -280,6 +264,7 @@ fn create_symlink(source: &Path, link: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use crate::library::spec::{Spec, SpecType};
+    use crate::library::tool_dirs::ToolDirs;
     use tempfile::TempDir;
 
     fn make_skill_spec(id: &str) -> Spec {
@@ -469,15 +454,12 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let lib_dir = tmp.path().join("library");
         let staging = tmp.path().join("session");
-        let tool_dirs = vec![
-            tmp.path().join("home").join(".claude"),
-            tmp.path().join("home").join(".copilot"),
-        ];
+        let staging_names = [".claude", ".copilot"];
 
         create_skill_on_disk(&lib_dir, "tdd");
         let spec = make_skill_spec("tdd");
 
-        let created = create_session(&spec, &lib_dir, &staging, &tool_dirs).unwrap();
+        let created = create_session(&spec, &lib_dir, &staging, &staging_names).unwrap();
         assert!(created);
         assert!(staging
             .join(".claude")
@@ -490,8 +472,26 @@ mod tests {
             .join("tdd")
             .is_symlink());
 
-        let removed = remove_session("tdd", &staging, &tool_dirs).unwrap();
+        let removed = remove_session("tdd", &staging, &staging_names).unwrap();
         assert!(removed);
         assert!(!staging.join(".claude").join("skills").join("tdd").exists());
+    }
+
+    /// Pi's global dir is `~/.pi/agent`, but its staging dir is `.pi` — the
+    /// staging tree is flat, so only the first path component is mirrored.
+    #[test]
+    fn session_symlinks_use_pi_staging_name() {
+        let tmp = TempDir::new().unwrap();
+        let lib_dir = tmp.path().join("library");
+        let staging = tmp.path().join("session");
+        let tool_dirs = ToolDirs::builtin(&tmp.path().join("home"));
+
+        create_skill_on_disk(&lib_dir, "tdd");
+        let spec = make_skill_spec("tdd");
+
+        create_session(&spec, &lib_dir, &staging, &tool_dirs.staging_names()).unwrap();
+
+        assert!(staging.join(".pi").join("skills").join("tdd").is_symlink());
+        assert!(!staging.join("agent").exists());
     }
 }

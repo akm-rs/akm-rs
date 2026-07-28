@@ -1,7 +1,5 @@
 //! `akm skills unload` — remove spec(s) from active session.
 //!
-//! Bash: `cmd_skills_unload()` at bin/akm:1807–1828.
-//!
 //! Idempotency: Unloading an already-unloaded spec warns but succeeds.
 
 use crate::error::Result;
@@ -16,7 +14,7 @@ pub fn run(_paths: &Paths, ids: &[String], tool_dirs: &ToolDirs) -> Result<()> {
     let staging = resolve_session()?;
 
     for id in ids {
-        match symlinks::remove_session(id, &staging, tool_dirs.dirs()) {
+        match symlinks::remove_session(id, &staging, &tool_dirs.staging_names()) {
             Ok(true) => {
                 println!("Unloaded: {id}");
             }

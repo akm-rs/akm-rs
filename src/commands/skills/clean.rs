@@ -1,7 +1,5 @@
 //! `akm skills clean` — remove stale specs from global dirs or project.
 //!
-//! Bash: `cmd_skills_clean()` at bin/akm:1645–1765.
-//!
 //! Two modes:
 //! - **Global** (default): removes non-symlink entries from global tool dirs.
 //! - **Project** (`--project`): removes non-symlink copies from .claude/ dirs
@@ -26,8 +24,6 @@ pub fn run(paths: &Paths, tool_dirs: &ToolDirs, project: bool, dry_run: bool) ->
 }
 
 /// Clean non-symlink entries from global tool directories.
-///
-/// Bash: `_clean_global()` at bin/akm:1668–1701.
 fn clean_global(tool_dirs: &ToolDirs, dry_run: bool) -> Result<()> {
     let mut removed = 0u32;
 
@@ -76,8 +72,6 @@ fn clean_global(tool_dirs: &ToolDirs, dry_run: bool) -> Result<()> {
 }
 
 /// Clean non-symlink copies from the current project.
-///
-/// Bash: `_clean_project()` at bin/akm:1704–1765.
 fn clean_project(paths: &Paths, tool_dirs: &ToolDirs, dry_run: bool) -> Result<()> {
     let library = Library::load_checked(paths)?;
     let project_root = Git::toplevel(None).map_err(|_| Error::ManifestNoProject)?;
@@ -109,7 +103,7 @@ fn clean_project(paths: &Paths, tool_dirs: &ToolDirs, dry_run: bool) -> Result<(
                 }
 
                 let name = entry.file_name().to_string_lossy().to_string();
-                // Bash: strip .md for agents to get ID
+                // Strip .md for agents to get the ID
                 let id = if *subdir == "agents" {
                     name.strip_suffix(".md").unwrap_or(&name).to_string()
                 } else {

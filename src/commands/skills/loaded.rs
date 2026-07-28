@@ -1,7 +1,5 @@
 //! `akm skills loaded` — show active session specs with provenance.
 //!
-//! Bash: `cmd_skills_loaded()` at bin/akm:1830–1907.
-//!
 //! Shows each spec with provenance: "manifest" or "loaded" (JIT).
 
 use crate::error::Result;

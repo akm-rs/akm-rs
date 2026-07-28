@@ -1,3 +1,18 @@
+# 1.0.0-rc1
+
+- Add Pi (https://pi.dev) as a first-tier harness
+  - `pi` shell wrapper: mounts session skills with `--skill <staging>/.pi/skills`
+    (Pi has no `--add-dir`) and names the artifacts directory via
+    `--append-system-prompt`, re-passing any `APPEND_SYSTEM.md` the CLI flag
+    would otherwise suppress
+  - `akm skills sync` symlinks core specs into `~/.pi/agent/skills/`
+  - `akm instructions sync` writes `~/.pi/agent/AGENTS.md`
+  - Fix session symlink helpers deriving the staging directory name from the
+    last component of the global tool dir — wrong for `~/.pi/agent`
+  - `tests/shell_test.rs` now exercises the generated wrapper for real
+- Remove all references to the retired Bash implementation from source comments
+  and documentation
+
 # alpha.11
 
 - Add macOS Apple Silicon (aarch64) binary to releases

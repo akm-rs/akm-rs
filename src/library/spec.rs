@@ -3,7 +3,7 @@
 //! Each spec has an ID, type, name, description, and metadata (tags, core flag,
 //! triggers). This struct is the serialized form stored in `library.json`.
 //!
-//! Corresponds to individual JSON objects in the Bash `library.json`:
+//! Corresponds to individual JSON objects in `library.json`:
 //! ```json
 //! {"id":"test-driven-development","type":"skill","name":"Test-Driven Development",
 //!  "description":"Use when...","core":false,"tags":["testing"],"triggers":{}}
@@ -15,8 +15,6 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// The type of a spec: skill (directory with SKILL.md) or agent (single .md file).
-///
-/// Bash: `_spec_type()` returns "skill" or "agent" from library.json.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SpecType {
@@ -28,8 +26,6 @@ pub enum SpecType {
 
 impl SpecType {
     /// The subdirectory name for this spec type.
-    ///
-    /// Bash: `_type_subdir()` at bin/akm:156
     pub fn subdir(&self) -> &'static str {
         match self {
             SpecType::Skill => "skills",
@@ -63,14 +59,14 @@ impl std::str::FromStr for SpecType {
 
 /// Triggers for automatic skill activation.
 ///
-/// Currently an opaque map — the Bash version uses `"triggers": {}`
+/// Currently an opaque map — specs use `"triggers": {}`
 /// as a placeholder. BTreeMap is used for deterministic JSON key ordering.
 pub type Triggers = BTreeMap<String, serde_json::Value>;
 
 /// A single spec (skill or agent) in the AKM library.
 ///
 /// This is the canonical representation stored in `library.json`.
-/// All fields match the JSON schema from the Bash `_skills_libgen_for_dir()`.
+/// All fields match the `library.json` schema produced by libgen.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Spec {
     /// Unique identifier derived from directory name (skills) or filename (agents).
@@ -124,8 +120,6 @@ impl Spec {
     }
 
     /// Resolve the filesystem path for this spec in a library directory.
-    ///
-    /// Bash: `_spec_source_path()` at bin/akm:164
     pub fn source_path(&self, library_dir: &Path) -> PathBuf {
         let subdir = self.spec_type.subdir();
         match self.spec_type {

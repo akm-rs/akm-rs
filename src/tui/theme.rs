@@ -1,32 +1,32 @@
 //! Color and style constants for the TUI.
 //!
-//! Maps the Bash ANSI color scheme to ratatui styles:
-//! - Bash `$CYAN` (type "skill") → `Color::Cyan`
-//! - Bash `$BLUE` (type "agent") → `Color::Blue`
-//! - Bash `$GREEN` (checkmark, [CORE]) → `Color::Green`
-//! - Bash `$YELLOW` (warnings, "?") → `Color::Yellow`
-//! - Bash `$RED` (errors) → `Color::Red`
-//! - Bash `$BOLD` → `Modifier::BOLD`
-//! - Bash `$DIM` → `Modifier::DIM`
+//! The ANSI colour scheme, as ratatui styles:
+//! - skill type → `Color::Cyan`
+//! - agent type → `Color::Blue`
+//! - checkmark, [CORE] → `Color::Green`
+//! - warnings, "?" → `Color::Yellow`
+//! - errors → `Color::Red`
+//! - section headers → `Modifier::BOLD`
+//! - dimmed text → `Modifier::DIM`
 
 use ratatui::style::{Color, Modifier, Style};
 
-/// Style for skill type labels. Bash: `$CYAN`.
+/// Style for skill type labels.
 pub const SKILL_TYPE: Style = Style::new().fg(Color::Cyan);
 
-/// Style for agent type labels. Bash: `$BLUE`.
+/// Style for agent type labels.
 pub const AGENT_TYPE: Style = Style::new().fg(Color::Blue);
 
-/// Style for success indicators (✓, [CORE]). Bash: `$GREEN`.
+/// Style for success indicators (✓, [CORE]).
 pub const SUCCESS: Style = Style::new().fg(Color::Green);
 
-/// Style for warnings (?). Bash: `$YELLOW`.
+/// Style for warnings (?).
 pub const WARNING: Style = Style::new().fg(Color::Yellow);
 
-/// Style for section headers. Bash: `$BOLD`.
+/// Style for section headers.
 pub const HEADER: Style = Style::new().add_modifier(Modifier::BOLD);
 
-/// Style for dimmed text. Bash: `$DIM`.
+/// Style for dimmed text.
 pub const DIM: Style = Style::new().add_modifier(Modifier::DIM);
 
 /// Style for the selected row in a list.

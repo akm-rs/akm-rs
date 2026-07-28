@@ -1,7 +1,5 @@
 //! `akm skills remove` — remove spec(s) from project manifest.
 //!
-//! Bash: `cmd_skills_remove()` at bin/akm:1331–1407.
-//!
 //! Behavior:
 //! 1. Validate we're in a git repository
 //! 2. Load the manifest (if missing, warn and return OK)
@@ -29,7 +27,7 @@ pub fn run(paths: &Paths, ids: &[String], tool_dirs: &ToolDirs) -> Result<()> {
 
     let project_root = Git::toplevel(None).map_err(|_| Error::ManifestNoProject)?;
 
-    // Bash: if manifest doesn't exist, warn and return 0
+    // If the manifest doesn't exist, warn and succeed
     let manifest_path = Manifest::path(&project_root);
     if !manifest_path.exists() {
         eprintln!("Warning: No manifest found at {}", manifest_path.display());
@@ -40,7 +38,7 @@ pub fn run(paths: &Paths, ids: &[String], tool_dirs: &ToolDirs) -> Result<()> {
     let session_dir = env::var("AKM_SESSION").ok().map(PathBuf::from);
 
     for id in ids {
-        // Bash: determine type if spec exists in library, otherwise try both arrays
+        // Determine type if the spec exists in the library, otherwise try both arrays
         let spec_type = library.get(id).map(|s| s.spec_type);
 
         let removed = manifest.remove(id, spec_type);
@@ -54,7 +52,7 @@ pub fn run(paths: &Paths, ids: &[String], tool_dirs: &ToolDirs) -> Result<()> {
             // Auto-refresh staging if session is active
             if let Some(ref staging) = session_dir {
                 if staging.is_dir() {
-                    let _ = symlinks::remove_session(id, staging, tool_dirs.dirs());
+                    let _ = symlinks::remove_session(id, staging, &tool_dirs.staging_names());
                 }
             }
         } else {

@@ -13,8 +13,6 @@ use std::path::{Path, PathBuf};
 ///
 /// Each tool expects global instructions at a different path with a different
 /// filename. This struct captures that mapping.
-///
-/// Bash: the `targets` associative array in `cmd_instructions_sync()` (bin/akm:567–572).
 #[derive(Debug, Clone)]
 pub struct InstructionsTarget {
     /// Absolute path to the target directory.
@@ -32,18 +30,19 @@ impl InstructionsTarget {
 
 /// Build the list of instructions sync targets.
 ///
-/// Maps the Bash associative array:
-/// ```bash
-/// local -A targets=(
-///     ["$HOME/.claude"]="CLAUDE.md"
-///     ["$HOME/.copilot"]="copilot-instructions.md"
-///     ["$HOME/.vibe/prompts"]="cli.md"
-///     ["$HOME/.agents"]="AGENTS.md"
-/// )
-/// ```
+/// | Directory | Filename |
+/// |-----------|----------|
+/// | `~/.claude` | `CLAUDE.md` |
+/// | `~/.copilot` | `copilot-instructions.md` |
+/// | `~/.vibe/prompts` | `cli.md` |
+/// | `~/.agents` | `AGENTS.md` |
+/// | `~/.pi/agent` | `AGENTS.md` |
 ///
 /// Note: The `.vibe` target uses a subdirectory (`prompts/`), which differs from
 /// the generic tool dir (`.vibe`). This is instructions-specific behavior.
+///
+/// Pi reads its global context file from its config dir (`~/.pi/agent`), using
+/// the same `AGENTS.md` name as OpenCode.
 ///
 /// # Arguments
 /// * `home` — User home directory (for resolving `~/.claude`, etc.)
@@ -65,6 +64,10 @@ pub fn default_targets(home: &Path) -> Vec<InstructionsTarget> {
             dir: home.join(".agents"),
             filename: "AGENTS.md".into(),
         },
+        InstructionsTarget {
+            dir: home.join(".pi").join("agent"),
+            filename: "AGENTS.md".into(),
+        },
     ]
 }
 
@@ -74,9 +77,9 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn default_targets_has_four_entries() {
+    fn default_targets_has_five_entries() {
         let targets = default_targets(Path::new("/home/user"));
-        assert_eq!(targets.len(), 4);
+        assert_eq!(targets.len(), 5);
     }
 
     #[test]
@@ -98,6 +101,10 @@ mod tests {
         assert_eq!(
             targets[3].path(),
             PathBuf::from("/home/user/.agents/AGENTS.md")
+        );
+        assert_eq!(
+            targets[4].path(),
+            PathBuf::from("/home/user/.pi/agent/AGENTS.md")
         );
     }
 

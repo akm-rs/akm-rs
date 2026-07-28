@@ -1,13 +1,8 @@
 //! Tool directory resolution — maps LLM tools to their global directories.
 //!
-//! Bash uses a hardcoded array:
-//! ```bash
-//! GLOBAL_TOOL_DIRS=("$HOME/.claude" "$HOME/.copilot" "$HOME/.agents" "$HOME/.vibe")
-//! ```
-//!
-//! The Rust version loads from `tools.json` (in the data dir) and falls back
-//! to built-in defaults matching the Bash list. This allows new tools to be
-//! added without recompiling.
+//! Definitions load from `tools.json` in the data dir, falling back to the
+//! built-in defaults below. New harnesses can therefore be added without
+//! recompiling.
 //!
 //! `tools.json` format:
 //! ```json
@@ -15,7 +10,8 @@
 //!   {"name": "Claude Code", "command": "claude", "dir": ".claude"},
 //!   {"name": "Github Copilot CLI", "command": "copilot", "dir": ".copilot"},
 //!   {"name": "Mistral Vibe", "command": "vibe", "dir": ".vibe"},
-//!   {"name": "OpenCode", "command": "opencode", "dir": ".agents"}
+//!   {"name": "OpenCode", "command": "opencode", "dir": ".agents"},
+//!   {"name": "Pi", "command": "pi", "dir": ".pi/agent"}
 //! ]
 //! ```
 
@@ -35,6 +31,17 @@ pub struct ToolDef {
     pub command: String,
     /// Directory name relative to $HOME (e.g., ".claude").
     pub dir: String,
+}
+
+impl ToolDef {
+    /// Directory name for this tool inside a session staging directory.
+    ///
+    /// The staging tree is flat — one directory per tool at its root — so it
+    /// mirrors only the first component of [`ToolDef::dir`]. This matters for
+    /// Pi, whose global dir is `~/.pi/agent` but whose staging dir is `.pi`.
+    pub fn staging_dir(&self) -> &str {
+        self.dir.split('/').next().unwrap_or(&self.dir)
+    }
 }
 
 /// Built-in tool definitions matching the tools.json shipped with AKM.
@@ -61,6 +68,13 @@ fn builtin_tools() -> Vec<ToolDef> {
             name: "OpenCode".into(),
             command: "opencode".into(),
             dir: ".agents".into(),
+        },
+        // Pi reads its global AGENTS.md and skills/ from ~/.pi/agent,
+        // not ~/.pi — the config dir is one level down.
+        ToolDef {
+            name: "Pi".into(),
+            command: "pi".into(),
+            dir: ".pi/agent".into(),
         },
     ]
 }
@@ -143,9 +157,15 @@ impl ToolDirs {
         &self.tools
     }
 
-    /// Get display names of all tools (for help text).
+    /// Per-tool directory names to use inside a session staging directory.
     ///
-    /// Bash: `_supported_tools_names()` at bin/akm:60
+    /// See [`ToolDef::staging_dir`] — this is not the same as the last
+    /// component of [`ToolDirs::dirs`].
+    pub fn staging_names(&self) -> Vec<&str> {
+        self.tools.iter().map(|t| t.staging_dir()).collect()
+    }
+
+    /// Get display names of all tools (for help text).
     pub fn display_names(&self) -> String {
         self.tools
             .iter()
@@ -166,23 +186,34 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn builtin_has_four_tools() {
+    fn builtin_has_five_tools() {
         let tmp = TempDir::new().unwrap();
         let td = ToolDirs::builtin(tmp.path());
-        assert_eq!(td.count(), 4);
+        assert_eq!(td.count(), 5);
         assert_eq!(td.dirs()[0], tmp.path().join(".claude"));
         assert_eq!(td.dirs()[1], tmp.path().join(".copilot"));
         assert_eq!(td.dirs()[2], tmp.path().join(".vibe"));
         assert_eq!(td.dirs()[3], tmp.path().join(".agents"));
+        assert_eq!(td.dirs()[4], tmp.path().join(".pi").join("agent"));
     }
 
     #[test]
-    fn display_names_matches_bash() {
+    fn display_names_lists_every_tool() {
         let tmp = TempDir::new().unwrap();
         let td = ToolDirs::builtin(tmp.path());
         assert_eq!(
             td.display_names(),
-            "Claude Code, Github Copilot CLI, Mistral Vibe, OpenCode"
+            "Claude Code, Github Copilot CLI, Mistral Vibe, OpenCode, Pi"
+        );
+    }
+
+    #[test]
+    fn staging_names_flatten_nested_tool_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let td = ToolDirs::builtin(tmp.path());
+        assert_eq!(
+            td.staging_names(),
+            vec![".claude", ".copilot", ".vibe", ".agents", ".pi"]
         );
     }
 

@@ -55,8 +55,6 @@ pub struct ArtifactRepo;
 
 impl ArtifactRepo {
     /// Resolve the artifacts directory from config, falling back to default.
-    ///
-    /// Bash: `ARTIFACTS_DIR="${ARTIFACTS_DIR:-$HOME/.akm/artifacts}"`
     fn artifacts_dir(config: &Config, paths: &Paths) -> PathBuf {
         config.artifacts_dir(paths)
     }
@@ -130,8 +128,6 @@ impl ArtifactRepo {
     ///
     /// Creates `<artifacts_dir>/<repo_name>/` if it doesn't exist.
     /// Returns the path to the project's artifact directory.
-    ///
-    /// Bash: `_akm_artifacts_ensure_dir()` (shell/akm-init.sh:130–144)
     pub fn ensure_project_dir(
         config: &Config,
         paths: &Paths,
@@ -150,13 +146,10 @@ impl ArtifactRepo {
     /// Pull the artifacts repository (session start).
     ///
     /// Silently succeeds if the repo doesn't exist or pull fails
-    /// (matches Bash `|| true` behavior).
-    ///
-    /// Bash: `_akm_artifacts_pull()` (shell/akm-init.sh:147–152)
+    /// (failures are non-fatal).
     pub fn pull_quiet(config: &Config, paths: &Paths) -> Result<()> {
         let dir = Self::artifacts_dir(config, paths);
         if Git::is_repo(&dir) {
-            // Bash: `git -C "$artifacts_dir" pull --rebase --autostash --quiet 2>/dev/null || true`
             let _ = Git::pull(&dir); // Intentionally ignore errors
         }
         Ok(())
@@ -164,15 +157,13 @@ impl ArtifactRepo {
 
     /// Auto-commit and push artifacts (session exit).
     ///
-    /// Logic (mirrors Bash _akm_artifacts_commit_and_push):
+    /// Logic:
     /// 1. Check if artifacts dir is a git repo → if not, return
     /// 2. Check for changes (diff + untracked files) → if none, return
     /// 3. Stage all changes (`git add -A`)
     /// 4. Commit with message: `<project_name>: YYYY-MM-DD-HHMM`
     /// 5. Pull with rebase (to pick up any remote changes)
     /// 6. Push
-    ///
-    /// Bash: `_akm_artifacts_commit_and_push()` (shell/akm-init.sh:155–178)
     pub fn commit_and_push(
         config: &Config,
         paths: &Paths,
@@ -197,7 +188,6 @@ impl ArtifactRepo {
         })?;
 
         // Commit with timestamp message
-        // Bash: `git -C "$artifacts_dir" commit -m "${repo_name:-misc}: $(date +%Y-%m-%d-%H%M)"`
         let timestamp = local_timestamp();
         let name = if project_name.is_empty() {
             "misc"
@@ -220,7 +210,7 @@ impl ArtifactRepo {
 }
 
 /// Generate a timestamp string in `YYYY-MM-DD-HHMM` format matching
-/// Bash `date +%Y-%m-%d-%H%M` using local time.
+/// Format: `%Y-%m-%d-%H%M`, local time.
 ///
 /// EXCEPTION: Uses `unsafe` for `libc::localtime_r`. This is acceptable because:
 /// - `libc` is already linked by `std` (zero additional binary size)
@@ -286,7 +276,7 @@ mod tests {
 
     #[test]
     fn test_commit_message_empty_project_name_fallback() {
-        // Verifies the "${repo_name:-misc}" Bash fallback behavior
+        // Verifies the "misc" fallback when the repo name is unknown
         let name = "";
         let label = if name.is_empty() { "misc" } else { name };
         assert_eq!(label, "misc");

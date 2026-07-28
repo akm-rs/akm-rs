@@ -1,7 +1,5 @@
 //! `akm instructions scaffold-project` — create AGENTS.md + CLAUDE.md in project root.
 //!
-//! Bash: `cmd_instructions_scaffold_project()` at bin/akm:586–612.
-//!
 //! Behavior:
 //! 1. Detect project root via `git rev-parse --show-toplevel`
 //! 2. If not in a git repo, return error
@@ -17,11 +15,9 @@ use std::fs;
 use std::path::Path;
 
 /// Default content for AGENTS.md.
-/// Bash: `echo "# Project LLM Instructions" > "$project_root/AGENTS.md"`
 const AGENTS_MD_CONTENT: &str = "# Project LLM Instructions\n";
 
 /// Default content for CLAUDE.md.
-/// Bash: `echo "LLM instructions live in @AGENTS.md" > "$project_root/CLAUDE.md"`
 const CLAUDE_MD_CONTENT: &str = "LLM instructions live in @AGENTS.md\n";
 
 /// Run `akm instructions scaffold-project`.

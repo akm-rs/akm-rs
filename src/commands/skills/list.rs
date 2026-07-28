@@ -1,7 +1,5 @@
 //! `akm skills list` — browse library specs.
 //!
-//! Bash: `cmd_skills_list()` at bin/akm:1215–1248.
-//!
 //! In Task 4 this was plain-only. Task 9 adds TUI as the default mode
 //! when stdout is a TTY and --plain is not passed.
 

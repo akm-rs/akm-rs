@@ -1,7 +1,5 @@
 //! `akm skills load` — load spec(s) into active session (JIT / Layer 3).
 //!
-//! Bash: `cmd_skills_load()` at bin/akm:1767–1805.
-//!
 //! Idempotency: Loading an already-loaded spec is safe (symlinks are
 //! force-created with ln -sfn semantics).
 
@@ -15,7 +13,6 @@ use std::path::PathBuf;
 
 /// Resolve and validate the AKM_SESSION directory.
 ///
-/// Bash: `_check_session()` at bin/akm:118–128.
 /// Returns the path if valid, errors if unset or directory missing.
 pub fn resolve_session() -> Result<PathBuf> {
     let session = env::var("AKM_SESSION").map_err(|_| Error::NoActiveSession)?;
@@ -49,7 +46,8 @@ pub fn run(paths: &Paths, ids: &[String], tool_dirs: &ToolDirs) -> Result<()> {
             }
         };
 
-        match symlinks::create_session(spec, paths.data_dir(), &staging, tool_dirs.dirs()) {
+        match symlinks::create_session(spec, paths.data_dir(), &staging, &tool_dirs.staging_names())
+        {
             Ok(true) => {
                 println!("Loaded: {id} ({})", spec.spec_type);
             }

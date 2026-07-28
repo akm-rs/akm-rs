@@ -4,8 +4,6 @@
 //! 1. Pull latest changes (rebase + autostash)
 //! 2. Push if local commits exist
 //! 3. Clone on first run if no local repo
-//!
-//! Bash: `cmd_artifacts_sync()` (bin/akm:474–518)
 
 use crate::artifacts::{ArtifactRepo, SyncOutcome};
 use crate::config::Config;
@@ -14,14 +12,12 @@ use crate::paths::Paths;
 
 /// Execute the `akm artifacts sync` command.
 ///
-/// Output behavior mirrors Bash exactly:
+/// Output behavior:
 /// - No remote configured → warning to stderr, exit 0
 /// - Clone success → "Artifacts cloned to `dir`"
 /// - Pull success → "Artifacts pulled"
 /// - Push success → "Artifacts pushed (N commits)"
 /// - Any failure → warning to stderr, exit 0 (non-fatal)
-///
-/// Bash: `cmd_artifacts_sync()` (bin/akm:474–518)
 pub fn run(config: &Config, paths: &Paths) -> Result<()> {
     match ArtifactRepo::sync(config, paths) {
         Ok(outcome) => {
@@ -53,7 +49,7 @@ pub fn run(config: &Config, paths: &Paths) -> Result<()> {
             Ok(())
         }
         Err(e) => {
-            // All sync errors are non-fatal warnings (matching Bash `return 0`)
+            // All sync errors are non-fatal warnings
             eprintln!("Warning: {e}");
             Ok(())
         }

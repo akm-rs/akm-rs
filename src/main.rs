@@ -37,8 +37,6 @@ struct Cli {
 }
 
 /// Top-level commands.
-///
-/// Matches the Bash `main()` case statement at bin/akm:2592.
 #[derive(Subcommand, Debug)]
 enum Commands {
     /// Interactive feature configuration
@@ -259,7 +257,7 @@ fn main() -> ExitCode {
 
     let result = match cli.command {
         None => {
-            // Default: show help (matches Bash `main()` default of "help")
+            // Default: show help
             use clap::CommandFactory;
             Cli::command()
                 .print_help()
@@ -350,7 +348,6 @@ fn main() -> ExitCode {
                 }) => commands::skills::session_setup::run(&paths, &staging_dir, &project_root),
                 None => {
                     // Default: `akm skills` with no subcommand → show status
-                    // Bash: `local subcommand="${1:-status}"` at bin/akm:404
                     commands::skills::status::run(&paths, &tool_dirs, false)
                 }
             }

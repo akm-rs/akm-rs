@@ -1,7 +1,7 @@
 //! Editor resolution utility.
 //!
 //! Shared between `instructions edit` and `skills edit`. Resolves the user's
-//! preferred editor via the same priority chain as the Bash version:
+//! preferred editor via the usual priority chain:
 //! `$EDITOR` → `git var GIT_EDITOR` → `"nano"`.
 
 use std::process::Command;
@@ -13,7 +13,6 @@ use std::process::Command;
 /// 2. `git var GIT_EDITOR` (reads git config core.editor)
 /// 3. `"nano"` as last resort
 ///
-/// Bash: `local editor="${EDITOR:-$(git var GIT_EDITOR 2>/dev/null || echo "nano")}"`
 /// Used in both `cmd_instructions_edit` (bin/akm:632) and `cmd_skills_edit` (bin/akm:2506).
 pub fn resolve_editor() -> String {
     if let Ok(editor) = std::env::var("EDITOR") {

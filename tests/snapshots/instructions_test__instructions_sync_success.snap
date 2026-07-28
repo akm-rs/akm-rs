@@ -2,4 +2,4 @@
 source: tests/instructions_test.rs
 expression: stdout.to_string()
 ---
-Global instructions distributed to 4 tool directories
+Global instructions distributed to 5 tool directories

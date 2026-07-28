@@ -6,13 +6,6 @@
 use std::path::{Path, PathBuf};
 
 /// Resolved AKM directory paths. Immutable after construction.
-///
-/// Corresponds to the Bash globals:
-/// - `LIBRARY_DIR` → [`Paths::data_dir`]
-/// - `LIBRARY_JSON` → [`Paths::library_json`]
-/// - `TOOLS_JSON` → [`Paths::tools_json`]
-/// - `${XDG_CONFIG_HOME}/akm/config` → [`Paths::config_file`]
-/// - `$HOME/.cache/akm/...` → [`Paths::cache_dir`]
 #[derive(Debug, Clone)]
 pub struct Paths {
     /// `$XDG_DATA_HOME/akm` — cold library, shell init, tools.json
@@ -68,7 +61,6 @@ impl Paths {
     // --- Data dir (cold library) ---
 
     /// `$XDG_DATA_HOME/akm` — root of the cold library.
-    /// Bash: `LIBRARY_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/akm"`
     pub fn data_dir(&self) -> &Path {
         &self.data_dir
     }
@@ -82,13 +74,11 @@ impl Paths {
     }
 
     /// `$XDG_DATA_HOME/akm/library.json`
-    /// Bash: `LIBRARY_JSON="$LIBRARY_DIR/library.json"`
     pub fn library_json(&self) -> PathBuf {
         self.data_dir.join("library.json")
     }
 
     /// `$XDG_DATA_HOME/akm/tools.json`
-    /// Bash: `TOOLS_JSON="$LIBRARY_DIR/tools.json"`
     pub fn tools_json(&self) -> PathBuf {
         self.data_dir.join("tools.json")
     }
@@ -116,7 +106,6 @@ impl Paths {
     }
 
     /// `$XDG_CONFIG_HOME/akm/config.toml`
-    /// Bash: `${XDG_CONFIG_HOME:-$HOME/.config}/akm/config`
     /// Note: Rust version uses `.toml` extension (fresh start, no migration).
     pub fn config_file(&self) -> PathBuf {
         self.config_dir.join("config.toml")
@@ -130,19 +119,16 @@ impl Paths {
     }
 
     /// `$XDG_CACHE_HOME/akm/skills-community-registry/`
-    /// Bash: `$HOME/.cache/akm/skills-community-registry`
     pub fn community_registry_cache(&self) -> PathBuf {
         self.cache_dir.join("skills-community-registry")
     }
 
     /// `$XDG_CACHE_HOME/akm/skills-personal-registry/`
-    /// Bash: `$HOME/.cache/akm/skills-personal-registry`
     pub fn personal_registry_cache(&self) -> PathBuf {
         self.cache_dir.join("skills-personal-registry")
     }
 
     /// Session staging dir: `$XDG_CACHE_HOME/akm/<session_id>/`
-    /// Bash: `$HOME/.cache/akm/$session_id`
     pub fn session_staging(&self, session_id: &str) -> PathBuf {
         self.cache_dir.join(session_id)
     }
@@ -179,16 +165,16 @@ impl Paths {
     }
 
     /// Global tool directories for symlink targets.
-    /// Bash: `GLOBAL_TOOL_DIRS=("$HOME/.claude" "$HOME/.copilot" "$HOME/.agents" "$HOME/.vibe")`
     ///
-    /// In the Rust version these come from tools.json, but we provide defaults
-    /// matching the Bash hard-coded list for when tools.json is absent.
+    /// These normally come from tools.json; this is the fallback for when
+    /// that file is absent. Note Pi's config dir is `~/.pi/agent`.
     pub fn default_global_tool_dirs(&self) -> Vec<PathBuf> {
         vec![
             self.home.join(".claude"),
             self.home.join(".copilot"),
             self.home.join(".agents"),
             self.home.join(".vibe"),
+            self.home.join(".pi").join("agent"),
         ]
     }
 }
