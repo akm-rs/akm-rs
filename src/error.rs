@@ -140,7 +140,7 @@ pub enum Error {
     #[error("Failed to sync registry '{name}': {message}")]
     RegistrySync { name: String, message: String },
 
-    /// No skills available — community clone failed with no cache and no library.
+    /// No skills available — registry clone failed with no cache and no library.
     #[error("No cached skills and no existing cold library. Cannot proceed.\nRun 'akm setup' to configure a skills registry.")]
     NoSkillsAvailable,
 

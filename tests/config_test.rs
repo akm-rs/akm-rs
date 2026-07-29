@@ -89,7 +89,7 @@ fn config_print_all_snapshot() {
 features = ["skills", "artifacts"]
 
 [skills]
-community_registry = "https://github.com/akm-rs/skillverse.git"
+personal_registry = "https://github.com/rplsmn/skillfab.git"
 
 [artifacts]
 auto_push = true

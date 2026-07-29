@@ -1,12 +1,10 @@
-//! `akm skills sync` — pull registries → cold library → libgen → symlinks.
+//! `akm skills sync` — pull the registry → cold library → libgen → symlinks.
 //!
 //! Pipeline:
-//! 1. Pull community registry to cache (clone if first time)
-//! 2. Copy community cache → cold library (clean slate)
-//! 3. Pull personal registry to cache (if configured)
-//! 4. Overlay personal cache → cold library (personal wins on conflict)
-//! 5. Run libgen to regenerate library.json
-//! 6. Rebuild global symlinks for core specs
+//! 1. Pull the personal registry to cache (clone if first time)
+//! 2. Copy cache → cold library (clean slate)
+//! 3. Run libgen to regenerate library.json
+//! 4. Rebuild global symlinks for core specs
 
 use crate::config::Config;
 use crate::error::{Error, IoContext, Result};
@@ -21,14 +19,10 @@ use std::path::Path;
 /// Result of a sync operation, used for display.
 #[derive(Debug)]
 pub struct SyncReport {
-    /// What happened with the community registry.
-    pub community: RegistryOutcome,
-    /// What happened with the personal registry (None if not configured).
-    pub personal: Option<RegistryOutcome>,
-    /// Whether the cold library was updated from the community cache.
+    /// What happened with the skills registry.
+    pub registry: RegistryOutcome,
+    /// Whether the cold library was updated from the registry cache.
     pub library_copied: bool,
-    /// Whether personal specs were overlaid on the cold library.
-    pub personal_overlaid: bool,
     /// Whether libgen ran and how many specs were found.
     pub spec_count: Option<usize>,
     /// Number of user core overrides preserved across sync.
@@ -58,27 +52,24 @@ pub enum RegistryOutcome {
 
 /// Execute the full sync pipeline.
 ///
-/// This is the main entry point called by the CLI handler. It takes
-/// trait objects for registries to allow testing with mocks.
+/// This is the main entry point called by the CLI handler. It takes a
+/// trait object for the registry to allow testing with mocks.
 pub fn execute(
     paths: &Paths,
-    community: &dyn RegistrySource,
-    personal: Option<&dyn RegistrySource>,
+    registry: &dyn RegistrySource,
     tool_dirs: &ToolDirs,
 ) -> Result<SyncReport> {
     let library_dir = paths.data_dir();
     let library_json = paths.library_json();
 
-    // --- Step 1: Sync community registry ---
-    let community_outcome = sync_registry(community, &library_json, RegistryRole::Community)?;
+    // --- Step 1: Sync the registry ---
+    let registry_outcome = sync_registry(registry, &library_json)?;
 
     // Early exit: no registry configured and no existing library
-    if matches!(community_outcome, RegistryOutcome::SkippedNoLibrary) {
+    if matches!(registry_outcome, RegistryOutcome::SkippedNoLibrary) {
         return Ok(SyncReport {
-            community: community_outcome,
-            personal: None,
+            registry: registry_outcome,
             library_copied: false,
-            personal_overlaid: false,
             spec_count: None,
             core_overrides_preserved: 0,
             symlink_count: 0,
@@ -86,7 +77,7 @@ pub fn execute(
         });
     }
 
-    // --- Snapshot user core overrides (before community copy overwrites library.json) ---
+    // --- Snapshot user core overrides (before the copy overwrites library.json) ---
     let core_overrides: std::collections::HashSet<String> =
         match Library::load_or_default(&library_json) {
             Ok(library) => library
@@ -103,35 +94,15 @@ pub fn execute(
             }
         };
 
-    // --- Step 2: Copy community cache → cold library ---
-    let library_copied = if community.is_cached() {
-        copy_registry_to_library(community.cache_dir(), library_dir)?;
+    // --- Step 2: Copy registry cache → cold library ---
+    let library_copied = if registry.is_cached() {
+        copy_registry_to_library(registry.cache_dir(), library_dir)?;
         true
     } else {
         false
     };
 
-    // --- Step 3: Sync personal registry ---
-    let mut personal_overlaid = false;
-    let personal_outcome = if let Some(personal_reg) = personal {
-        if personal_reg.is_available() {
-            let outcome = sync_registry(personal_reg, &library_json, RegistryRole::Personal)?;
-
-            // Overlay personal onto cold library
-            if personal_reg.is_cached() {
-                overlay_registry_on_library(personal_reg.cache_dir(), library_dir)?;
-                personal_overlaid = true;
-            }
-
-            Some(outcome)
-        } else {
-            Some(RegistryOutcome::Skipped)
-        }
-    } else {
-        None
-    };
-
-    // --- Step 4: Run libgen ---
+    // --- Step 3: Run libgen ---
     let spec_count = if library_dir.join("skills").is_dir() || library_dir.join("agents").is_dir() {
         let result = libgen::generate(library_dir)?;
         Some(result.count)
@@ -139,7 +110,7 @@ pub fn execute(
         None
     };
 
-    // --- Step 4b: Restore user core overrides ---
+    // --- Step 3b: Restore user core overrides ---
     let core_overrides_preserved = if !core_overrides.is_empty() && library_json.is_file() {
         let mut library = Library::load_from(&library_json)?;
         let mut restored = 0usize;
@@ -157,7 +128,7 @@ pub fn execute(
         0
     };
 
-    // --- Step 5: Rebuild global symlinks ---
+    // --- Step 4: Rebuild global symlinks ---
     let symlink_count = if library_json.is_file() {
         let library = Library::load_from(&library_json)?;
         let core_specs = library.core_specs();
@@ -167,10 +138,8 @@ pub fn execute(
     };
 
     Ok(SyncReport {
-        community: community_outcome,
-        personal: personal_outcome,
+        registry: registry_outcome,
         library_copied,
-        personal_overlaid,
         spec_count,
         core_overrides_preserved,
         symlink_count,
@@ -178,19 +147,8 @@ pub fn execute(
     })
 }
 
-/// Role of a registry — determines error degradation behavior.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RegistryRole {
-    Community,
-    Personal,
-}
-
-/// Attempt to sync a single registry. Handles failure modes.
-fn sync_registry(
-    registry: &dyn RegistrySource,
-    library_json: &Path,
-    role: RegistryRole,
-) -> Result<RegistryOutcome> {
+/// Attempt to sync the registry. Handles failure modes.
+fn sync_registry(registry: &dyn RegistrySource, library_json: &Path) -> Result<RegistryOutcome> {
     if !registry.is_available() {
         return if library_json.is_file() {
             Ok(RegistryOutcome::Skipped)
@@ -207,18 +165,10 @@ fn sync_registry(
 
             if registry.is_cached() {
                 Ok(RegistryOutcome::FailedWithCache { message })
+            } else if library_json.is_file() {
+                Ok(RegistryOutcome::FailedNoCacheButLibraryExists { message })
             } else {
-                match role {
-                    RegistryRole::Community if !library_json.is_file() => {
-                        Err(Error::NoSkillsAvailable)
-                    }
-                    RegistryRole::Community => {
-                        Ok(RegistryOutcome::FailedNoCacheButLibraryExists { message })
-                    }
-                    RegistryRole::Personal => {
-                        Ok(RegistryOutcome::FailedNoCacheButLibraryExists { message })
-                    }
-                }
+                Err(Error::NoSkillsAvailable)
             }
         }
     }
@@ -266,67 +216,6 @@ fn copy_registry_to_library(cache_dir: &Path, library_dir: &Path) -> Result<()> 
     Ok(())
 }
 
-/// Overlay registry cache onto the cold library (additive merge).
-///
-/// Unlike `copy_registry_to_library`, this does NOT delete existing content.
-/// Personal specs are copied on top — personal wins on conflict.
-fn overlay_registry_on_library(cache_dir: &Path, library_dir: &Path) -> Result<()> {
-    let cache_skills = cache_dir.join("skills");
-    if cache_skills.is_dir() {
-        let lib_skills = library_dir.join("skills");
-        std::fs::create_dir_all(&lib_skills)
-            .io_context(format!("Creating skills dir {}", lib_skills.display()))?;
-
-        let entries = std::fs::read_dir(&cache_skills).io_context(format!(
-            "Reading personal skills {}",
-            cache_skills.display()
-        ))?;
-
-        for entry in entries {
-            let entry = entry.io_context("Reading personal skills entry")?;
-            let src = entry.path();
-            let dest = lib_skills.join(entry.file_name());
-
-            // Skills are always directories containing SKILL.md.
-            // Files at this level (README, etc.) are not spec content — skip them.
-            if src.is_dir() {
-                if dest.exists() {
-                    std::fs::remove_dir_all(&dest)
-                        .io_context(format!("Removing existing skill {}", dest.display()))?;
-                }
-                copy_dir_recursive(&src, &dest)?;
-            }
-        }
-    }
-
-    let cache_agents = cache_dir.join("agents");
-    if cache_agents.is_dir() {
-        let lib_agents = library_dir.join("agents");
-        std::fs::create_dir_all(&lib_agents)
-            .io_context(format!("Creating agents dir {}", lib_agents.display()))?;
-
-        let entries = std::fs::read_dir(&cache_agents).io_context(format!(
-            "Reading personal agents {}",
-            cache_agents.display()
-        ))?;
-
-        for entry in entries {
-            let entry = entry.io_context("Reading personal agents entry")?;
-            let src = entry.path();
-            if src.is_file() {
-                let dest = lib_agents.join(entry.file_name());
-                std::fs::copy(&src, &dest).io_context(format!(
-                    "Copying agent {} to {}",
-                    src.display(),
-                    dest.display()
-                ))?;
-            }
-        }
-    }
-
-    Ok(())
-}
-
 /// Recursively copy a directory.
 fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
     std::fs::create_dir_all(dest).io_context(format!("Creating directory {}", dest.display()))?;
@@ -359,48 +248,30 @@ pub fn print_report(report: &SyncReport, quiet: bool) {
         return;
     }
 
-    match &report.community {
-        RegistryOutcome::Updated => println!("Community registry updated"),
-        RegistryOutcome::Cloned => println!("Community registry cloned"),
+    match &report.registry {
+        RegistryOutcome::Updated => println!("Skills registry updated"),
+        RegistryOutcome::Cloned => println!("Skills registry cloned"),
         RegistryOutcome::FailedWithCache { message } => {
-            eprintln!("Warning: Failed to sync community registry. {message}");
+            eprintln!("Warning: Failed to sync skills registry. {message}");
             eprintln!("Continuing with cached copy.");
         }
         RegistryOutcome::FailedNoCacheButLibraryExists { message } => {
-            eprintln!("Warning: Failed to sync community registry. {message}");
+            eprintln!("Warning: Failed to sync skills registry. {message}");
             eprintln!("Continuing with existing cold library.");
         }
         RegistryOutcome::Skipped => {
-            println!("No community registry configured. Working with existing cold library.");
+            println!("No skills registry configured. Working with existing cold library.");
         }
         RegistryOutcome::SkippedNoLibrary => {
-            println!("No community registry configured and no existing cold library. Skipping skills sync.");
+            println!(
+                "No skills registry configured and no existing cold library. Skipping skills sync."
+            );
             return;
         }
     }
 
     if report.library_copied {
-        println!("Cold library updated from community registry");
-    }
-
-    if let Some(personal) = &report.personal {
-        match personal {
-            RegistryOutcome::Updated => println!("Personal registry updated"),
-            RegistryOutcome::Cloned => println!("Personal registry cloned"),
-            RegistryOutcome::FailedWithCache { message } => {
-                eprintln!("Warning: Failed to sync personal registry. {message}");
-                eprintln!("Continuing with cached copy.");
-            }
-            RegistryOutcome::FailedNoCacheButLibraryExists { message } => {
-                eprintln!("Warning: Failed to sync personal registry. {message}");
-                eprintln!("Continuing without personal registry.");
-            }
-            RegistryOutcome::Skipped | RegistryOutcome::SkippedNoLibrary => {}
-        }
-    }
-
-    if report.personal_overlaid {
-        println!("Personal registry overlaid on cold library");
+        println!("Cold library updated from skills registry");
     }
 
     if let Some(count) = report.spec_count {
@@ -422,27 +293,19 @@ pub fn print_report(report: &SyncReport, quiet: bool) {
 
 /// CLI entry point for `akm skills sync [--quiet]`.
 ///
-/// Constructs the concrete registry sources from config and delegates
+/// Constructs the concrete registry source from config and delegates
 /// to `execute()` for the actual work.
 pub fn run_cli(paths: &Paths, quiet: bool) -> Result<()> {
     let config = Config::load(paths)?;
     let tool_dirs = ToolDirs::load(paths);
 
-    let community_url = config.community_registry_url().to_string();
-    let community = crate::registry::git::GitRegistry::new(
-        "community",
-        &community_url,
-        paths.community_registry_cache(),
-    );
+    // An unconfigured registry yields an empty URL, which `is_available()`
+    // reports as unavailable — sync then falls back to the cold library.
+    let url = config.personal_registry_url().unwrap_or_default();
+    let registry =
+        crate::registry::git::GitRegistry::new("personal", url, paths.personal_registry_cache());
 
-    let personal = config.personal_registry_url().map(|url| {
-        crate::registry::git::GitRegistry::new("personal", url, paths.personal_registry_cache())
-    });
-
-    let personal_ref: Option<&dyn RegistrySource> =
-        personal.as_ref().map(|r| r as &dyn RegistrySource);
-
-    let report = execute(paths, &community, personal_ref, &tool_dirs)?;
+    let report = execute(paths, &registry, &tool_dirs)?;
 
     print_report(&report, quiet);
 
@@ -544,49 +407,7 @@ mod tests {
     }
 
     #[test]
-    fn overlay_adds_without_removing() {
-        let tmp = TempDir::new().unwrap();
-        let cache = tmp.path().join("personal-cache");
-        let library = tmp.path().join("library");
-
-        let community_skill = library.join("skills").join("community-skill");
-        std::fs::create_dir_all(&community_skill).unwrap();
-        std::fs::write(community_skill.join("SKILL.md"), "community").unwrap();
-
-        let personal_skill = cache.join("skills").join("personal-skill");
-        std::fs::create_dir_all(&personal_skill).unwrap();
-        std::fs::write(personal_skill.join("SKILL.md"), "personal").unwrap();
-
-        overlay_registry_on_library(&cache, &library).unwrap();
-
-        assert!(library.join("skills").join("community-skill").is_dir());
-        assert!(library.join("skills").join("personal-skill").is_dir());
-    }
-
-    #[test]
-    fn overlay_personal_overwrites_community() {
-        let tmp = TempDir::new().unwrap();
-        let cache = tmp.path().join("personal-cache");
-        let library = tmp.path().join("library");
-
-        let community = library.join("skills").join("shared-skill");
-        std::fs::create_dir_all(&community).unwrap();
-        std::fs::write(community.join("SKILL.md"), "community version").unwrap();
-
-        let personal = cache.join("skills").join("shared-skill");
-        std::fs::create_dir_all(&personal).unwrap();
-        std::fs::write(personal.join("SKILL.md"), "personal version").unwrap();
-
-        overlay_registry_on_library(&cache, &library).unwrap();
-
-        let content =
-            std::fs::read_to_string(library.join("skills").join("shared-skill").join("SKILL.md"))
-                .unwrap();
-        assert_eq!(content, "personal version");
-    }
-
-    #[test]
-    fn full_pipeline_with_mock_registries() {
+    fn full_pipeline_with_mock_registry() {
         let tmp = TempDir::new().unwrap();
         let home = tmp.path().join("home");
 
@@ -597,28 +418,26 @@ mod tests {
             &home,
         );
 
-        let community_cache = tmp
+        let registry_cache = tmp
             .path()
             .join("cache")
             .join("akm")
-            .join("skills-community-registry");
-        create_mock_registry_cache(&community_cache);
+            .join("skills-personal-registry");
+        create_mock_registry_cache(&registry_cache);
 
         // Create library.json in cache with a core skill
         let lib_json_content = r#"{"version":1,"specs":[{"id":"test-skill","type":"skill","name":"Test Skill","description":"A test","core":true,"tags":[],"triggers":{}}]}"#;
-        std::fs::write(community_cache.join("library.json"), lib_json_content).unwrap();
+        std::fs::write(registry_cache.join("library.json"), lib_json_content).unwrap();
 
-        let community = MockRegistry::new("community", community_cache)
+        let registry = MockRegistry::new("personal", registry_cache)
             .with_pull_result(Ok(PullOutcome::Updated));
 
         let tool_dirs = ToolDirs::builtin(&home);
 
-        let report = execute(&paths, &community, None, &tool_dirs).unwrap();
+        let report = execute(&paths, &registry, &tool_dirs).unwrap();
 
-        assert!(matches!(report.community, RegistryOutcome::Updated));
-        assert!(report.personal.is_none());
+        assert!(matches!(report.registry, RegistryOutcome::Updated));
         assert!(report.library_copied);
-        assert!(!report.personal_overlaid);
         assert_eq!(report.spec_count, Some(1));
         assert_eq!(report.symlink_count, 1);
         assert_eq!(report.tool_dir_count, 5);
@@ -652,26 +471,26 @@ mod tests {
             &tmp.path().join("home"),
         );
 
-        let community_cache = tmp
+        let registry_cache = tmp
             .path()
             .join("cache")
             .join("akm")
-            .join("skills-community-registry");
-        create_mock_registry_cache(&community_cache);
+            .join("skills-personal-registry");
+        create_mock_registry_cache(&registry_cache);
 
-        let community = MockRegistry::new("community", community_cache).with_pull_result(Err(
+        let registry = MockRegistry::new("personal", registry_cache).with_pull_result(Err(
             Error::RegistrySync {
-                name: "community".into(),
+                name: "personal".into(),
                 message: "network error".into(),
             },
         ));
 
         let tool_dirs = ToolDirs::builtin(tmp.path().join("home").as_path());
 
-        let report = execute(&paths, &community, None, &tool_dirs).unwrap();
+        let report = execute(&paths, &registry, &tool_dirs).unwrap();
 
         assert!(matches!(
-            report.community,
+            report.registry,
             RegistryOutcome::FailedWithCache { .. }
         ));
     }
@@ -686,22 +505,23 @@ mod tests {
             &tmp.path().join("home"),
         );
 
-        let community = MockRegistry::new("community", tmp.path().join("nonexistent-cache"))
+        let registry = MockRegistry::new("personal", tmp.path().join("nonexistent-cache"))
             .with_pull_result(Err(Error::RegistrySync {
-                name: "community".into(),
+                name: "personal".into(),
                 message: "network error".into(),
             }));
 
         let tool_dirs = ToolDirs::builtin(tmp.path().join("home").as_path());
 
-        let result = execute(&paths, &community, None, &tool_dirs);
+        let result = execute(&paths, &registry, &tool_dirs);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), Error::NoSkillsAvailable));
     }
 
-    /// Personal registry failure must NEVER trigger NoSkillsAvailable.
+    /// A failed pull with no cache but an existing cold library degrades to a
+    /// warning — the user keeps working with what is already on disk.
     #[test]
-    fn personal_failure_never_fatal() {
+    fn sync_failure_with_existing_library_is_not_fatal() {
         let tmp = TempDir::new().unwrap();
         let paths = Paths::from_roots(
             &tmp.path().join("data"),
@@ -710,16 +530,11 @@ mod tests {
             &tmp.path().join("home"),
         );
 
-        let community_cache = tmp
-            .path()
-            .join("cache")
-            .join("akm")
-            .join("skills-community-registry");
-        create_mock_registry_cache(&community_cache);
-        let community = MockRegistry::new("community", community_cache)
-            .with_pull_result(Ok(PullOutcome::Updated));
+        // Existing cold library on disk
+        std::fs::create_dir_all(paths.data_dir()).unwrap();
+        std::fs::write(paths.library_json(), r#"{"version":1,"specs":[]}"#).unwrap();
 
-        let personal = MockRegistry::new("personal", tmp.path().join("nonexistent-personal-cache"))
+        let registry = MockRegistry::new("personal", tmp.path().join("nonexistent-cache"))
             .with_pull_result(Err(Error::RegistrySync {
                 name: "personal".into(),
                 message: "network error".into(),
@@ -727,19 +542,14 @@ mod tests {
 
         let tool_dirs = ToolDirs::builtin(tmp.path().join("home").as_path());
 
-        let report = execute(
-            &paths,
-            &community,
-            Some(&personal as &dyn RegistrySource),
-            &tool_dirs,
-        )
-        .expect("personal failure must not be fatal");
+        let report = execute(&paths, &registry, &tool_dirs)
+            .expect("a failed pull must not be fatal when a library exists");
 
         assert!(matches!(
-            report.personal,
-            Some(RegistryOutcome::FailedNoCacheButLibraryExists { .. })
+            report.registry,
+            RegistryOutcome::FailedNoCacheButLibraryExists { .. }
         ));
-        assert!(!report.personal_overlaid);
+        assert!(!report.library_copied);
     }
 
     /// Test the SkippedNoLibrary early exit path.
@@ -753,16 +563,13 @@ mod tests {
             &tmp.path().join("home"),
         );
 
-        let community =
-            MockRegistry::new("community", tmp.path().join("cache")).with_available(false);
+        let registry =
+            MockRegistry::new("personal", tmp.path().join("cache")).with_available(false);
 
         let tool_dirs = ToolDirs::builtin(tmp.path().join("home").as_path());
 
-        let report = execute(&paths, &community, None, &tool_dirs).unwrap();
-        assert!(matches!(
-            report.community,
-            RegistryOutcome::SkippedNoLibrary
-        ));
+        let report = execute(&paths, &registry, &tool_dirs).unwrap();
+        assert!(matches!(report.registry, RegistryOutcome::SkippedNoLibrary));
         assert_eq!(report.symlink_count, 0);
         assert!(report.spec_count.is_none());
     }
@@ -789,9 +596,9 @@ mod tests {
 
     /// User core overrides must survive a full sync cycle.
     ///
-    /// Regression test: the community registry ships `core: false` for a
-    /// skill, but the user previously set it to `core: true`. After sync,
-    /// the user's preference must be preserved.
+    /// Regression test: the registry ships `core: false` for a skill, but the
+    /// user previously set it to `core: true`. After sync, the user's
+    /// preference must be preserved.
     #[test]
     fn core_overrides_preserved_across_sync() {
         let tmp = TempDir::new().unwrap();
@@ -804,15 +611,15 @@ mod tests {
             &home,
         );
 
-        // Community cache: ships test-skill with core: false
-        let community_cache = tmp
+        // Registry cache: ships test-skill with core: false
+        let registry_cache = tmp
             .path()
             .join("cache")
             .join("akm")
-            .join("skills-community-registry");
-        create_mock_registry_cache(&community_cache);
+            .join("skills-personal-registry");
+        create_mock_registry_cache(&registry_cache);
         let cache_lib = r#"{"version":1,"specs":[{"id":"test-skill","type":"skill","name":"Test Skill","description":"A test","core":false,"tags":[],"triggers":{}}]}"#;
-        std::fs::write(community_cache.join("library.json"), cache_lib).unwrap();
+        std::fs::write(registry_cache.join("library.json"), cache_lib).unwrap();
 
         // User's existing library.json: test-skill is core: true
         let library_dir = paths.data_dir();
@@ -820,12 +627,12 @@ mod tests {
         let user_lib = r#"{"version":1,"specs":[{"id":"test-skill","type":"skill","name":"Test Skill","description":"A test","core":true,"tags":[],"triggers":{}}]}"#;
         std::fs::write(paths.library_json(), user_lib).unwrap();
 
-        let community = MockRegistry::new("community", community_cache)
+        let registry = MockRegistry::new("personal", registry_cache)
             .with_pull_result(Ok(PullOutcome::Updated));
 
         let tool_dirs = ToolDirs::builtin(&home);
 
-        let report = execute(&paths, &community, None, &tool_dirs).unwrap();
+        let report = execute(&paths, &registry, &tool_dirs).unwrap();
 
         assert_eq!(report.core_overrides_preserved, 1);
 
@@ -833,83 +640,5 @@ mod tests {
         let library = Library::load_from(&paths.library_json()).unwrap();
         let spec = library.get("test-skill").expect("test-skill must exist");
         assert!(spec.core, "User core override must survive sync");
-    }
-
-    /// Personal skill core overrides must survive sync when skill only exists
-    /// in personal registry (not in community).
-    ///
-    /// Regression test: user marks a personal skill as core, then runs sync.
-    /// The personal skill is NOT in the community registry. After sync, the
-    /// user's core preference must be preserved.
-    #[test]
-    fn personal_skill_core_override_preserved_across_sync() {
-        let tmp = TempDir::new().unwrap();
-        let home = tmp.path().join("home");
-
-        let paths = Paths::from_roots(
-            &tmp.path().join("data"),
-            &tmp.path().join("config"),
-            &tmp.path().join("cache"),
-            &home,
-        );
-
-        // Community cache: has one community skill, no "personal-skill"
-        let community_cache = tmp
-            .path()
-            .join("cache")
-            .join("akm")
-            .join("skills-community-registry");
-        create_mock_registry_cache(&community_cache); // creates test-skill
-        let cache_lib = r#"{"version":1,"specs":[{"id":"test-skill","type":"skill","name":"Test Skill","description":"A test","core":false,"tags":[],"triggers":{}}]}"#;
-        std::fs::write(community_cache.join("library.json"), cache_lib).unwrap();
-
-        // Personal cache: has "personal-skill"
-        let personal_cache = tmp
-            .path()
-            .join("cache")
-            .join("akm")
-            .join("skills-personal-registry");
-        let personal_skill_dir = personal_cache.join("skills").join("personal-skill");
-        std::fs::create_dir_all(&personal_skill_dir).unwrap();
-        std::fs::write(
-            personal_skill_dir.join("SKILL.md"),
-            "---\nname: Personal Skill\ndescription: A personal skill\n---\nContent",
-        )
-        .unwrap();
-
-        // User's existing library.json: has both test-skill and personal-skill,
-        // personal-skill is core: true
-        let library_dir = paths.data_dir();
-        std::fs::create_dir_all(library_dir).unwrap();
-        let user_lib = r#"{"version":1,"specs":[{"id":"test-skill","type":"skill","name":"Test Skill","description":"A test","core":false,"tags":[],"triggers":{}},{"id":"personal-skill","type":"skill","name":"Personal Skill","description":"A personal skill","core":true,"tags":[],"triggers":{}}]}"#;
-        std::fs::write(paths.library_json(), user_lib).unwrap();
-
-        let community = MockRegistry::new("community", community_cache)
-            .with_pull_result(Ok(PullOutcome::Updated));
-
-        let personal = MockRegistry::new("personal", personal_cache)
-            .with_pull_result(Ok(PullOutcome::Updated));
-
-        let tool_dirs = ToolDirs::builtin(&home);
-
-        let report = execute(
-            &paths,
-            &community,
-            Some(&personal as &dyn RegistrySource),
-            &tool_dirs,
-        )
-        .unwrap();
-
-        assert_eq!(
-            report.core_overrides_preserved, 1,
-            "personal-skill core override should be preserved"
-        );
-
-        // Verify library.json on disk still has personal-skill as core: true
-        let library = Library::load_from(&paths.library_json()).unwrap();
-        let spec = library
-            .get("personal-skill")
-            .expect("personal-skill must exist after sync");
-        assert!(spec.core, "Personal skill core override must survive sync");
     }
 }

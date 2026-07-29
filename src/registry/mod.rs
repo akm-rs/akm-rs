@@ -34,7 +34,7 @@ pub enum PullOutcome {
 ///
 /// Spec reference: "RegistrySource trait with pull(), push(), is_available() methods"
 pub trait RegistrySource {
-    /// Human-readable name for display (e.g., "community", "personal").
+    /// Human-readable name for display (e.g., "personal").
     fn name(&self) -> &str;
 
     /// Synchronize the local cache with the remote registry.
@@ -50,7 +50,7 @@ pub trait RegistrySource {
     /// Push local changes in the cache directory to the remote.
     ///
     /// Used by `akm skills publish` to push specs to the personal registry.
-    /// Returns `Err` for read-only registries (e.g., community).
+    /// Returns `Err` for read-only registries.
     fn push(&self) -> Result<()>;
 
     /// Check if the remote is configured and theoretically reachable.
