@@ -138,6 +138,20 @@ akm skills import https://github.com/user/repo/tree/main/skills/my-skill --force
 
 Both `/tree/` (directory) and `/blob/` (file) GitHub URLs are supported. For private repos, set the `GITHUB_TOKEN` environment variable.
 
+#### Publishing after promote or import
+
+When run interactively, `promote` and `import` end by offering to publish the
+skill to your personal registry:
+
+```
+Publish to personal registry? [y/N]:
+```
+
+The prompt is skipped when `skills.personal_registry` is unset or when stdin is
+not a terminal. The description and tags you entered at the metadata prompts are
+carried into the registry. If publishing fails, the skill still stays in cold
+storage — retry with `akm skills publish <id>`.
+
 ### Artifacts
 
 ```bash

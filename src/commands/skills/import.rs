@@ -5,6 +5,7 @@
 //! runs interactive prompts, and copies to cold storage.
 
 use crate::commands::skills::promote::copy_dir_recursive;
+use crate::config::Config;
 use crate::error::{Error, IoContext, Result};
 use crate::github::{self, GitHubHttpClient};
 use crate::library::frontmatter::Frontmatter;
@@ -19,12 +20,14 @@ use std::io::{self, BufRead, IsTerminal, Write};
 ///
 /// # Arguments
 /// * `paths` — Resolved XDG paths
+/// * `config` — Loaded config, for the optional publish prompt
 /// * `url` — GitHub URL to a directory containing SKILL.md
 /// * `force` — Skip overwrite confirmation
 /// * `custom_id` — Optional override for the skill ID
 /// * `tool_dirs` — Tool directories for symlink rebuild
 pub fn run(
     paths: &Paths,
+    config: &Config,
     url: &str,
     force: bool,
     custom_id: Option<&str>,
@@ -166,6 +169,9 @@ pub fn run(
     println!("  {count} core symlinks rebuilt");
     println!();
     println!("Imported skill '{id}' from GitHub");
+
+    // Step 10: Offer to publish to the personal registry
+    super::publish::offer(paths, config, &id);
 
     Ok(())
 }
