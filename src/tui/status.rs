@@ -3,13 +3,16 @@
 //! Displays the same sections as the plain output (core, session, manifest,
 //! cold) but in a scrollable TUI with navigation and actions.
 //!
-//! Key bindings:
-//! - `↑`/`↓` — navigate between specs (across sections)
+//! Key bindings match the list view's normal mode, minus `/` — the dashboard
+//! has no search filter, so `Esc` has nothing to clear and is inert here:
+//! - `↑`/`↓` or `j`/`k` — navigate between specs (across sections)
 //! - `Enter` — view detail for selected spec
 //! - `c` — toggle core for selected spec
+//! - `e` — edit metadata (tags, triggers)
 //! - `a` — add selected to manifest
 //! - `r` — remove selected from manifest
-//! - `q` / `Esc` — quit
+//! - `q` — quit
+//! - `Ctrl+C` — exit immediately
 
 use crate::error::Result;
 use crate::library::spec::SpecType;
@@ -17,6 +20,7 @@ use crate::library::tool_dirs::ToolDirs;
 use crate::paths::Paths;
 use crate::tui::app::{AddResult, App, RemoveResult};
 use crate::tui::detail;
+use crate::tui::edit as tui_edit;
 use crate::tui::event::{self, Event};
 use crate::tui::theme;
 use crate::tui::{self, Term};
@@ -286,7 +290,9 @@ fn run_status_loop(terminal: &mut Term, app: &mut App) -> Result<()> {
         match event::poll_event()? {
             Event::Key(key) => {
                 view.status_message = None;
-                if event::is_ctrl_c(&key) || event::is_escape(&key) {
+                // Esc is deliberately not an exit — it only ever clears a
+                // filter, and this view has none. Only `q` and Ctrl+C quit.
+                if event::is_ctrl_c(&key) {
                     return Ok(());
                 }
                 match key.code {
@@ -297,6 +303,13 @@ fn run_status_loop(terminal: &mut Term, app: &mut App) -> Result<()> {
                         if let Some(id) = view.selected_id() {
                             let id = id.to_string();
                             detail::run_inline(terminal, app, &id)?;
+                            view.rebuild_preserving_selection(app);
+                        }
+                    }
+                    KeyCode::Char('e') => {
+                        if let Some(id) = view.selected_id() {
+                            let id = id.to_string();
+                            tui_edit::run_inline(terminal, app, &id)?;
                             view.rebuild_preserving_selection(app);
                         }
                     }
@@ -423,7 +436,24 @@ fn render_status(frame: &mut Frame, view: &mut StatusView) {
         frame.render_widget(status, chunks[1]);
     }
 
-    let help = Paragraph::new(" ↑↓ navigate  Enter view  c core  a add  r remove  q quit")
-        .style(theme::HELP_BAR);
-    frame.render_widget(help, chunks[2]);
+    let help_text = Line::from(
+        [
+            (" ↑↓/jk", " navigate  "),
+            ("Enter", " view  "),
+            ("c", " core  "),
+            ("e", " edit  "),
+            ("a", " add  "),
+            ("r", " remove  "),
+            ("q", " quit"),
+        ]
+        .iter()
+        .flat_map(|(key, label)| {
+            [
+                Span::styled(*key, theme::HEADER),
+                Span::styled(*label, theme::HELP_BAR),
+            ]
+        })
+        .collect::<Vec<_>>(),
+    );
+    frame.render_widget(Paragraph::new(help_text), chunks[2]);
 }

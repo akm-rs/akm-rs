@@ -2,16 +2,28 @@
 //!
 //! Columns: ID | Type | Description | Tags | Core
 //!
-//! Key bindings:
-//! - Type to filter/search (search bar at top)
+//! The view is modal. It opens in [`Mode::Normal`], where letters are commands
+//! and the search filter (if any) stays applied, so actions can be used on a
+//! filtered list. `/` switches to [`Mode::Search`], where letters are text.
+//!
+//! Normal mode key bindings:
+//! - `/` → start editing the search filter
 //! - `Enter` → view full SKILL.md content in detail pane
 //! - `c` → toggle core flag on/off
 //! - `e` → edit metadata (tags, triggers)
 //! - `a` → add to current project manifest
 //! - `r` → remove from current project manifest
-//! - `q` or `Esc` → quit
+//! - `q` → quit
+//! - `Esc` → clear the search filter (never quits)
 //! - `↑`/`↓` or `j`/`k` → navigate
+//! - any other key → ignored
+//! - `Ctrl+C` → exit immediately
+//!
+//! Search mode key bindings:
+//! - any character → appended to the search filter
 //! - `Backspace` → delete last char from search
+//! - `Enter` or `Esc` → back to normal mode, keeping the filter
+//! - `↑`/`↓` → navigate
 //! - `Ctrl+C` → exit immediately
 
 use crate::error::Result;
@@ -31,8 +43,23 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState};
 use ratatui::Frame;
 
+/// Input mode for the list view.
+///
+/// Determines whether printable keys are commands or search text. The search
+/// filter is independent of the mode — it stays applied in [`Mode::Normal`],
+/// which is what lets actions operate on a filtered list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    /// Letters are commands. The search filter (if any) remains applied.
+    Normal,
+    /// Letters are appended to the search query.
+    Search,
+}
+
 /// State for the list view.
 struct ListView {
+    /// Current input mode.
+    mode: Mode,
     /// Current search/filter query (typed by user).
     search_query: String,
     /// Table selection state (tracks which row is highlighted).
@@ -56,6 +83,9 @@ impl ListView {
         let mut state = TableState::default();
         state.select(Some(0));
         Self {
+            // Both `skills list` and `skills search <query>` open in normal
+            // mode: a query passed on the command line is already committed.
+            mode: Mode::Normal,
             search_query: initial_query.unwrap_or_default(),
             table_state: state,
             visible_ids: Vec::new(),
@@ -183,11 +213,8 @@ fn run_list_loop(terminal: &mut Term, app: &mut App, view: &mut ListView) -> Res
 
 /// Handle a key event in the list view.
 ///
-/// Guard conditions:
-/// - `Ctrl+C` always exits (highest priority, checked first)
-/// - `q` exits only if search bar is empty (otherwise it's a search character)
-/// - Letter keys are treated as search input unless they match a keybinding
-///   AND the search bar is empty.
+/// `Ctrl+C` exits from either mode (highest priority, checked first).
+/// Everything else is dispatched on [`ListView::mode`].
 fn handle_list_key(key: KeyEvent, app: &mut App, view: &mut ListView) -> Result<EventOutcome> {
     view.status_message = None;
 
@@ -195,25 +222,31 @@ fn handle_list_key(key: KeyEvent, app: &mut App, view: &mut ListView) -> Result<
         return Ok(EventOutcome::Exit);
     }
 
-    if event::is_escape(&key) {
-        if !view.search_query.is_empty() {
-            view.search_query.clear();
-            return Ok(EventOutcome::Continue);
+    match view.mode {
+        Mode::Normal => handle_normal_key(key, app, view),
+        Mode::Search => {
+            handle_search_key(key, view);
+            Ok(EventOutcome::Continue)
         }
-        return Ok(EventOutcome::Exit);
+    }
+}
+
+/// Handle a key event in normal mode, where letters are commands.
+///
+/// Keys with no binding are ignored — they never fall through to the search
+/// query. `/` is the only way into [`Mode::Search`].
+fn handle_normal_key(key: KeyEvent, app: &mut App, view: &mut ListView) -> Result<EventOutcome> {
+    if event::is_escape(&key) {
+        // Esc clears the filter but never quits — only `q` and Ctrl+C do.
+        view.search_query.clear();
+        return Ok(EventOutcome::Continue);
     }
 
     match key.code {
-        // Navigation — arrow keys always work
-        KeyCode::Up => view.select_prev(),
-        KeyCode::Down => view.select_next(),
-        // j/k only navigate when search is empty
-        KeyCode::Char('k') if view.search_query.is_empty() => view.select_prev(),
-        KeyCode::Char('j') if view.search_query.is_empty() => view.select_next(),
+        KeyCode::Up | KeyCode::Char('k') => view.select_prev(),
+        KeyCode::Down | KeyCode::Char('j') => view.select_next(),
 
-        KeyCode::Backspace => {
-            view.search_query.pop();
-        }
+        KeyCode::Char('/') => view.mode = Mode::Search,
 
         KeyCode::Enter => {
             if let Some(id) = view.selected_id() {
@@ -223,11 +256,9 @@ fn handle_list_key(key: KeyEvent, app: &mut App, view: &mut ListView) -> Result<
             }
         }
 
-        // Action keybindings — only active when search bar is empty
-        KeyCode::Char('q') if view.search_query.is_empty() => {
-            return Ok(EventOutcome::Exit);
-        }
-        KeyCode::Char('c') if view.search_query.is_empty() => {
+        KeyCode::Char('q') => return Ok(EventOutcome::Exit),
+
+        KeyCode::Char('c') => {
             if let Some(id) = view.selected_id() {
                 let id = id.to_string();
                 if let Some(new_core) = app.toggle_core(&id) {
@@ -236,14 +267,14 @@ fn handle_list_key(key: KeyEvent, app: &mut App, view: &mut ListView) -> Result<
                 }
             }
         }
-        KeyCode::Char('e') if view.search_query.is_empty() => {
+        KeyCode::Char('e') => {
             if let Some(id) = view.selected_id() {
                 return Ok(EventOutcome::SwitchTo(ViewSwitch::Edit {
                     spec_id: id.to_string(),
                 }));
             }
         }
-        KeyCode::Char('a') if view.search_query.is_empty() => {
+        KeyCode::Char('a') => {
             if let Some(id) = view.selected_id() {
                 let id = id.to_string();
                 match app.add_to_manifest(&id)? {
@@ -262,7 +293,7 @@ fn handle_list_key(key: KeyEvent, app: &mut App, view: &mut ListView) -> Result<
                 }
             }
         }
-        KeyCode::Char('r') if view.search_query.is_empty() => {
+        KeyCode::Char('r') => {
             if let Some(id) = view.selected_id() {
                 let id = id.to_string();
                 match app.remove_from_manifest(&id)? {
@@ -279,15 +310,32 @@ fn handle_list_key(key: KeyEvent, app: &mut App, view: &mut ListView) -> Result<
             }
         }
 
-        // All other characters go to search
-        KeyCode::Char(c) => {
-            view.search_query.push(c);
-        }
-
         _ => {}
     }
 
     Ok(EventOutcome::Continue)
+}
+
+/// Handle a key event in search mode, where characters are query text.
+///
+/// `Enter` and `Esc` both return to [`Mode::Normal`] keeping the query, so the
+/// action keys become available on the filtered list.
+fn handle_search_key(key: KeyEvent, view: &mut ListView) {
+    if event::is_escape(&key) {
+        view.mode = Mode::Normal;
+        return;
+    }
+
+    match key.code {
+        KeyCode::Enter => view.mode = Mode::Normal,
+        KeyCode::Up => view.select_prev(),
+        KeyCode::Down => view.select_next(),
+        KeyCode::Backspace => {
+            view.search_query.pop();
+        }
+        KeyCode::Char(c) => view.search_query.push(c),
+        _ => {}
+    }
 }
 
 /// Render the list view.
@@ -302,7 +350,7 @@ fn render_list(frame: &mut Frame, app: &App, view: &mut ListView) {
         ])
         .split(frame.area());
 
-    render_search_bar(frame, chunks[0], &view.search_query);
+    render_search_bar(frame, chunks[0], view.mode, &view.search_query);
     render_table(frame, chunks[1], app, view);
 
     if let Some(ref msg) = view.status_message {
@@ -310,22 +358,29 @@ fn render_list(frame: &mut Frame, app: &App, view: &mut ListView) {
         frame.render_widget(status, chunks[2]);
     }
 
-    render_help_bar(frame, chunks[3]);
+    render_help_bar(frame, chunks[3], view.mode);
 }
 
 /// Render the search/filter bar.
-fn render_search_bar(frame: &mut Frame, area: Rect, query: &str) {
-    let text = if query.is_empty() {
-        Line::from(vec![
-            Span::styled(" 🔍 ", theme::DIM),
-            Span::styled("Type to search/filter...", theme::DIM),
-        ])
-    } else {
-        Line::from(vec![
+///
+/// The cursor block is shown only in search mode, so the bar also indicates
+/// which mode the view is in.
+fn render_search_bar(frame: &mut Frame, area: Rect, mode: Mode, query: &str) {
+    let text = match (mode, query.is_empty()) {
+        (Mode::Search, _) => Line::from(vec![
             Span::styled(" 🔍 ", theme::SEARCH_BAR),
             Span::raw(query),
             Span::styled("█", theme::SEARCH_BAR),
-        ])
+        ]),
+        (Mode::Normal, true) => Line::from(vec![
+            Span::styled(" 🔍 ", theme::DIM),
+            Span::styled("Press / to search/filter...", theme::DIM),
+        ]),
+        (Mode::Normal, false) => Line::from(vec![
+            Span::styled(" 🔍 ", theme::SEARCH_BAR),
+            Span::raw(query),
+            Span::styled("  [filtered]", theme::DIM),
+        ]),
     };
     let para = Paragraph::new(text).style(theme::SEARCH_BAR);
     frame.render_widget(para, area);
@@ -385,26 +440,295 @@ fn render_table(frame: &mut Frame, area: Rect, app: &App, view: &mut ListView) {
     frame.render_stateful_widget(table, area, &mut view.table_state);
 }
 
-/// Render the help bar showing available key bindings.
-fn render_help_bar(frame: &mut Frame, area: Rect) {
-    let help_text = Line::from(vec![
-        Span::styled(" ↑↓/jk", theme::HEADER),
-        Span::styled(" navigate  ", theme::HELP_BAR),
-        Span::styled("Enter", theme::HEADER),
-        Span::styled(" view  ", theme::HELP_BAR),
-        Span::styled("c", theme::HEADER),
-        Span::styled(" core  ", theme::HELP_BAR),
-        Span::styled("e", theme::HEADER),
-        Span::styled(" edit  ", theme::HELP_BAR),
-        Span::styled("a", theme::HEADER),
-        Span::styled(" add  ", theme::HELP_BAR),
-        Span::styled("r", theme::HEADER),
-        Span::styled(" remove  ", theme::HELP_BAR),
-        Span::styled("q", theme::HEADER),
-        Span::styled(" quit  ", theme::HELP_BAR),
-        Span::styled("Esc", theme::HEADER),
-        Span::styled(" clear search", theme::HELP_BAR),
-    ]);
+/// Render the help bar showing the key bindings for the current mode.
+fn render_help_bar(frame: &mut Frame, area: Rect, mode: Mode) {
+    let pairs: &[(&str, &str)] = match mode {
+        Mode::Normal => &[
+            (" ↑↓/jk", " navigate  "),
+            ("Enter", " view  "),
+            ("c", " core  "),
+            ("e", " edit  "),
+            ("a", " add  "),
+            ("r", " remove  "),
+            ("/", " search  "),
+            ("Esc", " clear filter  "),
+            ("q", " quit"),
+        ],
+        Mode::Search => &[
+            (" type", " to filter  "),
+            ("Backspace", " delete  "),
+            ("↑↓", " navigate  "),
+            ("Enter/Esc", " done  "),
+            ("Ctrl+C", " quit"),
+        ],
+    };
+    let help_text = Line::from(
+        pairs
+            .iter()
+            .flat_map(|(key, label)| {
+                [
+                    Span::styled(*key, theme::HEADER),
+                    Span::styled(*label, theme::HELP_BAR),
+                ]
+            })
+            .collect::<Vec<_>>(),
+    );
     let para = Paragraph::new(help_text);
     frame.render_widget(para, area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::library::spec::Spec;
+    use crate::library::Library;
+    use crossterm::event::KeyModifiers;
+
+    /// Build a key event with no modifiers.
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    /// Build a printable-character key event.
+    fn ch(c: char) -> KeyEvent {
+        key(KeyCode::Char(c))
+    }
+
+    /// Feed a sequence of characters through the key handler.
+    fn type_chars(app: &mut App, view: &mut ListView, s: &str) {
+        for c in s.chars() {
+            handle_list_key(ch(c), app, view).unwrap();
+            view.update_visible(app);
+        }
+    }
+
+    /// An App backed by a temp dir, plus the guard keeping that dir alive.
+    fn test_app() -> (App, tempfile::TempDir) {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_roots(tmp.path(), tmp.path(), tmp.path(), tmp.path());
+        let library = Library {
+            version: 1,
+            specs: vec![
+                Spec::new(
+                    "git-commit",
+                    SpecType::Skill,
+                    "Git Commit",
+                    "Structured commits",
+                ),
+                Spec::new(
+                    "git-worktrees",
+                    SpecType::Skill,
+                    "Worktrees",
+                    "Isolated worktrees",
+                ),
+                Spec::new(
+                    "code-review",
+                    SpecType::Agent,
+                    "Code Review",
+                    "Reviews changes",
+                ),
+            ],
+        };
+        library.save(&paths).unwrap();
+        let tool_dirs = ToolDirs::builtin(tmp.path());
+        let app = App::new(paths, tool_dirs).unwrap();
+        (app, tmp)
+    }
+
+    /// A view already filtered to "git" and back in normal mode.
+    fn filtered_view(app: &mut App) -> ListView {
+        let mut view = ListView::new(None, None, None);
+        view.update_visible(app);
+        handle_list_key(ch('/'), app, &mut view).unwrap();
+        type_chars(app, &mut view, "git");
+        handle_list_key(key(KeyCode::Esc), app, &mut view).unwrap();
+        view.update_visible(app);
+        view
+    }
+
+    #[test]
+    fn opens_in_normal_mode() {
+        let view = ListView::new(None, None, None);
+        assert_eq!(view.mode, Mode::Normal);
+        assert!(view.search_query.is_empty());
+    }
+
+    #[test]
+    fn cli_query_opens_in_normal_mode() {
+        let view = ListView::new(None, None, Some("tdd".to_string()));
+        assert_eq!(view.mode, Mode::Normal);
+        assert_eq!(view.search_query, "tdd");
+    }
+
+    #[test]
+    fn slash_enters_search_mode() {
+        let (mut app, _tmp) = test_app();
+        let mut view = ListView::new(None, None, None);
+        handle_list_key(ch('/'), &mut app, &mut view).unwrap();
+        assert_eq!(view.mode, Mode::Search);
+        // The `/` itself is not part of the query.
+        assert!(view.search_query.is_empty());
+    }
+
+    #[test]
+    fn search_mode_types_chars_into_query() {
+        let (mut app, _tmp) = test_app();
+        let mut view = ListView::new(None, None, None);
+        handle_list_key(ch('/'), &mut app, &mut view).unwrap();
+        type_chars(&mut app, &mut view, "git");
+        assert_eq!(view.search_query, "git");
+        assert_eq!(view.visible_ids, vec!["git-commit", "git-worktrees"]);
+    }
+
+    #[test]
+    fn search_mode_treats_action_keys_as_text() {
+        let (mut app, _tmp) = test_app();
+        let mut view = ListView::new(None, None, None);
+        handle_list_key(ch('/'), &mut app, &mut view).unwrap();
+        // Every key bound to an action in normal mode is plain text here.
+        type_chars(&mut app, &mut view, "arceqjk/");
+        assert_eq!(view.search_query, "arceqjk/");
+        assert_eq!(view.mode, Mode::Search);
+        assert!(!app.library_dirty);
+        assert!(!app.manifest_dirty);
+    }
+
+    #[test]
+    fn escape_leaves_search_mode_keeping_the_filter() {
+        let (mut app, _tmp) = test_app();
+        let view = filtered_view(&mut app);
+        assert_eq!(view.mode, Mode::Normal);
+        assert_eq!(view.search_query, "git");
+        assert_eq!(view.visible_ids, vec!["git-commit", "git-worktrees"]);
+    }
+
+    #[test]
+    fn enter_leaves_search_mode_keeping_the_filter() {
+        let (mut app, _tmp) = test_app();
+        let mut view = ListView::new(None, None, None);
+        handle_list_key(ch('/'), &mut app, &mut view).unwrap();
+        type_chars(&mut app, &mut view, "git");
+        let outcome = handle_list_key(key(KeyCode::Enter), &mut app, &mut view).unwrap();
+        assert_eq!(outcome, EventOutcome::Continue);
+        assert_eq!(view.mode, Mode::Normal);
+        assert_eq!(view.search_query, "git");
+    }
+
+    /// The bug from issue #19: actions must work on a list that is still
+    /// filtered, and leaving search must not throw the filter away.
+    #[test]
+    fn actions_work_while_filter_is_active() {
+        let (mut app, _tmp) = test_app();
+        let mut view = filtered_view(&mut app);
+
+        handle_list_key(ch('c'), &mut app, &mut view).unwrap();
+
+        assert!(app.library.get("git-commit").unwrap().core);
+        assert!(app.library_dirty);
+        // The filter survived the action.
+        assert_eq!(view.search_query, "git");
+        assert_eq!(view.visible_ids, vec!["git-commit", "git-worktrees"]);
+    }
+
+    #[test]
+    fn normal_mode_ignores_unbound_chars() {
+        let (mut app, _tmp) = test_app();
+        let mut view = filtered_view(&mut app);
+        for c in ['g', 't', 'v', 'Z', '1'] {
+            let outcome = handle_list_key(ch(c), &mut app, &mut view).unwrap();
+            assert_eq!(outcome, EventOutcome::Continue);
+        }
+        assert_eq!(view.mode, Mode::Normal);
+        assert_eq!(view.search_query, "git");
+    }
+
+    #[test]
+    fn normal_mode_escape_clears_filter_without_quitting() {
+        let (mut app, _tmp) = test_app();
+        let mut view = filtered_view(&mut app);
+
+        let outcome = handle_list_key(key(KeyCode::Esc), &mut app, &mut view).unwrap();
+        assert_eq!(outcome, EventOutcome::Continue);
+        assert!(view.search_query.is_empty());
+
+        // A second Esc on an unfiltered list is inert — only q/Ctrl+C quit.
+        let outcome = handle_list_key(key(KeyCode::Esc), &mut app, &mut view).unwrap();
+        assert_eq!(outcome, EventOutcome::Continue);
+    }
+
+    #[test]
+    fn normal_mode_ignores_backspace() {
+        let (mut app, _tmp) = test_app();
+        let mut view = filtered_view(&mut app);
+        handle_list_key(key(KeyCode::Backspace), &mut app, &mut view).unwrap();
+        assert_eq!(view.search_query, "git");
+    }
+
+    #[test]
+    fn search_mode_backspace_pops_a_char() {
+        let (mut app, _tmp) = test_app();
+        let mut view = ListView::new(None, None, None);
+        handle_list_key(ch('/'), &mut app, &mut view).unwrap();
+        type_chars(&mut app, &mut view, "git");
+        handle_list_key(key(KeyCode::Backspace), &mut app, &mut view).unwrap();
+        assert_eq!(view.search_query, "gi");
+    }
+
+    #[test]
+    fn q_quits_only_in_normal_mode() {
+        let (mut app, _tmp) = test_app();
+        let mut view = filtered_view(&mut app);
+        assert_eq!(
+            handle_list_key(ch('q'), &mut app, &mut view).unwrap(),
+            EventOutcome::Exit
+        );
+    }
+
+    #[test]
+    fn ctrl_c_exits_from_search_mode() {
+        let (mut app, _tmp) = test_app();
+        let mut view = ListView::new(None, None, None);
+        handle_list_key(ch('/'), &mut app, &mut view).unwrap();
+        let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+        assert_eq!(
+            handle_list_key(ctrl_c, &mut app, &mut view).unwrap(),
+            EventOutcome::Exit
+        );
+    }
+
+    #[test]
+    fn enter_opens_detail_in_normal_mode() {
+        let (mut app, _tmp) = test_app();
+        let mut view = filtered_view(&mut app);
+        let outcome = handle_list_key(key(KeyCode::Enter), &mut app, &mut view).unwrap();
+        assert_eq!(
+            outcome,
+            EventOutcome::SwitchTo(ViewSwitch::Detail {
+                spec_id: "git-commit".to_string()
+            })
+        );
+    }
+
+    #[test]
+    fn jk_navigate_in_normal_mode() {
+        let (mut app, _tmp) = test_app();
+        let mut view = filtered_view(&mut app);
+        assert_eq!(view.selected_id(), Some("git-commit"));
+        handle_list_key(ch('j'), &mut app, &mut view).unwrap();
+        assert_eq!(view.selected_id(), Some("git-worktrees"));
+        handle_list_key(ch('k'), &mut app, &mut view).unwrap();
+        assert_eq!(view.selected_id(), Some("git-commit"));
+    }
+
+    #[test]
+    fn arrows_navigate_in_search_mode() {
+        let (mut app, _tmp) = test_app();
+        let mut view = ListView::new(None, None, None);
+        handle_list_key(ch('/'), &mut app, &mut view).unwrap();
+        type_chars(&mut app, &mut view, "git");
+        assert_eq!(view.selected_id(), Some("git-commit"));
+        handle_list_key(key(KeyCode::Down), &mut app, &mut view).unwrap();
+        assert_eq!(view.selected_id(), Some("git-worktrees"));
+        assert_eq!(view.search_query, "git");
+    }
 }
