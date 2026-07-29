@@ -1,6 +1,5 @@
 ---
 source: tests/shell_test.rs
-assertion_line: 32
 expression: "akm::shell::shell_init_content()"
 ---
 #!/bin/bash
@@ -302,6 +301,16 @@ _akm_pi_append_file() {
   fi
 }
 
+# Pi's management subcommands must be the *first* argument — anything before
+# them is parsed as options and the subcommand itself becomes the opening chat
+# message. They start no agent, so the wrapper stays out of their way entirely.
+_akm_pi_is_subcommand() {
+  case "$1" in
+    install|remove|uninstall|update|list|config) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # --- System prompt announcement ---
 
 # The artifacts announcement, appended to the system prompt of tools that
@@ -350,6 +359,11 @@ EOF
 
 _akm_wrap_tool() {
   local tool="$1"; shift
+
+  if [[ "$tool" == "pi" ]] && _akm_pi_is_subcommand "${1:-}"; then
+    command pi "$@"
+    return $?
+  fi
 
   _akm_session_start
 

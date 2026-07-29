@@ -228,6 +228,17 @@ fn test_pi_wrapper_forwards_user_args() {
     assert_eq!(&lines[lines.len() - 2..], &["--model", "sonnet"]);
 }
 
+/// Pi's management subcommands must stay argv[1]: injected flags ahead of them
+/// turn `pi install <src>` into a chat message (issue: pi wrapper ate `install`).
+#[test]
+fn test_pi_wrapper_passes_subcommands_through() {
+    let h = Harness::new();
+    h.run("pi install npm:some-extension");
+    let argv = h.read_probe("pi-argv");
+    let lines: Vec<&str> = argv.lines().collect();
+    assert_eq!(lines, vec!["install", "npm:some-extension"]);
+}
+
 // --- Claude wrapper ---
 
 /// Claude gets the staging dir mounted *and* the artifacts dir named, because

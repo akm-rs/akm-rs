@@ -66,6 +66,11 @@ Pi CLI surface as of `0.82.1` (`@earendil-works/pi-coding-agent`); docs at
   an existing file.
 - **`--skill` follows symlinks.** Pi `statSync`s symlinked entries when walking a
   skills directory, so the staging tree of symlinks works as-is.
+- **Subcommands must be argv[1].** `pi install|remove|uninstall|update|list|
+  config` are only recognised as the first argument; anything injected ahead of
+  them is parsed as options and the subcommand becomes the opening chat message.
+  `_akm_wrap_tool` passes those invocations straight through to `command pi` —
+  they start no agent, so there is nothing to mount anyway.
 - **No subagents.** AKM `agents` specs have no target in Pi; only skills are
   mounted. `<staging>/.pi/agents` is created for layout uniformity and unused.
 - **Do not hijack `PI_CODING_AGENT_DIR`.** It relocates `~/.pi/agent`, but
