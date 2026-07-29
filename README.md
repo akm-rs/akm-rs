@@ -14,7 +14,7 @@ AKM wires the same library of skills, agents and instructions into every harness
 
 | Harness | Command | Global dir | Session mount | Artifacts |
 |---------|---------|------------|---------------|-----------|
-| [Claude Code](https://claude.ai/code) | `claude` | `~/.claude` | `--add-dir <staging>` | symlinked into staging |
+| [Claude Code](https://claude.ai/code) | `claude` | `~/.claude` | `--add-dir <staging>` | symlinked into staging, named in the system prompt |
 | [GitHub Copilot CLI](https://github.com/features/copilot) | `copilot` | `~/.copilot` | `--add-dir <staging>` | symlinked into staging |
 | [OpenCode](https://opencode.ai) | `opencode` | `~/.agents` | `OPENCODE_CONFIG_DIR` | symlinked into staging |
 | [Pi](https://pi.dev) | `pi` | `~/.pi/agent` | `--skill <staging>/.pi/skills` | named in the system prompt |
@@ -169,6 +169,9 @@ akm update                       # download and install latest version
 akm update --check               # check without installing
 ```
 
+`akm update` also rewrites `akm-init.sh` from the new binary, so shell-side
+changes land without a second `akm setup`. Restart your shell to pick them up.
+
 ### Shell Completions
 
 ```bash
@@ -186,8 +189,9 @@ Config lives at `~/.config/akm/config.toml` (XDG-compliant). Created by `akm set
 1. The wrapper function for a harness (`claude`, `copilot`, `opencode`, `pi`) creates a staging directory under `$XDG_CACHE_HOME/akm/<repo>-<ts>-<pid>`, with one subdirectory per harness.
 2. `akm skills session-setup` reads the project manifest (`.agents/akm.json`) and symlinks each declared spec from the cold library into every harness subdirectory.
 3. If the artifacts feature is on, the project's artifacts directory is symlinked in at the staging root and per harness — except for Pi, which is given the absolute path instead.
-4. The harness is launched with whatever flag or environment variable it uses to pick the staging tree up.
-5. On exit the staging directory is removed and artifacts are optionally committed and pushed.
+4. A `README.md` naming the artifacts directory is written at the staging root, and the root is made read-only. The staging tree is deleted on exit, so a write landing there would be lost; the harness sees a permission error instead.
+5. The harness is launched with whatever flag or environment variable it uses to pick the staging tree up. Harnesses that accept a system prompt (`claude`, `pi`) are also told the artifacts path outright.
+6. On exit the staging directory is removed and artifacts are optionally committed and pushed. Anything AKM did not create is moved to `<artifacts>/<repo>/orphaned/<session>/` rather than deleted, and the next session tells its agent to triage it.
 
 ## Development
 

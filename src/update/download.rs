@@ -5,6 +5,7 @@
 //! 2. Download the binary to a temporary file in the same directory as self
 //! 3. Set executable permissions on the temp file
 //! 4. Atomically rename the temp file over the current binary
+//! 5. Invoke the new binary to rewrite the shell init it embeds
 //!
 //! Placing the temp file in the same directory guarantees `rename(2)` is
 //! atomic (same filesystem). If anything fails, the temp file is cleaned up
@@ -17,6 +18,7 @@ use crate::update::version_check;
 use crate::update::{is_newer, normalize_version, CachedCheck, CURRENT_VERSION};
 
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::Duration;
 
 /// Minimum valid binary size (64 KB). Anything smaller is almost certainly
@@ -231,6 +233,14 @@ pub fn download_and_replace(config: &UpdateConfig, paths: &Paths) -> Result<()> 
     };
     version_check::write_cache(paths, &cached);
 
+    // Step 8: Refresh the shell init from the binary just installed.
+    //
+    // akm-init.sh is embedded at compile time, so this process holds the *old*
+    // copy — it has to be the new binary that writes it. Without this the
+    // script stays at whatever version last ran `akm setup`, and shell-side
+    // fixes never reach users who update with `akm update`.
+    refresh_shell_init(&self_path);
+
     println!("Updated akm: {current} → {latest_version}");
     println!("Restart your shell or run `akm --version` to verify.");
 
@@ -238,6 +248,19 @@ pub fn download_and_replace(config: &UpdateConfig, paths: &Paths) -> Result<()> 
     cleanup.defuse();
 
     Ok(())
+}
+
+/// Ask the newly installed binary to rewrite `akm-init.sh` and `tools.json`.
+///
+/// Non-fatal: the binary swap already succeeded, so a failure here must not
+/// fail the update. It is reported so the user knows to run `akm setup`.
+fn refresh_shell_init(self_path: &Path) {
+    let outcome = Command::new(self_path).arg("shell-install").status();
+
+    match outcome {
+        Ok(status) if status.success() => println!("Refreshed shell init."),
+        _ => eprintln!("Warning: could not refresh shell init — run `akm setup` to update it."),
+    }
 }
 
 /// RAII guard to clean up the temp file if an error occurs.
