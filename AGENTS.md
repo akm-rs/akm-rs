@@ -41,7 +41,10 @@ Three places must stay in step when a harness is added or changed:
 
 1. `src/shell/tools.json` + `builtin_tools()` in `src/library/tool_dirs.rs`
 2. the staging-dir loop in `src/commands/skills/session_setup.rs` **and** the
-   matching loop in `src/shell/akm-init.sh` (`_akm_skills_session_start`)
+   two matching loops in `src/shell/akm-init.sh` — `_akm_skills_session_start`
+   (creates them) and `_akm_skills_session_end` (removes them). Teardown
+   removes only the dirs it knows about, so a dir missing from the second loop
+   is left behind and quarantined as a stray on every session.
 3. the `case` in `_akm_wrap_tool` and the exported wrapper functions at the
    bottom of `src/shell/akm-init.sh`
 

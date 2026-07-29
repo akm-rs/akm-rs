@@ -62,6 +62,12 @@ enum Commands {
     Sync,
     /// Pull latest and re-install
     Update,
+    /// [hidden] Rewrite akm-init.sh and tools.json from this binary
+    ///
+    /// Invoked by `akm update` on the *new* binary after the swap: the running
+    /// process embeds the old template, so it cannot refresh the script itself.
+    #[command(hide = true, name = "shell-install")]
+    ShellInstall,
     /// Skills management
     Skills {
         #[command(subcommand)]
@@ -292,6 +298,8 @@ fn main() -> ExitCode {
             Ok(cfg) => commands::update::run(&paths, &cfg),
             Err(e) => Err(e),
         },
+        Some(Commands::ShellInstall) => akm::shell::install_shell_init(&paths)
+            .and_then(|()| akm::shell::install_tools_json(&paths)),
         Some(Commands::Skills { command }) => {
             let tool_dirs = akm::library::tool_dirs::ToolDirs::load(&paths);
 

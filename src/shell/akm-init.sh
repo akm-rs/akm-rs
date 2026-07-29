@@ -81,10 +81,81 @@ _akm_skills_session_start() {
 }
 
 _akm_skills_session_end() {
-  if [[ -n "${AKM_SESSION:-}" && -d "$AKM_SESSION" ]]; then
-    rm -rf "$AKM_SESSION"
+  if [[ -z "${AKM_SESSION:-}" || ! -d "$AKM_SESSION" ]]; then
+    unset AKM_SESSION
+    return 0
   fi
+
+  # The root was sealed in _akm_session_start — reopen it so its entries can go.
+  chmod u+w "$AKM_SESSION" 2>/dev/null || true
+
+  # Remove only what session start created. Anything else is a stray write and
+  # has to survive, so the parent goes with rmdir rather than rm -rf.
+  rm -f "$AKM_SESSION/artifacts" "$AKM_SESSION/README.md"
+  local tool_dir
+  for tool_dir in .claude .copilot .agents .pi; do
+    rm -rf "${AKM_SESSION:?}/$tool_dir"
+  done
+
+  if ! rmdir "$AKM_SESSION" 2>/dev/null; then
+    _akm_quarantine_staging
+  fi
+
   unset AKM_SESSION
+}
+
+# Rescue stray files from a staging dir instead of deleting them.
+#
+# Only reached when rmdir found something session start did not create. With
+# artifacts enabled the files move into the artifacts dir, which is git-synced,
+# so _akm_session_end commits them on the way out. Without it there is no
+# durable location, so the staging dir is left on disk rather than removed.
+_akm_quarantine_staging() {
+  if [[ -z "${_AKM_ARTIFACT_DIR:-}" ]]; then
+    echo "akm: kept $AKM_SESSION — it holds files akm did not create" >&2
+    return 0
+  fi
+
+  local dest="$_AKM_ARTIFACT_DIR/orphaned/$(basename "$AKM_SESSION")"
+  if ! mkdir -p "$dest" 2>/dev/null; then
+    echo "akm: kept $AKM_SESSION — could not create $dest" >&2
+    return 0
+  fi
+
+  # -mindepth 1 also catches dotfiles, which a bare glob would miss.
+  find "$AKM_SESSION" -mindepth 1 -maxdepth 1 -exec mv {} "$dest/" \; 2>/dev/null
+
+  # rmdir is the real test: find's exit code says nothing about whether the
+  # individual mv calls succeeded.
+  if rmdir "$AKM_SESSION" 2>/dev/null; then
+    echo "akm: rescued stray session files -> $dest" >&2
+  else
+    echo "akm: kept $AKM_SESSION — could not rescue all of its files" >&2
+  fi
+}
+
+# Signpost for an agent that lists the staging root looking for somewhere to
+# write. Tools that take a system prompt are told the same thing directly (see
+# _akm_artifacts_prompt); this covers the ones that do not.
+_akm_write_staging_readme() {
+  local staging="$1"
+  local artifact_dir="$2"
+
+  {
+    echo "# AKM session staging — EPHEMERAL"
+    echo
+    echo "This directory is deleted when the shell session ends, and its root is"
+    echo "read-only. Do not write here."
+    if [[ -n "$artifact_dir" ]]; then
+      echo
+      echo "Durable outputs — plans/, research/, sessions/, prompts/, archive/ —"
+      echo "belong in the artifacts directory:"
+      echo
+      echo "    $artifact_dir"
+      echo
+      echo "reachable from this directory as ./artifacts/"
+    fi
+  } >"$staging/README.md" 2>/dev/null || true
 }
 
 # --- Artifacts lifecycle ---
@@ -171,6 +242,17 @@ _akm_session_start() {
     done
   fi
 
+  # Seal the staging root. Tools are handed this directory as a working
+  # directory, and the tree is removed on session end — so a stray write here
+  # is silent data loss. Denying writes at the root turns that into an
+  # immediate EACCES the agent sees as a tool error and can act on. Only the
+  # root is sealed; the tool subdirs stay writable for tools that keep state
+  # in them (opencode's OPENCODE_CONFIG_DIR points at one).
+  if [[ -n "$staging_dir" ]]; then
+    _akm_write_staging_readme "$staging_dir" "$artifact_dir"
+    chmod a-w "$staging_dir" 2>/dev/null || true
+  fi
+
   # Export for use in _akm_session_end and _akm_wrap_tool
   export _AKM_ARTIFACT_DIR="${artifact_dir}"
   export _AKM_STAGING_DIR="${staging_dir}"
@@ -215,8 +297,13 @@ _akm_pi_append_file() {
   fi
 }
 
-# The artifacts announcement appended to Pi's system prompt.
-_akm_pi_artifacts_prompt() {
+# --- System prompt announcement ---
+
+# The artifacts announcement, appended to the system prompt of tools that
+# accept one (claude, pi). Naming the resolved absolute path is what makes the
+# durable location unambiguous — an agent given only the staging dir has to
+# infer where artifacts go, and inferring wrong used to cost it its output.
+_akm_artifacts_prompt() {
   cat <<EOF
 ## AKM artifacts directory
 
@@ -226,6 +313,31 @@ That absolute path is this project's AKM artifacts directory. It lives outside
 the repository and holds non-code outputs: plans/, research/, sessions/,
 prompts/, archive/. Write plans, research and session notes there rather than
 into the repository, and read from it with absolute paths.
+
+Never write into the AKM session staging directory — the ephemeral path some
+tools receive as an additional working directory. It is deleted when the shell
+session ends, and its root is read-only to enforce that.
+EOF
+  _akm_orphaned_notice
+}
+
+# Tell the agent about files rescued from an earlier session's staging dir.
+#
+# The rescue happens at session end, when the agent that wrote them is already
+# gone — so the next one is the first that can act on it.
+_akm_orphaned_notice() {
+  local orphaned="$_AKM_ARTIFACT_DIR/orphaned"
+  [[ -d "$orphaned" && -n "$(ls -A "$orphaned" 2>/dev/null)" ]] || return 0
+
+  cat <<EOF
+
+### Rescued files awaiting triage
+
+$orphaned
+
+An earlier session wrote files into its staging directory, which is ephemeral.
+They were moved here rather than deleted. Review them, file them properly under
+the artifacts directory, and remove the rescued copies once done.
 EOF
 }
 
@@ -257,13 +369,28 @@ _akm_wrap_tool() {
         local pi_append
         pi_append="$(_akm_pi_append_file)"
         [[ -n "$pi_append" ]] && cmd+=(--append-system-prompt "$pi_append")
-        cmd+=(--append-system-prompt "$(_akm_pi_artifacts_prompt)")
+        cmd+=(--append-system-prompt "$(_akm_artifacts_prompt)")
+      fi
+      ;;
+    claude)
+      # Claude Code takes both flags: --add-dir mounts the staging tree, and
+      # the appended prompt names the artifacts dir by absolute path. The
+      # symlink alone is not enough — it makes the durable path reachable, not
+      # obvious, and the staging root it sits in is ephemeral.
+      if [[ -n "${_AKM_STAGING_DIR:-}" ]]; then
+        cmd+=(--add-dir "$_AKM_STAGING_DIR")
+      elif [[ -n "${_AKM_ARTIFACT_DIR:-}" ]]; then
+        cmd+=(--add-dir "$_AKM_ARTIFACT_DIR")
+      fi
+      if [[ -n "${_AKM_ARTIFACT_DIR:-}" ]]; then
+        cmd+=(--append-system-prompt "$(_akm_artifacts_prompt)")
       fi
       ;;
     *)
-      # claude and copilot support --add-dir. Artifacts are symlinked into the
-      # staging dir, so one dir is enough; with artifacts but no staging dir,
-      # pass the artifact dir directly.
+      # copilot supports --add-dir but has no --append-system-prompt, so it
+      # relies on the staging README and the read-only root instead. Artifacts
+      # are symlinked into the staging dir, so one dir is enough; with
+      # artifacts but no staging dir, pass the artifact dir directly.
       if [[ -n "${_AKM_STAGING_DIR:-}" ]]; then
         cmd+=(--add-dir "$_AKM_STAGING_DIR")
       elif [[ -n "${_AKM_ARTIFACT_DIR:-}" ]]; then
