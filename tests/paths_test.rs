@@ -16,6 +16,6 @@ fn paths_from_roots_derives_all_dirs() {
     assert!(paths.library_json().ends_with("library.json"));
     assert!(paths.config_file().ends_with("config.toml"));
     assert!(paths
-        .community_registry_cache()
-        .ends_with("skills-community-registry"));
+        .personal_registry_cache()
+        .ends_with("skills-personal-registry"));
 }

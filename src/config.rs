@@ -9,9 +9,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-/// Default community registry URL.
-pub const DEFAULT_COMMUNITY_REGISTRY: &str = "https://github.com/akm-rs/skillverse.git";
-
 /// Default GitHub Releases API URL for update checks.
 pub const DEFAULT_UPDATE_URL: &str = "https://api.github.com/repos/akm-rs/akm-rs/releases/latest";
 
@@ -83,11 +80,6 @@ pub struct Config {
 /// Skills-specific configuration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SkillsConfig {
-    /// Git URL for the community (read-only) registry.
-    /// Default: `None` (resolved to DEFAULT_COMMUNITY_REGISTRY at point of use)
-    #[serde(default)]
-    pub community_registry: Option<String>,
-
     /// Git URL for the personal (read-write) registry.
     #[serde(default)]
     pub personal_registry: Option<String>,
@@ -220,6 +212,8 @@ impl Config {
         // Step 2: Walk the table tree and warn about unknown keys
         if let Some(table) = raw.as_table() {
             let known_top: &[&str] = &["features", "skills", "artifacts", "update"];
+            // `community_registry` is obsolete but still tolerated silently so
+            // configs written before it was dropped do not warn on every run.
             let known_skills: &[&str] = &["community_registry", "personal_registry"];
             let known_artifacts: &[&str] = &["remote", "dir", "auto_push"];
             let known_update: &[&str] = &["url", "check_interval", "auto_check"];
@@ -358,23 +352,6 @@ impl Config {
             .unwrap_or_else(|| paths.default_artifacts_dir())
     }
 
-    /// Get the effective community registry URL, falling back to the default.
-    ///
-    /// Returns the configured value or the built-in default. Use
-    /// `community_registry_is_explicit()` to distinguish user-set from default.
-    pub fn community_registry_url(&self) -> &str {
-        self.skills
-            .community_registry
-            .as_deref()
-            .unwrap_or(DEFAULT_COMMUNITY_REGISTRY)
-    }
-
-    /// Whether the community registry was explicitly set (not the default).
-    /// Used by `print_all()` to show "(default)" annotation.
-    pub fn community_registry_is_explicit(&self) -> bool {
-        self.skills.community_registry.is_some()
-    }
-
     /// Get the personal registry URL (may be None).
     pub fn personal_registry_url(&self) -> Option<&str> {
         self.skills.personal_registry.as_deref()
@@ -386,8 +363,6 @@ impl Config {
 pub enum ConfigKey {
     /// `features` — comma-separated enabled features
     Features,
-    /// `skills.community-registry` → `skills.community_registry`
-    SkillsCommunityRegistry,
     /// `skills.personal-registry` → `skills.personal_registry`
     SkillsPersonalRegistry,
     /// `artifacts.remote`
@@ -405,7 +380,7 @@ pub enum ConfigKey {
 }
 
 /// All valid config key names for help text.
-pub const ALL_CONFIG_KEYS: &str = "features, skills.community-registry, skills.personal-registry, \
+pub const ALL_CONFIG_KEYS: &str = "features, skills.personal-registry, \
      artifacts.remote, artifacts.dir, artifacts.auto-push, \
      update.url, update.check-interval, update.auto-check";
 
@@ -416,7 +391,6 @@ impl std::str::FromStr for ConfigKey {
     fn from_str(s: &str) -> Result<Self> {
         match s {
             "features" => Ok(ConfigKey::Features),
-            "skills.community-registry" => Ok(ConfigKey::SkillsCommunityRegistry),
             "skills.personal-registry" => Ok(ConfigKey::SkillsPersonalRegistry),
             "artifacts.remote" => Ok(ConfigKey::ArtifactsRemote),
             "artifacts.dir" => Ok(ConfigKey::ArtifactsDir),
@@ -442,9 +416,6 @@ impl ConfigKey {
                 .map(|f| f.to_string())
                 .collect::<Vec<_>>()
                 .join(","),
-            ConfigKey::SkillsCommunityRegistry => {
-                config.skills.community_registry.clone().unwrap_or_default()
-            }
             ConfigKey::SkillsPersonalRegistry => {
                 config.skills.personal_registry.clone().unwrap_or_default()
             }
@@ -474,13 +445,6 @@ impl ConfigKey {
                     }
                 }
                 config.features = features;
-            }
-            ConfigKey::SkillsCommunityRegistry => {
-                config.skills.community_registry = if value.is_empty() {
-                    None
-                } else {
-                    Some(value.to_string())
-                };
             }
             ConfigKey::SkillsPersonalRegistry => {
                 config.skills.personal_registry = if value.is_empty() {
@@ -569,8 +533,8 @@ mod tests {
             ConfigKey::Features
         );
         assert_eq!(
-            "skills.community-registry".parse::<ConfigKey>().unwrap(),
-            ConfigKey::SkillsCommunityRegistry
+            "skills.personal-registry".parse::<ConfigKey>().unwrap(),
+            ConfigKey::SkillsPersonalRegistry
         );
         assert_eq!(
             "artifacts.auto-push".parse::<ConfigKey>().unwrap(),
@@ -613,10 +577,9 @@ mod tests {
     }
 
     #[test]
-    fn config_default_community_registry_uses_fallback() {
+    fn config_default_has_no_personal_registry() {
         let config = Config::default();
-        assert_eq!(config.community_registry_url(), DEFAULT_COMMUNITY_REGISTRY);
-        assert!(!config.community_registry_is_explicit());
+        assert!(config.personal_registry_url().is_none());
     }
 
     #[test]
@@ -673,7 +636,7 @@ mod tests {
 features = ["skills"]
 
 [skills]
-community_registry = "https://example.com"
+personal_registry = "https://example.com"
 
 [artifacts]
 auto_push = "not_a_bool"
@@ -684,7 +647,7 @@ auto_push = "not_a_bool"
         let config = Config::load(&paths).unwrap();
         assert!(config.features.contains(&Feature::Skills));
         assert_eq!(
-            config.skills.community_registry.as_deref(),
+            config.skills.personal_registry.as_deref(),
             Some("https://example.com")
         );
         // artifacts falls back to defaults because of invalid value
@@ -709,7 +672,7 @@ features = ["skills"]
 unknown_key = "should warn but not crash"
 
 [skills]
-community_registry = "https://example.com"
+personal_registry = "https://example.com"
 bogus_field = "also fine"
 "#,
         )
@@ -718,8 +681,41 @@ bogus_field = "also fine"
         let config = Config::load(&paths).unwrap();
         assert!(config.features.contains(&Feature::Skills));
         assert_eq!(
-            config.skills.community_registry.as_deref(),
+            config.skills.personal_registry.as_deref(),
             Some("https://example.com")
+        );
+    }
+
+    /// Configs written before the community registry was dropped must load
+    /// cleanly — the obsolete key is ignored, not rejected.
+    #[test]
+    fn config_load_tolerates_obsolete_community_registry() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let paths = crate::paths::Paths::from_roots(
+            &tmp.path().join("data"),
+            &tmp.path().join("config"),
+            &tmp.path().join("cache"),
+            tmp.path(),
+        );
+        let config_dir = tmp.path().join("config").join("akm");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(
+            config_dir.join("config.toml"),
+            r#"
+features = ["skills"]
+
+[skills]
+community_registry = "https://github.com/akm-rs/skillverse.git"
+personal_registry = "https://example.com/mine.git"
+"#,
+        )
+        .unwrap();
+
+        let config = Config::load(&paths).unwrap();
+        assert!(config.features.contains(&Feature::Skills));
+        assert_eq!(
+            config.skills.personal_registry.as_deref(),
+            Some("https://example.com/mine.git")
         );
     }
 

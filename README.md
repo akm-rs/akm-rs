@@ -6,7 +6,7 @@
 
 A CLI tool for managing reusable LLM skills, artifacts, and instructions across projects and AI coding agents.
 
-AKM is a **client** of skill registries — it fetches, organizes, and wires skills into your development workflow. The community registry ([Skillverse](https://github.com/akm-rs/skillverse)) is a separate project.
+AKM is a **client** of skill registries — it fetches, organizes, and wires skills into your development workflow. The registry itself is a separate git repository you own, configured via `skills.personal-registry`.
 
 ## Supported harnesses
 

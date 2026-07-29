@@ -16,7 +16,6 @@ use std::path::{Path, PathBuf};
 /// a local cache directory.
 ///
 /// Config mapping:
-/// - Community: `skills.community_registry` → cache at `Paths::community_registry_cache()`
 /// - Personal: `skills.personal_registry` → cache at `Paths::personal_registry_cache()`
 pub struct GitRegistry {
     /// Human-readable name for display and error messages.
@@ -31,7 +30,7 @@ impl GitRegistry {
     /// Create a new GitRegistry.
     ///
     /// # Arguments
-    /// * `name` — Display name (e.g., "community", "personal")
+    /// * `name` — Display name (e.g., "personal")
     /// * `url` — Git remote URL
     /// * `cache_path` — Local directory for the cloned repository
     pub fn new(

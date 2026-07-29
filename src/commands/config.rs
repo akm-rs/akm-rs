@@ -68,15 +68,6 @@ fn print_all(paths: &Paths, config: &Config) {
     );
 
     println!(
-        "  skills.community-registry = {}",
-        if config.community_registry_is_explicit() {
-            config.community_registry_url().to_string()
-        } else {
-            format!("{} (default)", config.community_registry_url())
-        }
-    );
-
-    println!(
         "  skills.personal-registry  = {}",
         config
             .skills

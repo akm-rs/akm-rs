@@ -11,9 +11,6 @@ use crate::paths::Paths;
 use crate::shell;
 use std::io::{self, BufRead, Write};
 
-/// Default community registry URL.
-const DEFAULT_COMMUNITY_REGISTRY: &str = "https://github.com/akm-rs/skillverse.git";
-
 /// Scoped setup flags — which domains to configure.
 #[derive(Debug, Clone)]
 pub struct SetupScope {
@@ -182,27 +179,10 @@ fn configure_skills(config: &mut Config, prompter: &mut dyn Prompter) -> Result<
 
     config.features.insert(Feature::Skills);
 
-    // Community registry
-    if prompter.confirm(
-        "Use Skillverse (community skills registry) as a source?",
-        true,
-    )? {
-        config.skills.community_registry = Some(DEFAULT_COMMUNITY_REGISTRY.to_string());
-    } else {
-        let custom = prompter.input("Enter custom skills registry URL (or leave empty)", "")?;
-        config.skills.community_registry = if custom.is_empty() {
-            None
-        } else {
-            Some(custom)
-        };
-    }
-
-    // Personal registry
-    if prompter.confirm("Configure a personal skills registry?", false)? {
-        let default = config.skills.personal_registry.as_deref().unwrap_or("");
-        let url = prompter.input("Enter your personal registry URL", default)?;
-        config.skills.personal_registry = if url.is_empty() { None } else { Some(url) };
-    }
+    // Personal registry — the only skills source
+    let default = config.skills.personal_registry.as_deref().unwrap_or("");
+    let url = prompter.input("Git URL of your skills registry (or leave empty)", default)?;
+    config.skills.personal_registry = if url.is_empty() { None } else { Some(url) };
 
     println!("  Skills enabled");
     println!();
@@ -395,16 +375,26 @@ mod tests {
     }
 
     #[test]
-    fn test_configure_skills_enabled_with_defaults() {
+    fn test_configure_skills_enabled_with_registry() {
         let mut config = Config::default();
-        // "y" for enable, "y" for skillverse, "n" for personal
-        let mut prompter = TestPrompter::new(vec!["y", "y", "n"]);
+        // "y" for enable, then the registry URL
+        let mut prompter = TestPrompter::new(vec!["y", "https://example.com/mine.git"]);
         configure_skills(&mut config, &mut prompter).unwrap();
         assert!(config.features.contains(&Feature::Skills));
         assert_eq!(
-            config.skills.community_registry.as_deref(),
-            Some(DEFAULT_COMMUNITY_REGISTRY)
+            config.skills.personal_registry.as_deref(),
+            Some("https://example.com/mine.git")
         );
+    }
+
+    #[test]
+    fn test_configure_skills_enabled_without_registry() {
+        let mut config = Config::default();
+        // "y" for enable, empty registry URL
+        let mut prompter = TestPrompter::new(vec!["y", ""]);
+        configure_skills(&mut config, &mut prompter).unwrap();
+        assert!(config.features.contains(&Feature::Skills));
+        assert!(config.skills.personal_registry.is_none());
     }
 
     #[test]

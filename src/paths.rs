@@ -117,11 +117,6 @@ impl Paths {
         &self.cache_dir
     }
 
-    /// `$XDG_CACHE_HOME/akm/skills-community-registry/`
-    pub fn community_registry_cache(&self) -> PathBuf {
-        self.cache_dir.join("skills-community-registry")
-    }
-
     /// `$XDG_CACHE_HOME/akm/skills-personal-registry/`
     pub fn personal_registry_cache(&self) -> PathBuf {
         self.cache_dir.join("skills-personal-registry")

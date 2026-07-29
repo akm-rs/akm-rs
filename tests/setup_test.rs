@@ -14,10 +14,10 @@ fn test_setup_all_defaults() {
     let home_dir = dir.path().join("home");
     std::fs::create_dir_all(&home_dir).unwrap();
 
-    // enable skills (y), use skillverse (y), no personal (n),
+    // enable skills (y), no registry URL (empty),
     // disable artifacts (n),
     // enable instructions (y)
-    let stdin_input = "y\ny\nn\nn\ny\n";
+    let stdin_input = "y\n\nn\ny\n";
 
     cargo_bin_cmd!("akm")
         .arg("setup")
