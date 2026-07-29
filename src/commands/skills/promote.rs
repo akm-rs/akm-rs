@@ -2,6 +2,7 @@
 //!
 //! Only skills (directories with SKILL.md) can be promoted, not agents.
 
+use crate::config::Config;
 use crate::error::{Error, IoContext, Result};
 use crate::library::frontmatter::Frontmatter;
 use crate::library::libgen;
@@ -16,10 +17,17 @@ use std::path::{Path, PathBuf};
 ///
 /// # Arguments
 /// * `paths` — Resolved XDG paths
+/// * `config` — Loaded config, for the optional publish prompt
 /// * `spec_path` — Path to directory containing SKILL.md
 /// * `force` — Skip overwrite confirmation
 /// * `tool_dirs` — Tool directories for symlink rebuild
-pub fn run(paths: &Paths, spec_path: &str, force: bool, tool_dirs: &ToolDirs) -> Result<()> {
+pub fn run(
+    paths: &Paths,
+    config: &Config,
+    spec_path: &str,
+    force: bool,
+    tool_dirs: &ToolDirs,
+) -> Result<()> {
     // Step 1: Resolve and validate path
     let spec_path = PathBuf::from(spec_path);
     let spec_path = if spec_path.is_absolute() {
@@ -142,6 +150,9 @@ pub fn run(paths: &Paths, spec_path: &str, force: bool, tool_dirs: &ToolDirs) ->
     println!("  {count} core symlinks rebuilt");
     println!();
     println!("Promoted skill '{id}' to cold storage");
+
+    // Step 9: Offer to publish to the personal registry
+    super::publish::offer(paths, config, &id);
 
     Ok(())
 }

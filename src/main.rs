@@ -338,10 +338,19 @@ fn main() -> ExitCode {
                     commands::skills::clean::run(&paths, &tool_dirs, project, dry_run)
                 }
                 Some(SkillsCommands::Promote { path, force }) => {
-                    commands::skills::promote::run(&paths, &path, force, &tool_dirs)
+                    let config = akm::config::Config::load(&paths).unwrap_or_default();
+                    commands::skills::promote::run(&paths, &config, &path, force, &tool_dirs)
                 }
                 Some(SkillsCommands::Import { url, force, id }) => {
-                    commands::skills::import::run(&paths, &url, force, id.as_deref(), &tool_dirs)
+                    let config = akm::config::Config::load(&paths).unwrap_or_default();
+                    commands::skills::import::run(
+                        &paths,
+                        &config,
+                        &url,
+                        force,
+                        id.as_deref(),
+                        &tool_dirs,
+                    )
                 }
                 Some(SkillsCommands::Edit { id }) => {
                     commands::skills::edit::run(&paths, &id, &tool_dirs)

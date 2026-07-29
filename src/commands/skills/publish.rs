@@ -6,11 +6,12 @@ use crate::config::Config;
 use crate::error::{Error, IoContext, Result};
 use crate::git::Git;
 use crate::library::libgen;
-use crate::library::spec::SpecType;
+use crate::library::spec::{Spec, SpecType};
 use crate::library::Library;
 use crate::paths::Paths;
 use crate::registry::git::GitRegistry;
 use crate::registry::RegistrySource;
+use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::Path;
 
 /// Run the `akm skills publish` command.
@@ -69,8 +70,9 @@ pub fn run(paths: &Paths, config: &Config, id: &str, dry_run: bool) -> Result<()
     copy_spec_to_registry(spec, &source_path, cache_dir)?;
     println!("  Copied {} to personal registry", spec.spec_type);
 
-    // Step 5: Regenerate library.json in cache
+    // Step 5: Regenerate library.json in cache, then carry local metadata over
     libgen::generate(cache_dir)?;
+    apply_local_metadata(cache_dir, spec)?;
 
     // Step 6: Dry run — show diff, reset
     if dry_run {
@@ -106,6 +108,59 @@ pub fn run(paths: &Paths, config: &Config, id: &str, dry_run: bool) -> Result<()
     Ok(())
 }
 
+/// Offer to publish `id` to the personal registry, after a promote or import.
+///
+/// Silently does nothing unless stdin is a TTY and a personal registry is
+/// configured. A failed publish is reported as a warning: the caller's work is
+/// already committed to cold storage, so it must not fail the whole command.
+pub(crate) fn offer(paths: &Paths, config: &Config, id: &str) {
+    if !io::stdin().is_terminal() {
+        return;
+    }
+
+    let configured = config
+        .skills
+        .personal_registry
+        .as_deref()
+        .is_some_and(|url| !url.is_empty());
+    if !configured {
+        return;
+    }
+
+    println!();
+    print!("Publish to personal registry? [y/N]: ");
+    io::stdout().flush().ok();
+    let mut input = String::new();
+    io::stdin().lock().read_line(&mut input).ok();
+    if !input.trim().eq_ignore_ascii_case("y") {
+        return;
+    }
+
+    println!();
+    if let Err(e) = run(paths, config, id, false) {
+        eprintln!("Warning: publish failed: {e}");
+        eprintln!("Retry with: akm skills publish {id}");
+    }
+}
+
+/// Copy user-edited metadata onto the registry's `library.json` entry.
+///
+/// `libgen` derives entries for specs the registry has not seen from SKILL.md
+/// frontmatter, so the description and tags set locally (via promote, import or
+/// edit) would otherwise never be published. `core` is deliberately excluded —
+/// sync treats it as a per-user override rather than a property of the spec.
+fn apply_local_metadata(cache_dir: &Path, spec: &Spec) -> Result<()> {
+    let library_path = cache_dir.join("library.json");
+    let mut library = Library::load_from(&library_path)?;
+
+    if let Some(entry) = library.get_mut(&spec.id) {
+        entry.description = spec.description.clone();
+        entry.tags = spec.tags.clone();
+    }
+
+    library.save_to(&library_path)
+}
+
 /// Copy a spec from cold storage into the registry cache directory.
 fn copy_spec_to_registry(
     spec: &crate::library::spec::Spec,
@@ -135,4 +190,87 @@ fn copy_spec_to_registry(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    /// Build a registry cache holding one skill, with library.json generated
+    /// by libgen (i.e. metadata derived from frontmatter).
+    fn cache_with_generated_library(dir: &Path) {
+        let skill_dir = dir.join("skills").join("test-skill");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: Test Skill\ndescription: Frontmatter description\n---\nContent",
+        )
+        .unwrap();
+        libgen::generate(dir).unwrap();
+    }
+
+    fn local_spec() -> Spec {
+        let mut spec = Spec::new(
+            "test-skill".to_string(),
+            SpecType::Skill,
+            "Test Skill".to_string(),
+            "Edited description".to_string(),
+        );
+        spec.tags = vec!["testing".to_string(), "rust".to_string()];
+        spec.core = true;
+        spec
+    }
+
+    /// The description and tags a user typed at the promote/import prompts must
+    /// reach the registry, not the frontmatter values libgen derives.
+    #[test]
+    fn local_description_and_tags_are_published() {
+        let tmp = TempDir::new().unwrap();
+        cache_with_generated_library(tmp.path());
+
+        let library = Library::load_from(&tmp.path().join("library.json")).unwrap();
+        assert_eq!(
+            library.get("test-skill").unwrap().description,
+            "Frontmatter description"
+        );
+
+        apply_local_metadata(tmp.path(), &local_spec()).unwrap();
+
+        let library = Library::load_from(&tmp.path().join("library.json")).unwrap();
+        let entry = library.get("test-skill").unwrap();
+        assert_eq!(entry.description, "Edited description");
+        assert_eq!(entry.tags, vec!["testing", "rust"]);
+    }
+
+    /// `core` is a per-user preference that sync preserves as a local override,
+    /// so publishing must not push it onto every consumer of the registry.
+    #[test]
+    fn core_flag_is_not_published() {
+        let tmp = TempDir::new().unwrap();
+        cache_with_generated_library(tmp.path());
+
+        apply_local_metadata(tmp.path(), &local_spec()).unwrap();
+
+        let library = Library::load_from(&tmp.path().join("library.json")).unwrap();
+        assert!(!library.get("test-skill").unwrap().core);
+    }
+
+    /// A spec absent from the registry cache must not create a phantom entry.
+    #[test]
+    fn unknown_spec_leaves_library_untouched() {
+        let tmp = TempDir::new().unwrap();
+        cache_with_generated_library(tmp.path());
+
+        let mut spec = local_spec();
+        spec.id = "not-in-registry".to_string();
+        apply_local_metadata(tmp.path(), &spec).unwrap();
+
+        let library = Library::load_from(&tmp.path().join("library.json")).unwrap();
+        assert!(library.get("not-in-registry").is_none());
+        assert_eq!(
+            library.get("test-skill").unwrap().description,
+            "Frontmatter description"
+        );
+    }
 }

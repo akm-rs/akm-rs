@@ -3,6 +3,7 @@
 //! Tests use temp directories and mock library data to exercise
 //! add, remove, list, search, status, load, unload, loaded, clean, promote.
 
+use akm::config::Config;
 use akm::error::Error;
 use akm::library::spec::{Spec, SpecType};
 use akm::library::tool_dirs::ToolDirs;
@@ -413,8 +414,13 @@ fn promote_requires_skill_md() {
     let skill_dir = tmp.path().join("no-skill-md");
     std::fs::create_dir_all(&skill_dir).unwrap();
 
-    let result =
-        akm::commands::skills::promote::run(&paths, &skill_dir.to_string_lossy(), true, &tool_dirs);
+    let result = akm::commands::skills::promote::run(
+        &paths,
+        &Config::default(),
+        &skill_dir.to_string_lossy(),
+        true,
+        &tool_dirs,
+    );
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(matches!(err, Error::NoSkillMd { .. }));
@@ -426,8 +432,13 @@ fn promote_nonexistent_dir() {
     let paths = test_paths(&tmp);
     let tool_dirs = test_tool_dirs(&tmp);
 
-    let result =
-        akm::commands::skills::promote::run(&paths, "/nonexistent/path/xyz", true, &tool_dirs);
+    let result = akm::commands::skills::promote::run(
+        &paths,
+        &Config::default(),
+        "/nonexistent/path/xyz",
+        true,
+        &tool_dirs,
+    );
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(matches!(err, Error::PromoteDirNotFound { .. }));
@@ -447,8 +458,13 @@ fn promote_requires_name_in_frontmatter() {
     )
     .unwrap();
 
-    let result =
-        akm::commands::skills::promote::run(&paths, &skill_dir.to_string_lossy(), true, &tool_dirs);
+    let result = akm::commands::skills::promote::run(
+        &paths,
+        &Config::default(),
+        &skill_dir.to_string_lossy(),
+        true,
+        &tool_dirs,
+    );
     assert!(result.is_err());
 }
 
@@ -483,6 +499,47 @@ fn promote_new_skill_via_cmd() {
     assert!(paths.data_dir().join("skills").join("local-skill").is_dir());
     let lib = Library::load(&paths).unwrap();
     assert!(lib.contains("local-skill"));
+}
+
+/// The publish prompt is TTY-gated. Under a piped stdin it must not appear —
+/// and must not attempt a network publish — even with a registry configured.
+#[test]
+fn promote_does_not_prompt_to_publish_non_tty() {
+    use assert_cmd::cargo::cargo_bin_cmd;
+
+    let tmp = TempDir::new().unwrap();
+    let paths = test_paths(&tmp);
+
+    std::fs::create_dir_all(paths.data_dir().join("skills")).unwrap();
+    Library::new().save(&paths).unwrap();
+
+    let config_dir = tmp.path().join("config").join("akm");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::write(
+        config_dir.join("config.toml"),
+        "[skills]\npersonal_registry = \"https://example.invalid/repo.git\"\n",
+    )
+    .unwrap();
+
+    let skill_dir = tmp.path().join("local-skill");
+    std::fs::create_dir_all(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        "---\nname: Local Skill\ndescription: A test skill\n---\nContent",
+    )
+    .unwrap();
+
+    cargo_bin_cmd!("akm")
+        .args(["skills", "promote", &skill_dir.to_string_lossy(), "--force"])
+        .env("XDG_DATA_HOME", tmp.path().join("data"))
+        .env("XDG_CONFIG_HOME", tmp.path().join("config"))
+        .env("XDG_CACHE_HOME", tmp.path().join("cache"))
+        .env("HOME", tmp.path().join("home"))
+        .assert()
+        .success()
+        .stdout(predicates::prelude::PredicateBooleanExt::not(
+            pred_contains("Publish to personal registry?"),
+        ));
 }
 
 #[test]
