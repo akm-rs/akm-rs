@@ -1,3 +1,33 @@
+# 1.0.0-rc2
+
+- Fix the session staging directory silently eating agent output
+  - Agents told to write to "the additional working directory" wrote into the
+    staging dir, which is `rm -rf`'d on session end — the files were lost
+  - The artifacts directory is now named by resolved absolute path in the
+    system prompt (claude and pi), signposted by a `README.md` at the staging
+    root for harnesses with no system-prompt flag, and the staging root is
+    made read-only so a stray write fails loudly instead of vanishing later
+  - Teardown now removes only the directories it created and rescues anything
+    left to `<artifacts>/<repo>/orphaned/<session>/` for the next session to triage
+  - `akm update` now rewrites `akm-init.sh` as well as the binary — previously
+    an updated binary kept running a months-old shell init
+- Offer to publish to the personal registry after an interactive `skills promote`
+  or `skills import`
+  - Skipped when no personal registry is configured or stdin is not a TTY, so
+    non-interactive output and exit codes are unchanged
+  - Fix `skills publish` dropping the description and tags entered at the
+    promote/import prompts, which left the registry — the source of truth for
+    sync and search — carrying the values derived from `SKILL.md` frontmatter
+- Make the interactive skills list modal so actions work on a filtered list
+  - Previously typing a filter disabled every action key, and the only way out
+    cleared the filter along with it
+  - `/` starts editing the filter; `Enter` or `Esc` returns to normal mode with
+    the filter still applied, where `c`/`e`/`a`/`r` act on the filtered rows
+  - `Esc` no longer quits either interactive view — only `q` and `Ctrl+C` do
+  - The status dashboard gains `e` (edit) and now matches the list view's keys
+- Prune stale narrative from the docs and split maintainer material out of
+  README and AGENTS.md into `docs/development.md` and `docs/harnesses.md`
+
 # 1.0.0-rc1
 
 - Add Pi (https://pi.dev) as a first-tier harness

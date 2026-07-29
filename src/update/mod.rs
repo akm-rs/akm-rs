@@ -253,6 +253,10 @@ mod tests {
         assert!(!is_newer("1.0.0-rc1", "1.0.0-alpha.11"));
         assert!(!is_newer("1.0.0-rc1", "1.0.0-rc1"));
         assert!(is_newer("1.0.0-rc1", "1.0.0"));
+        // rc1 → rc2 falls to the lexical branch: neither identifier parses
+        // as a number, because the dot separator is absent.
+        assert!(is_newer("1.0.0-rc1", "1.0.0-rc2"));
+        assert!(!is_newer("1.0.0-rc2", "1.0.0-rc1"));
     }
 
     #[test]
