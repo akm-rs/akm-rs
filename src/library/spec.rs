@@ -57,6 +57,18 @@ impl SpecType {
         }
     }
 
+    /// The sidecar's path relative to the library root.
+    ///
+    /// Distinct from [`Self::pathspecs`], which covers a skill's whole
+    /// directory: staging metadata must never sweep in an in-flight `SKILL.md`
+    /// edit, so a metadata commit stages this and nothing else.
+    pub fn sidecar_pathspec(&self, id: &str) -> String {
+        match self {
+            SpecType::Skill => format!("skills/{id}/akm.json"),
+            SpecType::Agent => format!("agents/{id}.akm.json"),
+        }
+    }
+
     /// Map a path inside a library tree back to the spec id that owns it.
     ///
     /// Returns `None` for paths that belong to no spec (`library.json`,
@@ -279,6 +291,11 @@ impl Spec {
         self.spec_type.pathspecs(&self.id)
     }
 
+    /// This spec's sidecar path, relative to the library root.
+    pub fn sidecar_pathspec(&self) -> String {
+        self.spec_type.sidecar_pathspec(&self.id)
+    }
+
     /// Create a new spec with minimal required fields. Other fields are defaults.
     pub fn new(
         id: impl Into<String>,
@@ -325,5 +342,25 @@ impl Spec {
             SpecType::Skill => library_dir.join("skills").join(&self.id).join("SKILL.md"),
             SpecType::Agent => library_dir.join("agents").join(format!("{}.md", self.id)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sidecar_pathspec_covers_only_the_metadata_file() {
+        assert_eq!(
+            SpecType::Skill.sidecar_pathspec("alpha"),
+            "skills/alpha/akm.json"
+        );
+        assert_eq!(
+            SpecType::Agent.sidecar_pathspec("bot"),
+            "agents/bot.akm.json"
+        );
+        // The distinction that matters: a skill's full pathspec is its whole
+        // directory, so staging metadata must not use it.
+        assert_eq!(SpecType::Skill.pathspecs("alpha"), vec!["skills/alpha"]);
     }
 }
