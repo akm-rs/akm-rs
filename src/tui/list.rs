@@ -1,6 +1,10 @@
 //! Interactive list view for browsing, filtering, and acting on library specs.
 //!
-//! Columns: ID | Type | Description | Tags | Core
+//! Columns: ID | Type | Description | Tags | Core | Manifest | Sync
+//!
+//! The Sync column carries the spec's drift marker — `*` edited here and not
+//! yet published, `v` the remote is ahead, `!` both sides moved. It is computed
+//! once at startup; see [`App::drift`](crate::tui::app::App::drift).
 //!
 //! The view is modal. It opens in [`Mode::Normal`], where letters are commands
 //! and the search filter (if any) stays applied, so actions can be used on a
@@ -358,7 +362,7 @@ fn render_list(frame: &mut Frame, app: &App, view: &mut ListView) {
         frame.render_widget(status, chunks[2]);
     }
 
-    render_help_bar(frame, chunks[3], view.mode);
+    render_help_bar(frame, chunks[3], view.mode, !app.drift.is_clean());
 }
 
 /// Render the search/filter bar.
@@ -395,6 +399,7 @@ fn render_table(frame: &mut Frame, area: Rect, app: &App, view: &mut ListView) {
         Cell::from("Tags").style(theme::HEADER),
         Cell::from("Core").style(theme::HEADER),
         Cell::from("Manifest").style(theme::HEADER),
+        Cell::from("Sync").style(theme::HEADER),
     ]);
 
     let rows: Vec<Row> = view
@@ -410,6 +415,7 @@ fn render_table(frame: &mut Frame, area: Rect, app: &App, view: &mut ListView) {
                 ""
             };
             let tags_text = spec.tags.join(", ");
+            let drift = app.drift.state_of(&spec.id);
 
             Row::new(vec![
                 Cell::from(spec.id.as_str()),
@@ -418,6 +424,7 @@ fn render_table(frame: &mut Frame, area: Rect, app: &App, view: &mut ListView) {
                 Cell::from(tags_text).style(theme::DIM),
                 Cell::from(core_text).style(theme::CORE_BADGE),
                 Cell::from(manifest_text).style(theme::SUCCESS),
+                Cell::from(drift.marker()).style(theme::drift_style(drift)),
             ])
         })
         .collect();
@@ -431,6 +438,7 @@ fn render_table(frame: &mut Frame, area: Rect, app: &App, view: &mut ListView) {
             Constraint::Percentage(15), // Tags
             Constraint::Length(4),      // Core
             Constraint::Length(8),      // Manifest
+            Constraint::Length(4),      // Sync
         ],
     )
     .header(header)
@@ -441,7 +449,10 @@ fn render_table(frame: &mut Frame, area: Rect, app: &App, view: &mut ListView) {
 }
 
 /// Render the help bar showing the key bindings for the current mode.
-fn render_help_bar(frame: &mut Frame, area: Rect, mode: Mode) {
+///
+/// A second line explains the Sync column, shown only when something has
+/// actually drifted — on a level library the markers are all blank.
+fn render_help_bar(frame: &mut Frame, area: Rect, mode: Mode, show_drift_legend: bool) {
     let pairs: &[(&str, &str)] = match mode {
         Mode::Normal => &[
             (" ↑↓/jk", " navigate  "),
@@ -473,8 +484,17 @@ fn render_help_bar(frame: &mut Frame, area: Rect, mode: Mode) {
             })
             .collect::<Vec<_>>(),
     );
-    let para = Paragraph::new(help_text);
-    frame.render_widget(para, area);
+
+    let mut lines = vec![help_text];
+    if show_drift_legend {
+        lines.push(Line::from(vec![
+            Span::styled(" Sync:", theme::HEADER),
+            Span::styled(" * unpublished  ", theme::WARNING),
+            Span::styled("v remote ahead  ", theme::DIM),
+            Span::styled("! diverged", theme::ERROR),
+        ]));
+    }
+    frame.render_widget(Paragraph::new(lines), area);
 }
 
 #[cfg(test)]

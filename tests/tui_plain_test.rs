@@ -209,3 +209,72 @@ fn test_skills_list_plain_shows_core_marker() {
         "Core specs should show [CORE] marker in plain output"
     );
 }
+
+/// Turn the fixture library into a git checkout with one uncommitted edit, so
+/// exactly one spec reads as drifted.
+fn make_library_a_dirty_checkout(tmp: &TempDir) {
+    let library = tmp.path().join("data").join("akm").join("library");
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(&library)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    git(&["init", "-b", "main"]);
+    git(&["config", "user.email", "test@example.com"]);
+    git(&["config", "user.name", "Test"]);
+    git(&["add", "-A"]);
+    git(&["commit", "-m", "initial"]);
+
+    std::fs::write(
+        library.join("skills").join("tdd").join("SKILL.md"),
+        "---\nname: TDD\ndescription: Test-driven development\n---\nEdited locally",
+    )
+    .unwrap();
+}
+
+#[test]
+fn test_skills_status_plain_marks_drifted_specs() {
+    let tmp = setup_env();
+    make_library_a_dirty_checkout(&tmp);
+
+    let output = base_cmd(&tmp)
+        .args(["skills", "status", "--plain"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // tdd is core and edited: marked in place and listed in the legend.
+    assert!(
+        stdout.contains("✓ skill  * tdd"),
+        "edited spec should carry its drift marker:\n{stdout}"
+    );
+    assert!(
+        stdout.contains("Sync markers:"),
+        "legend missing:\n{stdout}"
+    );
+    assert!(stdout.contains("* tdd (local newer)"), "{stdout}");
+    // Untouched specs stay blank.
+    assert!(!stdout.contains("* debug"), "{stdout}");
+}
+
+#[test]
+fn test_skills_status_plain_omits_legend_when_level() {
+    let tmp = setup_env();
+    let output = base_cmd(&tmp)
+        .args(["skills", "status", "--plain"])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.contains("Sync markers:"), "{stdout}");
+}

@@ -23,6 +23,9 @@ pub const SUCCESS: Style = Style::new().fg(Color::Green);
 /// Style for warnings (?).
 pub const WARNING: Style = Style::new().fg(Color::Yellow);
 
+/// Style for errors and states that need a decision.
+pub const ERROR: Style = Style::new().fg(Color::Red);
+
 /// Style for section headers.
 pub const HEADER: Style = Style::new().add_modifier(Modifier::BOLD);
 
@@ -52,6 +55,20 @@ pub const HELP_BAR: Style = Style::new().fg(Color::DarkGray);
 
 /// Style for the core flag indicator in rows.
 pub const CORE_BADGE: Style = Style::new().fg(Color::Green).add_modifier(Modifier::BOLD);
+
+/// Return the style for a drift marker.
+///
+/// Only the states that need the user to do something are coloured; a spec the
+/// remote merely moved ahead of is applied by the next fast-forward on its own.
+pub fn drift_style(state: crate::library::drift::DriftState) -> Style {
+    use crate::library::drift::DriftState;
+    match state {
+        DriftState::Clean => DIM,
+        DriftState::LocalNewer => WARNING,
+        DriftState::RemoteNewer => DIM,
+        DriftState::Diverged => ERROR,
+    }
+}
 
 /// Return the type style for a given spec type string.
 pub fn type_style(spec_type: &crate::library::spec::SpecType) -> Style {

@@ -6,6 +6,7 @@
 
 use crate::error::Result;
 use crate::git::Git;
+use crate::library::drift::DriftReport;
 use crate::library::manifest::Manifest;
 use crate::library::spec::{Spec, SpecType};
 use crate::library::tool_dirs::ToolDirs;
@@ -30,6 +31,12 @@ pub struct App {
     pub tool_dirs: ToolDirs,
     /// Set of spec IDs currently in the manifest (for quick lookup).
     pub manifest_ids: HashSet<String>,
+    /// Per-spec drift as of TUI start.
+    ///
+    /// Computed once: it shells out to git twice, which is far too expensive
+    /// to redo per frame, and drift only changes when something outside the
+    /// TUI does.
+    pub drift: DriftReport,
     /// Whether the library has been modified and needs saving.
     pub library_dirty: bool,
     /// Spec ids whose human-facing metadata was edited in this session.
@@ -96,6 +103,9 @@ impl App {
             })
             .unwrap_or_default();
 
+        // Advisory only — a library that is not a git checkout still opens.
+        let drift = DriftReport::compute(&paths.library_dir()).unwrap_or_default();
+
         Ok(Self {
             paths,
             library,
@@ -104,6 +114,7 @@ impl App {
             manifest,
             tool_dirs,
             manifest_ids,
+            drift,
             library_dirty: false,
             edited_meta: BTreeSet::new(),
             manifest_dirty: false,
