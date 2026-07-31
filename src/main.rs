@@ -203,9 +203,9 @@ enum SkillsCommands {
     },
     /// Publish spec to personal registry
     Publish {
-        /// Spec ID to publish
+        /// Spec ID to publish. Omit to publish everything pending.
         #[arg(add = ArgValueCandidates::new(SpecIdCompleter))]
-        id: String,
+        id: Option<String>,
         /// Preview changes without applying
         #[arg(long)]
         dry_run: bool,
@@ -393,7 +393,10 @@ fn main() -> ExitCode {
                 }
                 Some(SkillsCommands::Publish { id, dry_run }) => {
                     let config = akm::config::Config::load(&paths).unwrap_or_default();
-                    commands::skills::publish::run(&paths, &config, &id, dry_run)
+                    match id {
+                        Some(id) => commands::skills::publish::run(&paths, &config, &id, dry_run),
+                        None => commands::skills::publish::run_all(&paths, &config, dry_run),
+                    }
                 }
                 Some(SkillsCommands::Diff { id }) => {
                     let config = akm::config::Config::load(&paths).unwrap_or_default();

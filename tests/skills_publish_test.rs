@@ -287,6 +287,34 @@ fn publishing_a_new_skill_sends_all_of_its_files() {
         .contains("human prose"));
 }
 
+/// Publishing without an id is one intent covering many specs, so it must cost
+/// one commit however many it sweeps up.
+#[test]
+fn publishing_everything_pending_makes_one_commit() {
+    let env = Env::new();
+    env.sync();
+
+    write(
+        &env.library_file("skills/alpha/SKILL.md"),
+        &skill_md("alpha", "alpha edited"),
+    );
+    write(
+        &env.library_file("skills/beta/SKILL.md"),
+        &skill_md("beta", "beta edited"),
+    );
+    let before = env.commit_count();
+
+    publish::run_all(&env.paths, &env.config, false).unwrap();
+
+    assert_eq!(env.commit_count(), before + 1);
+    assert!(env
+        .remote_content("skills/alpha/SKILL.md")
+        .contains("alpha edited"));
+    assert!(env
+        .remote_content("skills/beta/SKILL.md")
+        .contains("beta edited"));
+}
+
 /// A push that fails after its commit landed leaves work stranded: staging is
 /// clean, so the next publish would otherwise report nothing to do forever.
 #[test]
