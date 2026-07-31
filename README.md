@@ -123,7 +123,8 @@ akm skills revert my-skill       # discard local changes (--remote: take the reg
 akm skills core                  # show core flags (--adopt / --publish to reconcile)
 akm skills promote ./my-skill     # import local skill to cold storage
 akm skills import <github-url>   # import skill from a GitHub URL
-akm skills publish my-skill      # publish to personal registry
+akm skills publish my-skill      # publish one spec to personal registry
+akm skills publish               # publish everything pending, in one commit
 akm skills clean --dry-run       # preview stale spec removal
 ```
 
@@ -147,6 +148,11 @@ Not yet published (2):
   Publish with 'akm skills publish <id>'.
 ```
 
+One intent is one commit. `akm skills publish <id>` sends a single spec;
+`akm skills publish` with no id sends everything pending as one commit and one
+push, however many specs that is. Add `--dry-run` to either to see what would
+go without touching the remote.
+
 The same states show as markers in `akm skills list` and `akm skills status`:
 `*` edited here and unpublished, `v` the registry is ahead, `!` both moved.
 
@@ -155,7 +161,9 @@ Each skill carries its human-facing metadata in an `akm.json` sidecar beside its
 `library.json` is a derived index, regenerated on every sync — edit the sidecar
 (or `akm skills edit --meta`), never the index. `core` defaults live in the
 sidecar and propagate; a local `c` toggle in the TUI stays on this machine, and
-`akm skills core --publish` promotes it for every machine.
+`akm skills core --publish` promotes it for every machine — committing and
+pushing every promoted sidecar together, and nothing else, so a `SKILL.md` you
+have open stays behind.
 
 #### Importing skills from GitHub
 

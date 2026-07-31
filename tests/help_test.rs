@@ -39,10 +39,11 @@ fn test_skills_help_output_snapshot() {
 }
 
 /// The drift commands are the user-facing half of the sync rework, so their
-/// contract is pinned.
+/// contract is pinned. `publish` is on the list because its id is optional —
+/// omitting it publishes everything pending, and that has to stay visible.
 #[test]
 fn test_drift_command_help_snapshots() {
-    for command in ["diff", "revert", "core"] {
+    for command in ["diff", "revert", "core", "publish"] {
         let output = cargo_bin_cmd!("akm")
             .args(["skills", command, "--help"])
             .output()
