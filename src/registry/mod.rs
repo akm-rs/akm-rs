@@ -176,16 +176,27 @@ impl Registry {
 
         Git::add_path(&self.dir, &refs)?;
         if Git::is_staging_clean(&self.dir)? {
+            // A commit from an earlier run whose push failed is still ours to
+            // land: staging is clean, but the remote has never seen it.
+            if Git::commits_ahead(&self.dir)? > 0 {
+                self.push()?;
+                return Ok(PublishOutcome::Published);
+            }
             return Ok(PublishOutcome::NothingToDo);
         }
 
         Git::commit(&self.dir, message)?;
+        self.push()?;
+
+        Ok(PublishOutcome::Published)
+    }
+
+    /// Push, reporting a failure as a registry-sync error.
+    fn push(&self) -> Result<()> {
         Git::push(&self.dir).map_err(|e| Error::RegistrySync {
             name: "personal".into(),
             message: format!("Push failed: {e}"),
-        })?;
-
-        Ok(PublishOutcome::Published)
+        })
     }
 
     /// Rebase local work onto the remote for one set of paths, ours winning.

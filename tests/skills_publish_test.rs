@@ -8,6 +8,7 @@ use akm::config::Config;
 use akm::library::tool_dirs::ToolDirs;
 use akm::paths::Paths;
 use akm::registry::Registry;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::TempDir;
@@ -45,6 +46,8 @@ fn skill_md(id: &str, body: &str) -> String {
 
 struct Env {
     _tmp: TempDir,
+    /// The bare repository standing in for the remote.
+    origin: PathBuf,
     /// A second checkout, standing in for another machine.
     other: PathBuf,
     paths: Paths,
@@ -95,11 +98,33 @@ impl Env {
 
         Self {
             _tmp: tmp,
+            origin,
             other,
             paths,
             config,
             home,
         }
+    }
+
+    /// Make pushes to the remote fail while fetches keep working.
+    ///
+    /// A rejecting `pre-receive` hook rather than a broken remote URL: publish
+    /// fetches before it commits, so an unreachable remote would fail early and
+    /// the commit under test would never land.
+    fn break_push(&self) {
+        let hook = self.origin.join("hooks").join("pre-receive");
+        write(&hook, "#!/bin/sh\nexit 1\n");
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    fn restore_push(&self) {
+        std::fs::remove_file(self.origin.join("hooks").join("pre-receive")).unwrap();
+    }
+
+    fn commit_count(&self) -> u32 {
+        git(&self.paths.library_dir(), &["rev-list", "--count", "HEAD"])
+            .parse()
+            .unwrap()
     }
 
     fn sync(&self) {
@@ -260,6 +285,33 @@ fn publishing_a_new_skill_sends_all_of_its_files() {
     assert!(env
         .remote_content("skills/gamma/akm.json")
         .contains("human prose"));
+}
+
+/// A push that fails after its commit landed leaves work stranded: staging is
+/// clean, so the next publish would otherwise report nothing to do forever.
+#[test]
+fn a_commit_whose_push_failed_is_retried_by_the_next_publish() {
+    let env = Env::new();
+    env.sync();
+
+    write(
+        &env.library_file("skills/alpha/SKILL.md"),
+        &skill_md("alpha", "edited locally"),
+    );
+
+    // The commit lands, the push does not.
+    env.break_push();
+    assert!(env.publish("alpha").is_err());
+    assert_eq!(env.commit_count(), 2, "the commit must have landed");
+
+    // The retry must push the commit already sitting on HEAD rather than
+    // reporting that there is nothing to do.
+    env.restore_push();
+    env.publish("alpha").unwrap();
+
+    assert!(env
+        .remote_content("skills/alpha/SKILL.md")
+        .contains("edited locally"));
 }
 
 #[test]
