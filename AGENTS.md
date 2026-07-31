@@ -61,3 +61,14 @@ cargo fmt
 ```
 
 Source layout, snapshot handling and the release process: [docs/development.md](docs/development.md).
+
+## Releasing
+
+Bump `version` in `Cargo.toml` — it is not derived from the tag, and a release
+that skips it ships a binary reporting the previous version. The bump also
+rewrites `tests/snapshots/update_test__version_output.snap`.
+
+Pre-1.0 tags (`alpha`, `rc`) ship as normal GitHub releases, not prereleases.
+There is no stable release yet, so the newest rc must resolve as "Latest" for
+`akm update` and the installer to find it. This is deliberate — do not "fix"
+it. Revisit when 1.0.0 final ships.
