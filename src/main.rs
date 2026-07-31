@@ -258,6 +258,8 @@ enum InstructionsCommands {
     ScaffoldProject,
     /// Edit global instructions in $EDITOR
     Edit,
+    /// Publish global instructions to personal registry
+    Publish,
 }
 
 fn main() -> ExitCode {
@@ -426,8 +428,15 @@ fn main() -> ExitCode {
         }
         Some(Commands::Instructions { command }) => match command {
             InstructionsCommands::Sync => commands::instructions::sync::run(&paths),
-            InstructionsCommands::Edit => commands::instructions::edit::run(&paths),
+            InstructionsCommands::Edit => {
+                let config = akm::config::Config::load(&paths).unwrap_or_default();
+                commands::instructions::edit::run(&paths, &config)
+            }
             InstructionsCommands::ScaffoldProject => commands::instructions::scaffold::run(),
+            InstructionsCommands::Publish => {
+                let config = akm::config::Config::load(&paths).unwrap_or_default();
+                commands::instructions::publish::run(&paths, &config)
+            }
         },
         Some(Commands::Completions { shell }) => commands::completions::run(&shell),
     };

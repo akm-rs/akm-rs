@@ -54,3 +54,18 @@ fn test_drift_command_help_snapshots() {
         );
     }
 }
+
+/// Instructions gained a publish command; `sync.rs` tells the user to run it,
+/// so it has to stay on the list.
+#[test]
+fn test_instructions_help_output_snapshot() {
+    let output = cargo_bin_cmd!("akm")
+        .args(["instructions", "--help"])
+        .output()
+        .unwrap();
+
+    insta::assert_snapshot!(
+        "instructions_help_output",
+        String::from_utf8_lossy(&output.stdout).to_string()
+    );
+}

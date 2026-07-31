@@ -279,3 +279,161 @@ fn snapshot_instructions_scaffold_fresh() {
     let normalized = stdout.replace(repo.to_str().unwrap(), "/path/to/myproject");
     insta::assert_snapshot!("instructions_scaffold_fresh", normalized);
 }
+
+// --- Registry-hosted instructions ---
+
+fn git(dir: &std::path::Path, args: &[&str]) {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .unwrap_or_else(|e| panic!("git {args:?}: {e}"));
+    assert!(
+        out.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// A personal registry with one skill, plus a config pointing at it.
+fn setup_registry(tmp: &TempDir, home: &std::path::Path) -> std::path::PathBuf {
+    let origin = tmp.path().join("origin");
+    fs::create_dir_all(origin.join("skills").join("alpha")).unwrap();
+    fs::write(
+        origin.join("skills").join("alpha").join("SKILL.md"),
+        "---\nname: alpha\ndescription: desc\n---\nbody\n",
+    )
+    .unwrap();
+    git(&origin, &["init", "-b", "main"]);
+    git(&origin, &["config", "user.email", "test@example.com"]);
+    git(&origin, &["config", "user.name", "Test"]);
+    git(&origin, &["config", "receive.denyCurrentBranch", "ignore"]);
+    git(&origin, &["add", "-A"]);
+    git(&origin, &["commit", "-m", "initial"]);
+
+    fs::write(
+        home.join(".config").join("akm").join("config.toml"),
+        format!(
+            "features = [\"skills\", \"instructions\"]\n\n[skills]\npersonal_registry = \"{}\"\n",
+            origin.display()
+        ),
+    )
+    .unwrap();
+
+    // The library directory is the clone target: it must not exist yet.
+    let library = home.join(".local/share/akm/library");
+    if library.exists() {
+        fs::remove_dir_all(&library).unwrap();
+    }
+
+    origin
+}
+
+fn akm(home: &std::path::Path) -> assert_cmd::Command {
+    let mut cmd = cargo_bin_cmd!("akm");
+    cmd.env("HOME", home)
+        .env("XDG_CONFIG_HOME", home.join(".config"))
+        .env("XDG_DATA_HOME", home.join(".local/share"))
+        .env("XDG_CACHE_HOME", home.join(".cache"))
+        .env("GIT_AUTHOR_NAME", "Test")
+        .env("GIT_AUTHOR_EMAIL", "test@example.com")
+        .env("GIT_COMMITTER_NAME", "Test")
+        .env("GIT_COMMITTER_EMAIL", "test@example.com");
+    cmd
+}
+
+/// An rc3 machine keeps what it wrote: the old bare file is carried into the
+/// registry rather than silently replaced by an empty one.
+#[test]
+fn instructions_sync_seeds_from_the_pre_rc4_location() {
+    let tmp = TempDir::new().unwrap();
+    let (home, _, instructions) = setup_env(&tmp);
+
+    let legacy = home.join(".akm").join("global-instructions.md");
+    fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    fs::write(&legacy, "Written on rc3.").unwrap();
+    fs::remove_dir_all(instructions.parent().unwrap()).unwrap();
+
+    akm(&home)
+        .args(["instructions", "sync"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("personal registry"))
+        .stdout(predicate::str::contains("5 tool directories"));
+
+    assert_eq!(
+        fs::read_to_string(&instructions).unwrap(),
+        "Written on rc3."
+    );
+    assert_eq!(
+        fs::read_to_string(home.join(".claude/CLAUDE.md")).unwrap(),
+        "Written on rc3."
+    );
+    // The old file is left alone.
+    assert!(legacy.is_file());
+}
+
+#[test]
+fn instructions_publish_pushes_to_the_registry() {
+    let tmp = TempDir::new().unwrap();
+    let (home, _, instructions) = setup_env(&tmp);
+    let origin = setup_registry(&tmp, &home);
+
+    akm(&home).args(["skills", "sync"]).assert().success();
+
+    fs::create_dir_all(instructions.parent().unwrap()).unwrap();
+    fs::write(&instructions, "Be concise.\n").unwrap();
+
+    akm(&home)
+        .args(["instructions", "publish"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Published global instructions"));
+
+    // The push landed on the origin's branch.
+    let out = std::process::Command::new("git")
+        .args(["show", "main:instructions/global.md"])
+        .current_dir(&origin)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "Be concise.\n");
+}
+
+#[test]
+fn instructions_publish_is_idempotent() {
+    let tmp = TempDir::new().unwrap();
+    let (home, _, instructions) = setup_env(&tmp);
+    setup_registry(&tmp, &home);
+
+    akm(&home).args(["skills", "sync"]).assert().success();
+    fs::create_dir_all(instructions.parent().unwrap()).unwrap();
+    fs::write(&instructions, "Be concise.\n").unwrap();
+
+    akm(&home)
+        .args(["instructions", "publish"])
+        .assert()
+        .success();
+    akm(&home)
+        .args(["instructions", "publish"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No changes to publish"));
+}
+
+#[test]
+fn instructions_publish_needs_a_registry() {
+    let tmp = TempDir::new().unwrap();
+    let (home, _, _) = setup_env(&tmp);
+
+    akm(&home)
+        .args(["instructions", "publish"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("No personal registry configured"));
+}

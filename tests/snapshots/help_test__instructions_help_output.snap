@@ -1,0 +1,18 @@
+---
+source: tests/help_test.rs
+expression: "String::from_utf8_lossy(&output.stdout).to_string()"
+---
+Global instruction management
+
+Usage: akm instructions <COMMAND>
+
+Commands:
+  sync              Distribute global instructions to tool directories
+  scaffold-project  Create AGENTS.md + CLAUDE.md in project root
+  edit              Edit global instructions in $EDITOR
+  publish           Publish global instructions to personal registry
+  help              Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version

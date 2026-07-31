@@ -254,6 +254,12 @@ fn configure_instructions(
 
     config.features.insert(Feature::Instructions);
 
+    // A machine upgrading from rc3 keeps what it already wrote, rather than
+    // having setup create an empty file over the top of it.
+    if let Err(e) = crate::commands::instructions::seed_from_legacy(paths) {
+        eprintln!("  Warning: could not carry over the previous instructions: {e}");
+    }
+
     // Create the global instructions file if it does not exist
     let instructions_file = paths.instructions_file();
     if !instructions_file.exists() {

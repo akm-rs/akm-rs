@@ -1,12 +1,13 @@
 //! `akm instructions sync` — distribute global instructions to tool directories.
 //!
 //! Behavior:
-//! 1. Check if global-instructions.md exists at `~/.akm/global-instructions.md`
-//! 2. If not, print warning and return Ok (not an error)
-//! 3. For each target (tool dir + filename): create dir, copy file
-//! 4. Print count of distributed copies
+//! 1. Carry a pre-rc4 instructions file into the registry, if there is one
+//! 2. Check the registry-hosted source exists
+//! 3. If not, print warning and return Ok (not an error)
+//! 4. For each target (tool dir + filename): create dir, copy file
+//! 5. Print count of distributed copies
 
-use crate::commands::instructions::{default_targets, InstructionsTarget};
+use crate::commands::instructions::{default_targets, seed_from_legacy, InstructionsTarget};
 use crate::error::{IoContext, Result};
 use crate::paths::Paths;
 use std::fs;
@@ -14,12 +15,14 @@ use std::path::Path;
 
 /// Run `akm instructions sync`.
 ///
-/// Distributes `~/.akm/global-instructions.md` to all tool directories.
+/// Distributes `library/instructions/global.md` to all tool directories.
 ///
 /// # Errors
 /// Returns `Err` only on filesystem failures (permission denied, disk full).
 /// Missing source file is a warning, not an error.
 pub fn run(paths: &Paths) -> Result<()> {
+    seed_from_legacy(paths)?;
+
     let source = paths.instructions_file();
     let home = paths.home();
 
@@ -30,7 +33,7 @@ pub fn run(paths: &Paths) -> Result<()> {
 /// Core sync logic, separated for testability.
 ///
 /// # Arguments
-/// * `source` — Path to global-instructions.md
+/// * `source` — Path to the global instructions file
 /// * `targets` — List of (dir, filename) targets
 pub(crate) fn sync_instructions(source: &Path, targets: &[InstructionsTarget]) -> Result<()> {
     if !source.exists() {

@@ -1,13 +1,55 @@
 //! Instructions domain commands.
 //!
-//! Distributes global instructions from `~/.akm/global-instructions.md` to
-//! tool-specific directories with tool-specific filenames.
+//! The global instructions file lives in the personal registry, at
+//! `library/instructions/global.md`. That gives it the same drift model,
+//! publish flow and between-machine propagation as a skill, for free. From
+//! there it is distributed to tool-specific directories under tool-specific
+//! filenames.
 
 pub mod edit;
+pub mod publish;
 pub mod scaffold;
 pub mod sync;
 
+use crate::error::{IoContext, Result};
+use crate::paths::Paths;
+use std::fs;
 use std::path::{Path, PathBuf};
+
+/// Copy pre-rc4 global instructions into the registry, once.
+///
+/// Instructions used to be a bare `~/.akm/global-instructions.md` with no
+/// remote at all. A machine upgrading from rc3 keeps what it wrote: the old
+/// file is copied in the first time the new one is needed. The old file is
+/// left where it is — moving it would make a downgrade lossy for no gain.
+///
+/// Returns whether a copy was made.
+pub(crate) fn seed_from_legacy(paths: &Paths) -> Result<bool> {
+    let target = paths.instructions_file();
+    let legacy = paths.legacy_global_instructions();
+
+    if target.exists() || !legacy.is_file() {
+        return Ok(false);
+    }
+
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)
+            .io_context(format!("Creating directory {}", parent.display()))?;
+    }
+    fs::copy(&legacy, &target).io_context(format!(
+        "Copying {} to {}",
+        legacy.display(),
+        target.display()
+    ))?;
+
+    println!(
+        "Moved global instructions into the personal registry ({} → {})",
+        legacy.display(),
+        target.display()
+    );
+    println!("Publish them with 'akm instructions publish'.");
+    Ok(true)
+}
 
 /// An instructions sync target: a directory + filename pair.
 ///
@@ -75,6 +117,58 @@ pub fn default_targets(home: &Path) -> Vec<InstructionsTarget> {
 mod tests {
     use super::*;
     use std::path::Path;
+    use tempfile::TempDir;
+
+    /// Paths rooted in a temp dir, plus the guard keeping it alive.
+    fn test_paths() -> (Paths, TempDir) {
+        let tmp = TempDir::new().unwrap();
+        let paths = Paths::from_roots(
+            &tmp.path().join("data"),
+            &tmp.path().join("config"),
+            &tmp.path().join("cache"),
+            &tmp.path().join("home"),
+        );
+        (paths, tmp)
+    }
+
+    fn write(path: &std::path::Path, content: &str) {
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    }
+
+    #[test]
+    fn seeding_carries_a_pre_rc4_file_into_the_registry() {
+        let (paths, _tmp) = test_paths();
+        write(&paths.legacy_global_instructions(), "Be terse.");
+
+        assert!(seed_from_legacy(&paths).unwrap());
+        assert_eq!(
+            fs::read_to_string(paths.instructions_file()).unwrap(),
+            "Be terse."
+        );
+        // The old file stays put — a downgrade must not be lossy.
+        assert!(paths.legacy_global_instructions().is_file());
+    }
+
+    #[test]
+    fn seeding_never_overwrites_the_registry_copy() {
+        let (paths, _tmp) = test_paths();
+        write(&paths.legacy_global_instructions(), "old");
+        write(&paths.instructions_file(), "current");
+
+        assert!(!seed_from_legacy(&paths).unwrap());
+        assert_eq!(
+            fs::read_to_string(paths.instructions_file()).unwrap(),
+            "current"
+        );
+    }
+
+    #[test]
+    fn seeding_is_a_no_op_without_a_legacy_file() {
+        let (paths, _tmp) = test_paths();
+        assert!(!seed_from_legacy(&paths).unwrap());
+        assert!(!paths.instructions_file().exists());
+    }
 
     #[test]
     fn default_targets_has_five_entries() {
