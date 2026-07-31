@@ -55,6 +55,12 @@ impl Env {
         git(&origin, &["init", "-b", "main"]);
         git(&origin, &["config", "user.email", "test@example.com"]);
         git(&origin, &["config", "user.name", "Test"]);
+        // The origin is a real checkout, not a bare repo, so a push to its
+        // current branch is refused unless it is told to take the update.
+        git(
+            &origin,
+            &["config", "receive.denyCurrentBranch", "updateInstead"],
+        );
         for id in ["alpha", "beta"] {
             write(
                 &origin.join(format!("skills/{id}/SKILL.md")),
@@ -98,6 +104,9 @@ impl Env {
             self.paths.library_dir(),
         );
         sync::execute(&self.paths, &registry, &self.tool_dirs()).unwrap();
+        let library_dir = self.paths.library_dir();
+        git(&library_dir, &["config", "user.email", "test@example.com"]);
+        git(&library_dir, &["config", "user.name", "Test"]);
     }
 
     fn library_file(&self, rel: &str) -> PathBuf {
@@ -274,7 +283,14 @@ fn core_show_lists_the_globally_mounted_specs() {
     let env = Env::new();
     env.sync();
 
-    core::run(&env.paths, CoreAction::Show, &env.tool_dirs()).unwrap();
+    core::run(
+        &env.paths,
+        &env.config,
+        CoreAction::Show,
+        &env.tool_dirs(),
+        false,
+    )
+    .unwrap();
 
     let library = Library::load_from(&env.paths.library_json()).unwrap();
     assert_eq!(library.core_ids(), vec!["alpha"]);
@@ -292,7 +308,14 @@ fn core_adopt_drops_local_overrides_and_relinks() {
     env.sync();
     assert!(!env.home.join(".claude/skills/alpha").exists());
 
-    core::run(&env.paths, CoreAction::Adopt, &env.tool_dirs()).unwrap();
+    core::run(
+        &env.paths,
+        &env.config,
+        CoreAction::Adopt,
+        &env.tool_dirs(),
+        false,
+    )
+    .unwrap();
 
     assert_eq!(
         LocalOverrides::load_from(&env.paths.local_json())
@@ -303,8 +326,8 @@ fn core_adopt_drops_local_overrides_and_relinks() {
     assert!(env.home.join(".claude/skills/alpha").is_symlink());
 }
 
-/// `--publish` promotes this machine's choices into the sidecars, which is
-/// what makes them publishable — and leaves the spec showing as changed.
+/// `--publish` promotes this machine's choices into the sidecars *and* sends
+/// them, so the spec comes out level with the registry rather than pending.
 #[test]
 fn core_publish_promotes_overrides_into_the_sidecars() {
     let env = Env::new();
@@ -315,7 +338,14 @@ fn core_publish_promotes_overrides_into_the_sidecars() {
     overrides.save_to(&env.paths.local_json()).unwrap();
     env.sync();
 
-    core::run(&env.paths, CoreAction::Publish, &env.tool_dirs()).unwrap();
+    core::run(
+        &env.paths,
+        &env.config,
+        CoreAction::Publish,
+        &env.tool_dirs(),
+        false,
+    )
+    .unwrap();
 
     let sidecar = std::fs::read_to_string(env.library_file("skills/beta/akm.json")).unwrap();
     assert!(sidecar.contains("\"core\": true"));
@@ -326,8 +356,14 @@ fn core_publish_promotes_overrides_into_the_sidecars() {
         0
     );
 
+    // The promotion reached the registry, so nothing is left to publish.
+    assert!(
+        std::fs::read_to_string(env.origin.join("skills/beta/akm.json"))
+            .unwrap()
+            .contains("\"core\": true")
+    );
     let registry = Registry::new(env.config.registry_url().unwrap(), env.paths.library_dir());
-    assert!(registry
+    assert!(!registry
         .drift()
         .unwrap()
         .state_of("beta")

@@ -1,6 +1,5 @@
 ---
 source: tests/help_test.rs
-assertion_line: 51
 expression: "String::from_utf8_lossy(&output.stdout).to_string()"
 ---
 Show what changed locally and in the registry for a spec
