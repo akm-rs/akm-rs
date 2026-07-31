@@ -277,7 +277,7 @@ impl App {
             meta.save_to(&sidecar)?;
         }
 
-        crate::library::libgen::generate(&library_dir)?;
+        crate::library::libgen::generate(&library_dir, &self.paths.library_json())?;
         let mut published = Library::load_from(&self.paths.library_json())?;
 
         // Whatever the session's core flags disagree with the published

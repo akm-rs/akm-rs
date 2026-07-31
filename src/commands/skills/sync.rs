@@ -91,13 +91,13 @@ pub fn execute(paths: &Paths, registry: &Registry, tool_dirs: &ToolDirs) -> Resu
     }
 
     if registry.is_cloned() {
-        registry.ignore_derived_index()?;
+        registry.evict_derived_index()?;
     }
 
     // --- Regenerate the derived index from the specs on disk ---
     let has_specs = library_dir.join("skills").is_dir() || library_dir.join("agents").is_dir();
     let spec_count = if has_specs {
-        Some(libgen::generate(&library_dir)?.count)
+        Some(libgen::generate(&library_dir, &paths.library_json())?.count)
     } else {
         None
     };

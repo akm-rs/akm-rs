@@ -258,37 +258,33 @@ impl Registry {
         Git::diff(&self.dir, "HEAD", &upstream, &refs)
     }
 
-    /// Keep the derived index out of git without touching the registry's own
-    /// `.gitignore`.
+    /// Get the derived index out of the working tree.
     ///
-    /// `library.json` is regenerated on every sync, so it would otherwise show
-    /// up as a permanent local change. Excluding it through `.git/info/exclude`
-    /// keeps that decision on this machine, where it belongs — the registry
-    /// does not have to carry an AKM-specific ignore rule for AKM to work.
-    pub fn ignore_derived_index(&self) -> Result<()> {
-        let exclude = self.dir.join(".git").join("info").join("exclude");
-        let existing = std::fs::read_to_string(&exclude).unwrap_or_default();
-        if existing.lines().any(|line| line.trim() == "library.json") {
+    /// The index is machine-local (it carries this machine's core deviations)
+    /// and lives outside the checkout. Installs that predate that carry a copy
+    /// inside it: either tracked — the registry was seeded when the index was
+    /// committed, and libgen has been rewriting it into a permanent local
+    /// modification ever since — or untracked, from the rc4 releases that hid
+    /// it with `.git/info/exclude`.
+    ///
+    /// A tracked copy is restored to `HEAD` rather than deleted: it belongs to
+    /// the registry's history, and removing it there is the owner's call, not
+    /// a session-start side effect. Nothing writes it any more either way, so
+    /// it stays clean from here on. `git clean` is no use for the untracked
+    /// case — it skips excluded files, and this one is excluded by definition.
+    pub fn evict_derived_index(&self) -> Result<()> {
+        let stray = self.dir.join("library.json");
+        if !stray.exists() {
             return Ok(());
         }
 
-        if let Some(parent) = exclude.parent() {
-            std::fs::create_dir_all(parent).map_err(|source| Error::Io {
-                context: format!("Creating {}", parent.display()),
-                source,
-            })?;
+        if Git::is_tracked(&self.dir, "library.json")? {
+            return Git::restore_path(&self.dir, &["library.json"]);
         }
 
-        let separator = if existing.is_empty() || existing.ends_with('\n') {
-            ""
-        } else {
-            "\n"
-        };
-        std::fs::write(&exclude, format!("{existing}{separator}library.json\n")).map_err(|source| {
-            Error::Io {
-                context: format!("Writing {}", exclude.display()),
-                source,
-            }
+        std::fs::remove_file(&stray).map_err(|source| Error::Io {
+            context: format!("Removing the stale derived index {}", stray.display()),
+            source,
         })
     }
 

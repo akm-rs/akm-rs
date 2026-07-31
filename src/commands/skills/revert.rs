@@ -70,7 +70,7 @@ pub fn run(
     // The spec's metadata may have moved with it, so rebuild the index and the
     // symlinks that follow from `core`.
     let library_dir = paths.library_dir();
-    libgen::generate(&library_dir)?;
+    libgen::generate(&library_dir, &paths.library_json())?;
 
     let mut library = Library::load_from(&paths.library_json())?;
     let mut overrides = LocalOverrides::load_from(&paths.local_json())?;

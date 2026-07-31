@@ -267,6 +267,15 @@ impl Git {
         run_git_ok(&["rev-parse", rev], Some(repo_dir))
     }
 
+    /// Whether `path` is in the index.
+    ///
+    /// A path git does not know is not an error here — "untracked" is one of
+    /// the two answers the caller is asking for.
+    pub fn is_tracked(repo_dir: &Path, path: &str) -> Result<bool> {
+        let output = run_git(&["ls-files", "--error-unmatch", "--", path], Some(repo_dir))?;
+        Ok(output.success)
+    }
+
     /// Name of the upstream tracking ref (e.g. `origin/main`).
     ///
     /// Returns `Err(Error::Git)` when the branch has no upstream configured.

@@ -14,25 +14,26 @@ fn setup_env() -> TempDir {
     let tmp = TempDir::new().unwrap();
 
     // Create necessary directories
-    let data_dir = tmp.path().join("data").join("akm").join("library");
-    std::fs::create_dir_all(data_dir.join("skills").join("tdd")).unwrap();
-    std::fs::create_dir_all(data_dir.join("agents")).unwrap();
+    let data_dir = tmp.path().join("data").join("akm");
+    let library_dir = data_dir.join("library");
+    std::fs::create_dir_all(library_dir.join("skills").join("tdd")).unwrap();
+    std::fs::create_dir_all(library_dir.join("agents")).unwrap();
 
     // Write SKILL.md for tdd
     std::fs::write(
-        data_dir.join("skills").join("tdd").join("SKILL.md"),
+        library_dir.join("skills").join("tdd").join("SKILL.md"),
         "---\nname: TDD\ndescription: Test-driven development\n---\nContent",
     )
     .unwrap();
 
     // Write agent file
     std::fs::write(
-        data_dir.join("agents").join("reviewer.md"),
+        library_dir.join("agents").join("reviewer.md"),
         "---\nname: Reviewer\ndescription: Code review agent\n---\nAgent content",
     )
     .unwrap();
 
-    // Write library.json
+    // Write library.json — beside the checkout, not inside it
     let library_json = serde_json::json!({
         "version": 1,
         "specs": [

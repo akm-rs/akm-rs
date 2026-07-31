@@ -57,7 +57,7 @@ pub fn run(
 
     // The edit may have changed the name, description or core flag, so the
     // derived index and the symlinks that follow from it are rebuilt.
-    libgen::generate(&library_dir)?;
+    libgen::generate(&library_dir, &paths.library_json())?;
     let mut library = Library::load_from(&paths.library_json())?;
     let mut overrides = LocalOverrides::load_from(&paths.local_json())?;
     if overrides.apply(&mut library) {
