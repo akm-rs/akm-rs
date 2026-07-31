@@ -4,8 +4,10 @@
 //! The library is the "cold storage" index that tracks all installed
 //! skills and agents.
 
+pub mod drift;
 pub mod frontmatter;
 pub mod libgen;
+pub mod local;
 pub mod manifest;
 pub mod spec;
 pub mod symlinks;

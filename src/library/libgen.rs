@@ -2,7 +2,7 @@
 
 use crate::error::{Error, IoContext, Result};
 use crate::library::frontmatter::Frontmatter;
-use crate::library::spec::{Spec, SpecType};
+use crate::library::spec::{Spec, SpecMeta, SpecType};
 use crate::library::Library;
 use std::path::Path;
 
@@ -17,11 +17,16 @@ pub struct LibgenResult {
 
 /// Generate library.json for a directory containing skills/ and/or agents/.
 ///
-/// This is the core libgen algorithm. It:
-/// 1. Loads the existing library.json from `target_dir` (if present)
-/// 2. Scans `target_dir/skills/` and `target_dir/agents/`
-/// 3. Preserves metadata for existing specs, creates entries for new ones
-/// 4. Writes the updated library.json
+/// `library.json` is a pure *derived* index. Every entry comes from the spec's
+/// `akm.json` sidecar where one exists, and otherwise from its markdown
+/// frontmatter. Nothing is carried over from a previous `library.json`, which
+/// is what stops the index and the sidecars from drifting apart.
+///
+/// libgen deliberately never *writes* a sidecar. It runs on every sync, and a
+/// sidecar is a tracked file in the registry — writing one would mean a fresh
+/// clone of a registry without sidecars instantly reported every spec as
+/// locally modified and awaiting publication. Sidecars appear when the user
+/// actually edits metadata; until then the frontmatter answers for the spec.
 pub fn generate(target_dir: &Path) -> Result<LibgenResult> {
     let skills_dir = target_dir.join("skills");
     let agents_dir = target_dir.join("agents");
@@ -33,11 +38,6 @@ pub fn generate(target_dir: &Path) -> Result<LibgenResult> {
     }
 
     let library_path = target_dir.join("library.json");
-
-    // Load existing library to preserve metadata
-    let existing = Library::load_or_default(&library_path)?;
-    let existing_map = existing.spec_map();
-
     let mut specs: Vec<Spec> = Vec::new();
 
     // Scan skills/
@@ -51,28 +51,15 @@ pub fn generate(target_dir: &Path) -> Result<LibgenResult> {
         entries.sort_by_key(|e| e.file_name());
 
         for entry in entries {
-            let dir_path = entry.path();
             let id = entry.file_name().to_string_lossy().to_string();
-            let md_file = dir_path.join("SKILL.md");
+            let md_file = entry.path().join("SKILL.md");
 
             if !md_file.is_file() {
                 continue;
             }
 
-            if let Some(existing_spec) = existing_map.get(id.as_str()) {
-                specs.push((*existing_spec).clone());
-            } else {
-                let fm = match Frontmatter::parse_file(&md_file) {
-                    Ok(fm) => fm,
-                    Err(e) => {
-                        eprintln!("Warning: {e}");
-                        Frontmatter::default()
-                    }
-                };
-                let name = fm.name.unwrap_or_else(|| id.clone());
-                let description = fm.description.unwrap_or_default();
-                specs.push(Spec::new(id, SpecType::Skill, name, description));
-            }
+            let meta = resolve_meta(target_dir, &id, SpecType::Skill, &md_file);
+            specs.push(Spec::from_meta(id, SpecType::Skill, meta));
         }
     }
 
@@ -100,20 +87,8 @@ pub fn generate(target_dir: &Path) -> Result<LibgenResult> {
                 continue;
             }
 
-            if let Some(existing_spec) = existing_map.get(id.as_str()) {
-                specs.push((*existing_spec).clone());
-            } else {
-                let fm = match Frontmatter::parse_file(&file_path) {
-                    Ok(fm) => fm,
-                    Err(e) => {
-                        eprintln!("Warning: {e}");
-                        Frontmatter::default()
-                    }
-                };
-                let name = fm.name.unwrap_or_else(|| id.clone());
-                let description = fm.description.unwrap_or_default();
-                specs.push(Spec::new(id, SpecType::Agent, name, description));
-            }
+            let meta = resolve_meta(target_dir, &id, SpecType::Agent, &file_path);
+            specs.push(Spec::from_meta(id, SpecType::Agent, meta));
         }
     }
 
@@ -126,4 +101,35 @@ pub fn generate(target_dir: &Path) -> Result<LibgenResult> {
         count,
         library_path,
     })
+}
+
+/// Resolve a spec's metadata: its sidecar if it has one, its frontmatter
+/// otherwise.
+///
+/// A sidecar that exists but does not parse is reported and left untouched —
+/// falling back in memory keeps the rest of the library usable without
+/// overwriting whatever the user was in the middle of editing.
+fn resolve_meta(library_dir: &Path, id: &str, spec_type: SpecType, md_file: &Path) -> SpecMeta {
+    let sidecar = spec_type.sidecar_path(library_dir, id);
+
+    if sidecar.is_file() {
+        match SpecMeta::load_from(&sidecar) {
+            Ok(meta) => return meta,
+            Err(e) => eprintln!("Warning: {e}"),
+        }
+    }
+
+    meta_from_frontmatter(id, md_file)
+}
+
+/// Derive starter metadata from a spec's markdown, tolerating a bad file.
+fn meta_from_frontmatter(id: &str, md_file: &Path) -> SpecMeta {
+    let fm = match Frontmatter::parse_file(md_file) {
+        Ok(fm) => fm,
+        Err(e) => {
+            eprintln!("Warning: {e}");
+            Frontmatter::default()
+        }
+    };
+    SpecMeta::from_frontmatter(id, &fm)
 }

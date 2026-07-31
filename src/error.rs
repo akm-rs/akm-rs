@@ -94,6 +94,14 @@ pub enum Error {
         source: Box<dyn std::error::Error + Send + Sync>,
     },
 
+    /// A spec's `akm.json` sidecar could not be parsed.
+    #[error("Failed to parse spec metadata at {path}: {message}\nFix the JSON, or delete the file to regenerate it from the spec's frontmatter.")]
+    SidecarParse { path: PathBuf, message: String },
+
+    /// `local.json` could not be parsed.
+    #[error("Failed to parse local overrides at {path}: {message}\nFix the JSON, or delete the file to reset this machine to the published defaults.")]
+    LocalOverridesParse { path: PathBuf, message: String },
+
     /// Library JSON write error.
     #[error("Failed to write library.json to {path}: {source}")]
     LibraryWrite {
@@ -185,6 +193,10 @@ pub enum Error {
     /// Spec already exists in cold storage (promote without --force).
     #[error("Spec '{id}' already exists in cold storage.\nUse --force to overwrite.")]
     SpecAlreadyExists { id: String },
+
+    /// A destructive action needs confirmation, but there is no TTY to ask on.
+    #[error("Refusing to {action} without confirmation.\nRe-run with --force, or run it from a terminal.")]
+    ConfirmationRequired { action: String },
 
     /// No personal registry configured (publish requires it).
     #[error(

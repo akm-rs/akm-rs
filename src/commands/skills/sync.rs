@@ -425,9 +425,12 @@ mod tests {
             .join("skills-personal-registry");
         create_mock_registry_cache(&registry_cache);
 
-        // Create library.json in cache with a core skill
-        let lib_json_content = r#"{"version":1,"specs":[{"id":"test-skill","type":"skill","name":"Test Skill","description":"A test","core":true,"tags":[],"triggers":{}}]}"#;
-        std::fs::write(registry_cache.join("library.json"), lib_json_content).unwrap();
+        // Mark the skill core via its sidecar — the source of truth libgen reads.
+        std::fs::write(
+            registry_cache.join("skills/test-skill/akm.json"),
+            r#"{"name":"Test Skill","description":"A test","tags":[],"core":true,"triggers":{}}"#,
+        )
+        .unwrap();
 
         let registry = MockRegistry::new("personal", registry_cache)
             .with_pull_result(Ok(PullOutcome::Updated));
