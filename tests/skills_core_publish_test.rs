@@ -204,6 +204,27 @@ fn publishing_core_defaults_makes_exactly_one_commit() {
 }
 
 #[test]
+fn a_dry_run_publishes_nothing() {
+    let env = Env::new();
+    env.sync();
+    env.set_local_core(&["alpha", "beta"]);
+    let before = env.commit_count();
+
+    core::run(
+        &env.paths,
+        &env.config,
+        core::CoreAction::Publish,
+        &ToolDirs::builtin(&env.home),
+        true,
+    )
+    .unwrap();
+
+    assert_eq!(env.commit_count(), before, "dry run must not commit");
+    let local = std::fs::read_to_string(env.paths.local_json()).unwrap();
+    assert!(local.contains("alpha"), "dry run must not clear deviations");
+}
+
+#[test]
 fn a_failed_push_keeps_the_deviations_for_a_retry() {
     let env = Env::new();
     env.sync();
