@@ -1,18 +1,27 @@
 //! Inline metadata editor — edits description, tags, and core flag for a spec.
 //!
-//! Opened by pressing `e` in the list view. Unlike `akm skills edit` which
-//! opens $EDITOR on raw JSON, this provides a structured form-like interface.
+//! Opened by pressing `e` in the list view. Unlike `akm skills edit --meta`,
+//! which opens $EDITOR on the raw sidecar, this is a structured form.
+//!
+//! The text fields are [`TextInput`]s drawn wrapped across several lines, so a
+//! description longer than the popup stays readable and the cursor stays on
+//! screen instead of running off the right edge.
 
 use crate::error::Result;
 use crate::tui::app::App;
 use crate::tui::event::{self, Event};
+use crate::tui::input::TextInput;
 use crate::tui::theme;
 use crate::tui::{self, Term};
 
 use crossterm::event::KeyCode;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
+
+/// Lines given to each wrapped text field in the popup.
+const FIELD_HEIGHT: usize = 3;
 
 /// Which field is currently focused in the editor.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -43,8 +52,8 @@ impl EditField {
 /// State for the editor view.
 struct EditView {
     spec_id: String,
-    description: String,
-    tags_text: String,
+    description: TextInput,
+    tags: TextInput,
     core: bool,
     focused: EditField,
 }
@@ -54,25 +63,36 @@ impl EditView {
         let spec = app.library.get(spec_id)?;
         Some(Self {
             spec_id: spec_id.to_string(),
-            description: spec.description.clone(),
-            tags_text: spec.tags.join(", "),
+            description: TextInput::new(&spec.description),
+            tags: TextInput::new(&spec.tags.join(", ")),
             core: spec.core,
             focused: EditField::Description,
         })
     }
 
+    /// The input the focused field is editing, if it is a text field.
+    fn focused_input(&mut self) -> Option<&mut TextInput> {
+        match self.focused {
+            EditField::Description => Some(&mut self.description),
+            EditField::Tags => Some(&mut self.tags),
+            EditField::Core => None,
+        }
+    }
+
     /// Apply the edits back to the app state.
     fn apply(&self, app: &mut App) {
         if let Some(spec) = app.library.get_mut(&self.spec_id) {
-            spec.description = self.description.clone();
+            spec.description = self.description.value();
             spec.tags = self
-                .tags_text
+                .tags
+                .value()
                 .split(',')
                 .map(|t| t.trim().to_string())
                 .filter(|t| !t.is_empty())
                 .collect();
             spec.core = self.core;
             app.library_dirty = true;
+            app.edited_meta.insert(self.spec_id.clone());
         }
     }
 }
@@ -107,21 +127,20 @@ pub fn run_inline(terminal: &mut Term, app: &mut App, spec_id: &str) -> Result<(
                     KeyCode::Char(' ') if view.focused == EditField::Core => {
                         view.core = !view.core;
                     }
-                    KeyCode::Char(c) => match view.focused {
-                        EditField::Description => view.description.push(c),
-                        EditField::Tags => view.tags_text.push(c),
-                        EditField::Core => {}
-                    },
-                    KeyCode::Backspace => match view.focused {
-                        EditField::Description => {
-                            view.description.pop();
+                    code => {
+                        if let Some(input) = view.focused_input() {
+                            match code {
+                                KeyCode::Char(c) => input.insert(c),
+                                KeyCode::Backspace => input.backspace(),
+                                KeyCode::Delete => input.delete(),
+                                KeyCode::Left => input.left(),
+                                KeyCode::Right => input.right(),
+                                KeyCode::Home => input.home(),
+                                KeyCode::End => input.end(),
+                                _ => {}
+                            }
                         }
-                        EditField::Tags => {
-                            view.tags_text.pop();
-                        }
-                        EditField::Core => {}
-                    },
-                    _ => {}
+                    }
                 }
             }
             Event::Tick | Event::Resize(_, _) => {}
@@ -131,7 +150,9 @@ pub fn run_inline(terminal: &mut Term, app: &mut App, spec_id: &str) -> Result<(
 
 /// Render the edit form as a centered popup.
 fn render_edit(frame: &mut Frame, view: &EditView) {
-    let area = centered_rect(60, 40, frame.area());
+    // Tall enough for two three-line fields, their labels, the core toggle
+    // and the help line.
+    let area = centered_rect(60, 55, frame.area());
 
     frame.render_widget(Clear, area);
 
@@ -146,27 +167,39 @@ fn render_edit(frame: &mut Frame, view: &EditView) {
     let field_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(2), // Description
-            Constraint::Length(2), // Tags
-            Constraint::Length(2), // Core
-            Constraint::Length(1), // spacer
-            Constraint::Length(1), // help
+            Constraint::Length(1),                   // Description label
+            Constraint::Length(FIELD_HEIGHT as u16), // Description
+            Constraint::Length(1),                   // Tags label
+            Constraint::Length(FIELD_HEIGHT as u16), // Tags
+            Constraint::Length(1),                   // Core
+            Constraint::Min(0),                      // spacer
+            Constraint::Length(1),                   // help
         ])
         .split(inner);
 
-    render_field(
+    render_label(
         frame,
         field_chunks[0],
         "Description",
+        view.focused == EditField::Description,
+    );
+    render_field(
+        frame,
+        field_chunks[1],
         &view.description,
         view.focused == EditField::Description,
     );
 
+    render_label(
+        frame,
+        field_chunks[2],
+        "Tags (comma separated)",
+        view.focused == EditField::Tags,
+    );
     render_field(
         frame,
-        field_chunks[1],
-        "Tags",
-        &view.tags_text,
+        field_chunks[3],
+        &view.tags,
         view.focused == EditField::Tags,
     );
 
@@ -177,29 +210,65 @@ fn render_edit(frame: &mut Frame, view: &EditView) {
         ratatui::style::Style::default()
     };
     let core_para = Paragraph::new(core_text).style(core_style);
-    frame.render_widget(core_para, field_chunks[2]);
+    frame.render_widget(core_para, field_chunks[4]);
 
-    let help =
-        Paragraph::new(" Tab next  Space toggle  Enter save  Esc cancel").style(theme::HELP_BAR);
-    frame.render_widget(help, field_chunks[4]);
+    let help = Paragraph::new(" Tab next  ←/→ move  Space toggle  Enter save  Esc cancel")
+        .style(theme::HELP_BAR);
+    frame.render_widget(help, field_chunks[6]);
 }
 
-/// Render a single text input field.
-fn render_field(frame: &mut Frame, area: Rect, label: &str, value: &str, focused: bool) {
+/// Render a field label, bolded while its field has focus.
+fn render_label(frame: &mut Frame, area: Rect, label: &str, focused: bool) {
     let style = if focused {
-        theme::SELECTED
+        theme::HEADER
     } else {
+        theme::FIELD_BLURRED
+    };
+    frame.render_widget(Paragraph::new(format!("{label}:")).style(style), area);
+}
+
+/// Render one wrapped text field, drawing the cursor into the text itself.
+///
+/// The cursor is a styled cell rather than the terminal's own, so it stays
+/// correct wherever the field happens to have scrolled to.
+fn render_field(frame: &mut Frame, area: Rect, input: &TextInput, focused: bool) {
+    // Only the cursor cell is highlighted: styling the whole focused field
+    // would swallow it.
+    let style = if focused {
         ratatui::style::Style::default()
-    };
-
-    let display = if focused {
-        format!("{label}: {value}█")
     } else {
-        format!("{label}: {value}")
+        theme::FIELD_BLURRED
     };
 
-    let para = Paragraph::new(display).style(style);
-    frame.render_widget(para, area);
+    let width = area.width.max(1) as usize;
+    let (rows, (cursor_row, cursor_col)) = input.visible(width, area.height.max(1) as usize);
+
+    let lines: Vec<Line> = rows
+        .iter()
+        .enumerate()
+        .map(|(row, text)| {
+            if !focused || row != cursor_row {
+                return Line::from(Span::styled(text.clone(), style));
+            }
+
+            // Split the line around the cursor so it can be highlighted.
+            let chars: Vec<char> = text.chars().collect();
+            let before: String = chars.iter().take(cursor_col).collect();
+            let under: String = chars
+                .get(cursor_col)
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| " ".into());
+            let after: String = chars.iter().skip(cursor_col + 1).collect();
+
+            Line::from(vec![
+                Span::styled(before, style),
+                Span::styled(under, theme::CURSOR),
+                Span::styled(after, style),
+            ])
+        })
+        .collect();
+
+    frame.render_widget(Paragraph::new(lines), area);
 }
 
 /// Create a centered rectangle of the given percentage size.

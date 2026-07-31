@@ -35,6 +35,15 @@ pub const SELECTED: Style = Style::new()
     .bg(Color::Cyan)
     .add_modifier(Modifier::BOLD);
 
+/// Style for the text cell the edit cursor sits on.
+///
+/// Reversed rather than a block glyph, so it reads correctly wherever it lands
+/// in a wrapped field — including past the last character.
+pub const CURSOR: Style = Style::new().fg(Color::Black).bg(Color::Cyan);
+
+/// Style for the contents of a text field that does not have focus.
+pub const FIELD_BLURRED: Style = Style::new().add_modifier(Modifier::DIM);
+
 /// Style for the search/filter bar.
 pub const SEARCH_BAR: Style = Style::new().fg(Color::White).bg(Color::DarkGray);
 

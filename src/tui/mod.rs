@@ -8,6 +8,7 @@ pub mod app;
 pub mod detail;
 pub mod edit;
 pub mod event;
+pub mod input;
 pub mod list;
 pub mod status;
 pub mod theme;
