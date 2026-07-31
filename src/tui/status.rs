@@ -13,6 +13,10 @@
 //! - `r` — remove selected from manifest
 //! - `q` — quit
 //! - `Ctrl+C` — exit immediately
+//!
+//! Actions that move a spec between sections (`c`, `a`, `r`) leave the cursor
+//! where it is instead of chasing the spec to its new section — see
+//! [`StatusView::rebuild_holding_cursor`].
 
 use crate::error::Result;
 use crate::library::drift::DriftState;
@@ -227,12 +231,29 @@ impl StatusView {
     }
 
     fn selected_id(&self) -> Option<&str> {
+        self.id_at(self.selected_pos)
+    }
+
+    /// Spec id at a position within `selectable_indices`.
+    fn id_at(&self, pos: usize) -> Option<&str> {
         self.selectable_indices
-            .get(self.selected_pos)
+            .get(pos)
             .and_then(|&idx| match &self.rows[idx] {
                 StatusRow::Spec { id, .. } => Some(id.as_str()),
                 _ => None,
             })
+    }
+
+    /// Position of a spec id within `selectable_indices`, preferring the
+    /// occurrence closest to `anchor`.
+    ///
+    /// An id can show up in more than one section — a core spec that is also
+    /// in the manifest is listed twice — so a plain first-match would pull the
+    /// cursor into a section the user was not working in.
+    fn position_nearest(&self, id: &str, anchor: usize) -> Option<usize> {
+        (0..self.selectable_indices.len())
+            .filter(|&pos| self.id_at(pos) == Some(id))
+            .min_by_key(|&pos| pos.abs_diff(anchor))
     }
 
     fn selected_row_index(&self) -> Option<usize> {
@@ -253,18 +274,54 @@ impl StatusView {
         }
     }
 
+    /// Screen line the cursor currently sits on, counted from the top of the
+    /// visible window.
+    fn cursor_screen_line(&self) -> usize {
+        self.selected_row_index()
+            .unwrap_or(0)
+            .saturating_sub(self.list_state.offset())
+    }
+
+    /// Point the list state at `selected_pos`, scrolling so the cursor lands
+    /// back on `screen_line`.
+    fn restore_cursor(&mut self, screen_line: usize) {
+        let row = self.selected_row_index();
+        self.list_state.select(row);
+        *self.list_state.offset_mut() = row.unwrap_or(0).saturating_sub(screen_line);
+    }
+
     /// Rebuild the view from fresh app data, preserving the selected spec.
+    ///
+    /// For actions that leave the ordering alone (detail, metadata edit).
     fn rebuild_preserving_selection(&mut self, app: &App) {
+        let screen_line = self.cursor_screen_line();
+        let anchor = self.selected_pos;
         let saved_id = self.selected_id().map(|s| s.to_string());
         *self = StatusView::build(app);
-        if let Some(ref id) = saved_id {
-            if let Some(pos) = self.selectable_indices.iter().position(|&idx| {
-                matches!(&self.rows[idx], StatusRow::Spec { id: row_id, .. } if row_id == id)
-            }) {
-                self.selected_pos = pos;
-                self.list_state.select(self.selected_row_index());
-            }
+        if let Some(pos) = saved_id.and_then(|id| self.position_nearest(&id, anchor)) {
+            self.selected_pos = pos;
         }
+        self.restore_cursor(screen_line);
+    }
+
+    /// Rebuild the view from fresh app data, holding the cursor still.
+    ///
+    /// For actions that move the selected spec to another section (core
+    /// toggle, manifest add/remove). Following the spec to its new home would
+    /// drag the window across the dashboard, so instead the cursor keeps its
+    /// index and its screen line, landing on the neighbour that slid up into
+    /// the vacated slot — the same feel as working down a list in the list
+    /// view.
+    fn rebuild_holding_cursor(&mut self, app: &App) {
+        let screen_line = self.cursor_screen_line();
+        let pos = self.selected_pos;
+        let next_id = self.id_at(pos + 1).map(str::to_string);
+        *self = StatusView::build(app);
+        self.selected_pos = next_id
+            .and_then(|id| self.position_nearest(&id, pos))
+            .unwrap_or(pos)
+            .min(self.selectable_indices.len().saturating_sub(1));
+        self.restore_cursor(screen_line);
     }
 }
 
@@ -325,7 +382,7 @@ fn run_status_loop(terminal: &mut Term, app: &mut App) -> Result<()> {
                             let id = id.to_string();
                             if let Some(new_core) = app.toggle_core(&id) {
                                 let state = if new_core { "on" } else { "off" };
-                                view.rebuild_preserving_selection(app);
+                                view.rebuild_holding_cursor(app);
                                 view.status_message = Some(format!("Core {state}: {id}"));
                             }
                         }
@@ -335,7 +392,7 @@ fn run_status_loop(terminal: &mut Term, app: &mut App) -> Result<()> {
                             let id = id.to_string();
                             match app.add_to_manifest(&id)? {
                                 AddResult::Added => {
-                                    view.rebuild_preserving_selection(app);
+                                    view.rebuild_holding_cursor(app);
                                     view.status_message = Some(format!("✓ Added: {id}"));
                                 }
                                 AddResult::AlreadyPresent => {
@@ -356,7 +413,7 @@ fn run_status_loop(terminal: &mut Term, app: &mut App) -> Result<()> {
                             let id = id.to_string();
                             match app.remove_from_manifest(&id)? {
                                 RemoveResult::Removed => {
-                                    view.rebuild_preserving_selection(app);
+                                    view.rebuild_holding_cursor(app);
                                     view.status_message = Some(format!("✓ Removed: {id}"));
                                 }
                                 RemoveResult::NotPresent => {
@@ -465,4 +522,108 @@ fn render_status(frame: &mut Frame, view: &mut StatusView) {
         .collect::<Vec<_>>(),
     );
     frame.render_widget(Paragraph::new(help_text), chunks[2]);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::library::spec::Spec;
+    use crate::library::Library;
+
+    /// An App over a library of `ids`, the ones in `core` flagged as core.
+    ///
+    /// The manifest is dropped so the dashboard shows only the core and cold
+    /// sections, independent of whatever project the tests run in.
+    fn test_app(ids: &[&str], core: &[&str]) -> (App, tempfile::TempDir) {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_roots(tmp.path(), tmp.path(), tmp.path(), tmp.path());
+        let library = Library {
+            version: 1,
+            specs: ids
+                .iter()
+                .map(|id| Spec {
+                    core: core.contains(id),
+                    ..Spec::new(*id, SpecType::Skill, *id, "desc")
+                })
+                .collect(),
+        };
+        library.save(&paths).unwrap();
+        let mut app = App::new(paths, ToolDirs::builtin(tmp.path())).unwrap();
+        app.manifest = None;
+        app.manifest_ids.clear();
+        (app, tmp)
+    }
+
+    /// Move the cursor onto `id`.
+    fn select(view: &mut StatusView, id: &str) {
+        view.selected_pos = view.position_nearest(id, 0).expect("id is selectable");
+        view.list_state.select(view.selected_row_index());
+    }
+
+    #[test]
+    fn toggling_core_leaves_the_cursor_on_the_next_neighbour() {
+        let (mut app, _tmp) = test_app(&["a", "b", "c", "d"], &["a", "b", "c"]);
+        let mut view = StatusView::build(&app);
+        select(&mut view, "b");
+
+        app.toggle_core("b");
+        view.rebuild_holding_cursor(&app);
+
+        assert_eq!(view.selected_id(), Some("c"));
+    }
+
+    #[test]
+    fn toggling_core_holds_the_cursor_on_its_screen_line() {
+        let (mut app, _tmp) = test_app(&["a", "b", "c", "d"], &["a", "b", "c"]);
+        let mut view = StatusView::build(&app);
+        select(&mut view, "b");
+        // Pretend the last render had scrolled so the cursor sat on line 2.
+        *view.list_state.offset_mut() = view.selected_row_index().unwrap() - 2;
+
+        app.toggle_core("b");
+        view.rebuild_holding_cursor(&app);
+
+        assert_eq!(view.cursor_screen_line(), 2);
+    }
+
+    #[test]
+    fn toggling_core_on_the_last_spec_keeps_the_cursor_at_the_bottom() {
+        let (mut app, _tmp) = test_app(&["a", "b", "c"], &["a"]);
+        let mut view = StatusView::build(&app);
+        select(&mut view, "c");
+        let pos = view.selected_pos;
+
+        // "c" moves up into the core section; nothing follows it, so the
+        // cursor holds its index rather than trailing the spec upwards.
+        app.toggle_core("c");
+        view.rebuild_holding_cursor(&app);
+
+        assert_eq!(view.selected_pos, pos);
+        assert_eq!(view.selected_id(), Some("b"));
+    }
+
+    #[test]
+    fn holding_the_cursor_never_lands_back_on_the_toggled_spec() {
+        let (mut app, _tmp) = test_app(&["a", "b", "c", "d"], &["a", "b"]);
+        let mut view = StatusView::build(&app);
+        for id in ["a", "b", "c"] {
+            select(&mut view, id);
+            app.toggle_core(id);
+            view.rebuild_holding_cursor(&app);
+            assert_ne!(view.selected_id(), Some(id));
+        }
+    }
+
+    #[test]
+    fn edits_keep_the_cursor_on_the_same_spec() {
+        let (app, _tmp) = test_app(&["a", "b", "c"], &["a"]);
+        let mut view = StatusView::build(&app);
+        select(&mut view, "b");
+        *view.list_state.offset_mut() = view.selected_row_index().unwrap() - 1;
+
+        view.rebuild_preserving_selection(&app);
+
+        assert_eq!(view.selected_id(), Some("b"));
+        assert_eq!(view.cursor_screen_line(), 1);
+    }
 }
