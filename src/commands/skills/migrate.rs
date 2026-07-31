@@ -48,6 +48,9 @@ pub fn run(paths: &Paths) -> Result<Rc3Wipe> {
     let candidates = [
         data_dir.join("skills"),
         data_dir.join("agents"),
+        // Same path the derived index uses again today, but this only runs
+        // when there is no `library/` checkout — so what is being removed is
+        // always the rc3 index, and libgen writes a fresh one right after.
         data_dir.join("library.json"),
         // The rc3 clone lived here; rc4 has no cache at all.
         paths.cache_dir().join("skills-personal-registry"),

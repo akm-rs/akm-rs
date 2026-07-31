@@ -35,13 +35,19 @@ fn registry_tree_and_akm_owned_files_are_siblings() {
     for inside in [
         paths.skills_dir(),
         paths.agents_dir(),
-        paths.library_json(),
         paths.instructions_file(),
     ] {
         assert!(inside.starts_with(&library), "{} escaped", inside.display());
     }
 
-    for outside in [paths.local_json(), paths.tools_json(), paths.shell_init()] {
+    // `library.json` is derived and machine-local — it belongs with the other
+    // AKM-owned files, not in the tree that gets committed and pushed.
+    for outside in [
+        paths.local_json(),
+        paths.tools_json(),
+        paths.shell_init(),
+        paths.library_json(),
+    ] {
         assert!(
             !outside.starts_with(&library),
             "{} must stay outside the registry tree",

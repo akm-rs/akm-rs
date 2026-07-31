@@ -160,7 +160,7 @@ pub fn run(
         user_core,
         Some(parsed.browsable_url()),
     )?;
-    libgen::generate(&library_dir)?;
+    libgen::generate(&library_dir, &paths.library_json())?;
     let library = Library::load_from(&paths.library_json())?;
 
     // Step 9: Rebuild global symlinks

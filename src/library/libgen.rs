@@ -15,7 +15,12 @@ pub struct LibgenResult {
     pub library_path: std::path::PathBuf,
 }
 
-/// Generate library.json for a directory containing skills/ and/or agents/.
+/// Generate a library index from `scan_dir` (which holds skills/ and/or
+/// agents/) and write it to `out_path`.
+///
+/// The two are separate because for the cold library they *are* separate:
+/// `scan_dir` is the registry working tree, while the index it produces is
+/// machine-local and belongs outside it — see [`crate::paths::Paths::library_json`].
 ///
 /// `library.json` is a pure *derived* index. Every entry comes from the spec's
 /// `akm.json` sidecar where one exists, and otherwise from its markdown
@@ -27,17 +32,17 @@ pub struct LibgenResult {
 /// clone of a registry without sidecars instantly reported every spec as
 /// locally modified and awaiting publication. Sidecars appear when the user
 /// actually edits metadata; until then the frontmatter answers for the spec.
-pub fn generate(target_dir: &Path) -> Result<LibgenResult> {
-    let skills_dir = target_dir.join("skills");
-    let agents_dir = target_dir.join("agents");
+pub fn generate(scan_dir: &Path, out_path: &Path) -> Result<LibgenResult> {
+    let skills_dir = scan_dir.join("skills");
+    let agents_dir = scan_dir.join("agents");
 
     if !skills_dir.is_dir() && !agents_dir.is_dir() {
         return Err(Error::NoSpecDirs {
-            path: target_dir.to_path_buf(),
+            path: scan_dir.to_path_buf(),
         });
     }
 
-    let library_path = target_dir.join("library.json");
+    let library_path = out_path.to_path_buf();
     let mut specs: Vec<Spec> = Vec::new();
 
     // Scan skills/
@@ -58,7 +63,7 @@ pub fn generate(target_dir: &Path) -> Result<LibgenResult> {
                 continue;
             }
 
-            let meta = resolve_meta(target_dir, &id, SpecType::Skill, &md_file);
+            let meta = resolve_meta(scan_dir, &id, SpecType::Skill, &md_file);
             specs.push(Spec::from_meta(id, SpecType::Skill, meta));
         }
     }
@@ -87,7 +92,7 @@ pub fn generate(target_dir: &Path) -> Result<LibgenResult> {
                 continue;
             }
 
-            let meta = resolve_meta(target_dir, &id, SpecType::Agent, &file_path);
+            let meta = resolve_meta(scan_dir, &id, SpecType::Agent, &file_path);
             specs.push(Spec::from_meta(id, SpecType::Agent, meta));
         }
     }

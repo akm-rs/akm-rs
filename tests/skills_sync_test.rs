@@ -264,6 +264,91 @@ fn the_derived_index_never_shows_up_as_drift() {
 
     assert!(report.drift.is_clean());
     assert!(env.paths.library_json().is_file());
+    // ...and it is not in the working tree at all, so no `git add -A` there can
+    // sweep this machine's core deviations into a commit.
+    assert!(!env.library_file("library.json").exists());
+}
+
+/// #33: registries seeded while the index was still committed carry it in
+/// their history. Nothing writes it any more, so the tracked copy stays at
+/// HEAD instead of showing up as a permanent local modification.
+#[test]
+fn a_registry_that_carries_the_derived_index_stays_clean() {
+    let env = Env::new();
+    let committed = r#"{"version":1,"specs":[]}"#;
+    env.commit_to_origin("library.json", committed);
+
+    env.sync();
+
+    let tracked = env.library_file("library.json");
+    assert_eq!(std::fs::read_to_string(&tracked).unwrap(), committed);
+    assert_eq!(
+        git(&env.paths.library_dir(), &["status", "--porcelain"]),
+        ""
+    );
+    assert!(env.paths.library_json().is_file());
+
+    // Second sync, same answer.
+    let report = env.sync();
+    assert_eq!(
+        git(&env.paths.library_dir(), &["status", "--porcelain"]),
+        ""
+    );
+    assert!(report.drift.is_clean());
+}
+
+/// The rc4 shape: the index was written into the checkout and hidden with
+/// `.git/info/exclude`. It is machine-local, so it is removed rather than
+/// left behind as a stray.
+#[test]
+fn an_untracked_derived_index_is_removed_from_the_checkout() {
+    let env = Env::new();
+    env.sync();
+
+    let stray = env.library_file("library.json");
+    write(&stray, r#"{"version":1,"specs":[]}"#);
+    write(
+        &env.paths.library_dir().join(".git/info/exclude"),
+        "library.json\n",
+    );
+
+    let report = env.sync();
+
+    assert!(!stray.exists());
+    assert!(report.drift.is_clean());
+    assert_eq!(
+        git(&env.paths.library_dir(), &["status", "--porcelain"]),
+        ""
+    );
+}
+
+/// A machine still on an older AKM keeps committing its own index. This one
+/// fast-forwards that commit, never writes the file, and never adopts what it
+/// says — the index is derived from the specs on disk, every time.
+#[test]
+fn an_index_pushed_by_an_older_machine_is_ignored() {
+    let env = Env::new();
+    env.commit_to_origin("library.json", r#"{"version":1,"specs":[]}"#);
+    env.sync();
+
+    env.commit_to_origin(
+        "library.json",
+        r#"{"version":1,"specs":[{"id":"alpha","type":"skill","name":"Alpha","description":"d","core":true,"tags":[],"triggers":{}}]}"#,
+    );
+    let report = env.sync();
+
+    assert!(matches!(report.registry, RegistryOutcome::Updated { .. }));
+    assert!(report.drift.is_clean());
+    assert_eq!(
+        git(&env.paths.library_dir(), &["status", "--porcelain"]),
+        ""
+    );
+
+    let library = Library::load_from(&env.paths.library_json()).unwrap();
+    assert!(library.contains("beta"));
+    // `core: true` came from the other machine's index. The sidecars say
+    // otherwise, and the sidecars are what count.
+    assert!(!library.get("alpha").unwrap().core);
 }
 
 /// `library.json` is derived, so the TUI's edits have to land in the files
@@ -366,7 +451,13 @@ fn sync_replaces_an_rc3_layout_with_a_fresh_checkout() {
     let data = env.paths.data_dir();
     assert!(!data.join("skills").exists());
     assert!(!data.join("agents").exists());
-    assert!(!data.join("library.json").exists());
+    // The rc3 index sat where the derived index lives again today, so what
+    // proves the wipe here is that the file was removed and rebuilt from the
+    // fresh checkout — see the `stale` assertion below.
+    assert!(report
+        .migration
+        .removed
+        .contains(&data.join("library.json")));
 
     // AKM-owned files are siblings of the tree and must survive the wipe.
     assert!(data.join("shell/akm-init.sh").is_file());

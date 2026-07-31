@@ -51,14 +51,25 @@ Layering, in one direction only:
 
 Two files are not what they look like:
 
-* **`library.json` is derived.** libgen regenerates it from the specs on disk
-  and their `akm.json` sidecars on every sync, and it is excluded through
-  `.git/info/exclude`. Anything written to it directly is erased on the next
-  sync — human metadata belongs in the spec's sidecar.
+* **`library.json` is derived *and* machine-local.** libgen regenerates it from
+  the specs on disk and their `akm.json` sidecars on every sync, and
+  `LocalOverrides::apply` then folds this machine's `core` deviations into it.
+  Anything written to it directly is erased on the next sync — human metadata
+  belongs in the spec's sidecar. Because it is machine-local it lives *outside*
+  the working tree, at `$XDG_DATA_HOME/akm/library.json`, beside `local.json`
+  and `tools.json`: nothing in the checkout can then commit it, whatever a
+  future code path stages.
 * **`local.json` is machine-local.** It holds only the `core` flags that
   deviate from the registry's defaults, so a newly published core skill still
   propagates while a local toggle stays put. It lives *outside* the working
   tree, beside `tools.json` and `shell/`.
+
+Registries seeded while the index was still committed carry a `library.json` in
+their history.
+Sync restores that copy to `HEAD` and leaves it there: nothing writes it any
+more, so it stays clean and inert. Removing it for good is one manual
+`git rm --cached library.json` in the registry — the registry's owner's call,
+not a session-start side effect.
 
 ## Tests
 

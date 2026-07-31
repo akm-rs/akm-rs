@@ -105,7 +105,7 @@ fn adopt(paths: &Paths, overrides: &mut LocalOverrides, tool_dirs: &ToolDirs) ->
     // library.json holds effective values, so it has to be rebuilt from the
     // sidecars before the symlinks can follow.
     let library_dir = paths.library_dir();
-    crate::library::libgen::generate(&library_dir)?;
+    crate::library::libgen::generate(&library_dir, &paths.library_json())?;
     let library = Library::load_from(&paths.library_json())?;
 
     let count = symlinks::rebuild_core(&library.core_specs(), &library_dir, tool_dirs.dirs())?;

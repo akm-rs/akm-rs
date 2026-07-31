@@ -136,7 +136,7 @@ pub fn run(
     // derive library.json from it. Writing the sidecar first means one libgen
     // run, and keeps the index a pure projection of what is on disk.
     write_sidecar(&library_dir, &id, user_desc, user_tags, user_core, None)?;
-    libgen::generate(&library_dir)?;
+    libgen::generate(&library_dir, &paths.library_json())?;
     let library = Library::load_from(&paths.library_json())?;
 
     // Step 8: Rebuild global symlinks

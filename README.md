@@ -158,8 +158,9 @@ The same states show as markers in `akm skills list` and `akm skills status`:
 
 Each skill carries its human-facing metadata in an `akm.json` sidecar beside its
 `SKILL.md`, so two machines editing two different skills never collide.
-`library.json` is a derived index, regenerated on every sync — edit the sidecar
-(or `akm skills edit --meta`), never the index. `core` defaults live in the
+`library.json` is a derived, machine-local index kept outside the library
+checkout, regenerated on every sync — edit the sidecar (or
+`akm skills edit --meta`), never the index. `core` defaults live in the
 sidecar and propagate; a local `c` toggle in the TUI stays on this machine, and
 `akm skills core --publish` promotes it for every machine — committing and
 pushing every promoted sidecar together, and nothing else, so a `SKILL.md` you
@@ -265,6 +266,7 @@ On disk:
 ```
 ~/.local/share/akm/
   library/          the registry's git working tree — skills, agents, instructions
+  library.json      derived index of the specs above, rebuilt on every sync
   local.json        this machine's core deviations
   tools.json        harness definitions
   shell/            generated shell init

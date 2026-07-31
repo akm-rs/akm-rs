@@ -45,7 +45,7 @@ fn libgen_creates_library_from_skills_and_agents() {
     create_skill(base, "debugging", "Debugging", "Use when debugging");
     create_agent(base, "reviewer", "Code Reviewer", "Reviews code");
 
-    let result = libgen::generate(base).unwrap();
+    let result = libgen::generate(base, &base.join("library.json")).unwrap();
     assert_eq!(result.count, 3);
 
     let lib = Library::load_from(&result.library_path).unwrap();
@@ -72,7 +72,7 @@ fn libgen_never_writes_sidecars() {
     create_skill(base, "tdd", "TDD", "Use when writing tests first");
     create_agent(base, "reviewer", "Reviewer", "Reviews code");
 
-    libgen::generate(base).unwrap();
+    libgen::generate(base, &base.join("library.json")).unwrap();
 
     assert!(!base.join("skills").join("tdd").join("akm.json").exists());
     assert!(!base.join("agents").join("reviewer.akm.json").exists());
@@ -86,7 +86,7 @@ fn libgen_falls_back_to_frontmatter_when_there_is_no_sidecar() {
     let base = tmp.path();
 
     create_skill(base, "tdd", "TDD", "Use when writing tests first");
-    libgen::generate(base).unwrap();
+    libgen::generate(base, &base.join("library.json")).unwrap();
 
     let lib = Library::load_from(&base.join("library.json")).unwrap();
     let spec = lib.get("tdd").unwrap();
@@ -117,7 +117,7 @@ fn libgen_reads_metadata_from_the_sidecar() {
     .save_to(&sidecar)
     .unwrap();
 
-    libgen::generate(base).unwrap();
+    libgen::generate(base, &base.join("library.json")).unwrap();
 
     let lib = Library::load_from(&base.join("library.json")).unwrap();
     let spec = lib.get("tdd").unwrap();
@@ -139,13 +139,13 @@ fn libgen_discards_edits_made_to_the_derived_index() {
     let base = tmp.path();
 
     create_skill(base, "tdd", "TDD", "Original desc");
-    libgen::generate(base).unwrap();
+    libgen::generate(base, &base.join("library.json")).unwrap();
 
     let mut lib = Library::load_from(&base.join("library.json")).unwrap();
     lib.get_mut("tdd").unwrap().core = true;
     lib.save_to(&base.join("library.json")).unwrap();
 
-    libgen::generate(base).unwrap();
+    libgen::generate(base, &base.join("library.json")).unwrap();
 
     let lib = Library::load_from(&base.join("library.json")).unwrap();
     assert!(!lib.get("tdd").unwrap().core);
@@ -163,7 +163,7 @@ fn libgen_survives_an_unparseable_sidecar() {
     let sidecar = base.join("skills").join("tdd").join("akm.json");
     fs::write(&sidecar, "{ not json").unwrap();
 
-    let result = libgen::generate(base).unwrap();
+    let result = libgen::generate(base, &base.join("library.json")).unwrap();
     assert_eq!(result.count, 2);
 
     // Falls back to the frontmatter in memory, and leaves the broken file be.
@@ -179,12 +179,12 @@ fn libgen_drops_removed_specs() {
 
     create_skill(base, "tdd", "TDD", "Desc");
     create_skill(base, "debugging", "Debug", "Desc");
-    libgen::generate(base).unwrap();
+    libgen::generate(base, &base.join("library.json")).unwrap();
 
     // Remove one skill from disk
     fs::remove_dir_all(base.join("skills/debugging")).unwrap();
 
-    libgen::generate(base).unwrap();
+    libgen::generate(base, &base.join("library.json")).unwrap();
     let lib = Library::load_from(&base.join("library.json")).unwrap();
     assert_eq!(lib.specs.len(), 1);
     assert!(lib.contains("tdd"));
@@ -229,7 +229,7 @@ fn pathspecs_cover_exactly_one_spec() {
 #[test]
 fn libgen_errors_on_no_spec_dirs() {
     let tmp = TempDir::new().unwrap();
-    let result = libgen::generate(tmp.path());
+    let result = libgen::generate(tmp.path(), &tmp.path().join("library.json"));
     assert!(result.is_err());
 }
 
@@ -304,15 +304,33 @@ fn libgen_skills_without_skill_md_are_skipped() {
     // Valid skill
     create_skill(base, "valid", "Valid", "Desc");
 
-    let result = libgen::generate(base).unwrap();
+    let result = libgen::generate(base, &base.join("library.json")).unwrap();
     assert_eq!(result.count, 1);
+}
+
+/// The cold library's index is machine-local and lives outside the registry
+/// working tree, so the directory libgen scans and the file it writes are two
+/// different places.
+#[test]
+fn libgen_writes_the_index_outside_the_scanned_directory() {
+    let tmp = TempDir::new().unwrap();
+    let scan = tmp.path().join("library");
+    fs::create_dir_all(&scan).unwrap();
+    create_skill(&scan, "tdd", "TDD", "Desc");
+    let out = tmp.path().join("library.json");
+
+    let result = libgen::generate(&scan, &out).unwrap();
+
+    assert_eq!(result.library_path, out);
+    assert!(!scan.join("library.json").exists());
+    assert!(Library::load_from(&out).unwrap().contains("tdd"));
 }
 
 #[test]
 fn libgen_empty_skills_dir_succeeds_with_zero_specs() {
     let tmp = TempDir::new().unwrap();
     fs::create_dir_all(tmp.path().join("skills")).unwrap();
-    let result = libgen::generate(tmp.path()).unwrap();
+    let result = libgen::generate(tmp.path(), &tmp.path().join("library.json")).unwrap();
     assert_eq!(result.count, 0);
 }
 
