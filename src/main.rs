@@ -192,11 +192,14 @@ enum SkillsCommands {
         #[arg(long)]
         id: Option<String>,
     },
-    /// Edit spec metadata in $EDITOR
+    /// Edit a spec's markdown in $EDITOR
     Edit {
         /// Spec ID to edit
         #[arg(add = ArgValueCandidates::new(SpecIdCompleter))]
         id: String,
+        /// Edit the spec's metadata sidecar instead of its markdown
+        #[arg(long)]
+        meta: bool,
     },
     /// Publish spec to personal registry
     Publish {
@@ -206,6 +209,33 @@ enum SkillsCommands {
         /// Preview changes without applying
         #[arg(long)]
         dry_run: bool,
+    },
+    /// Show what changed locally and in the registry for a spec
+    Diff {
+        /// Spec ID to compare
+        #[arg(add = ArgValueCandidates::new(SpecIdCompleter))]
+        id: String,
+    },
+    /// Discard local changes to a spec
+    Revert {
+        /// Spec ID to revert
+        #[arg(add = ArgValueCandidates::new(SpecIdCompleter))]
+        id: String,
+        /// Take the registry's current version instead of the last synced one
+        #[arg(long)]
+        remote: bool,
+        /// Skip the confirmation prompt
+        #[arg(long)]
+        force: bool,
+    },
+    /// Show or reconcile which specs are globally mounted
+    Core {
+        /// Drop local overrides and follow the registry's defaults
+        #[arg(long, conflicts_with = "publish")]
+        adopt: bool,
+        /// Make this machine's core choices the registry defaults
+        #[arg(long)]
+        publish: bool,
     },
     /// Regenerate library.json from disk
     Libgen,
@@ -352,12 +382,29 @@ fn main() -> ExitCode {
                         &tool_dirs,
                     )
                 }
-                Some(SkillsCommands::Edit { id }) => {
-                    commands::skills::edit::run(&paths, &id, &tool_dirs)
+                Some(SkillsCommands::Edit { id, meta }) => {
+                    let config = akm::config::Config::load(&paths).unwrap_or_default();
+                    commands::skills::edit::run(&paths, &config, &id, meta, &tool_dirs)
                 }
                 Some(SkillsCommands::Publish { id, dry_run }) => {
                     let config = akm::config::Config::load(&paths).unwrap_or_default();
                     commands::skills::publish::run(&paths, &config, &id, dry_run)
+                }
+                Some(SkillsCommands::Diff { id }) => {
+                    let config = akm::config::Config::load(&paths).unwrap_or_default();
+                    commands::skills::diff::run(&paths, &config, &id)
+                }
+                Some(SkillsCommands::Revert { id, remote, force }) => {
+                    let config = akm::config::Config::load(&paths).unwrap_or_default();
+                    commands::skills::revert::run(&paths, &config, &id, remote, force, &tool_dirs)
+                }
+                Some(SkillsCommands::Core { adopt, publish }) => {
+                    let action = match (adopt, publish) {
+                        (true, _) => commands::skills::core::CoreAction::Adopt,
+                        (_, true) => commands::skills::core::CoreAction::Publish,
+                        _ => commands::skills::core::CoreAction::Show,
+                    };
+                    commands::skills::core::run(&paths, action, &tool_dirs)
                 }
                 Some(SkillsCommands::SessionSetup {
                     staging_dir,

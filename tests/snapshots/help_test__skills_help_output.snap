@@ -1,0 +1,33 @@
+---
+source: tests/help_test.rs
+assertion_line: 35
+expression: "String::from_utf8_lossy(&output.stdout).to_string()"
+---
+Skills management
+
+Usage: akm skills [COMMAND]
+
+Commands:
+  sync     Pull remote → cold library → rebuild symlinks
+  add      Add spec(s) to project manifest
+  remove   Remove spec(s) from project manifest
+  load     Load spec(s) into active session (JIT)
+  unload   Remove spec(s) from active session
+  loaded   Show specs in active session
+  list     Browse library
+  search   Search library by keyword
+  status   Full status overview
+  clean    Remove stale specs
+  promote  Import local skill into cold storage
+  import   Import a skill from a GitHub URL into cold storage
+  edit     Edit a spec's markdown in $EDITOR
+  publish  Publish spec to personal registry
+  diff     Show what changed locally and in the registry for a spec
+  revert   Discard local changes to a spec
+  core     Show or reconcile which specs are globally mounted
+  libgen   Regenerate library.json from disk
+  help     Print this message or the help of the given subcommand(s)
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version
