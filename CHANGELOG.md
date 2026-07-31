@@ -1,4 +1,4 @@
-# Unreleased
+# 1.0.0-rc5
 
 - Publishing is batched: one intent is one commit
   - `akm skills core --publish` now promotes *and* pushes, in a single commit,
@@ -7,6 +7,12 @@
   - `--dry-run` on both
 - Fix a commit whose push failed never being retried — publish now pushes
   commits already on `HEAD` instead of reporting nothing to do
+- Fix the cursor jumping in `akm skills status` when a spec changes section:
+  `c`, `a` and `r` now hold the cursor on its screen line and move it to the
+  neighbour, instead of scrolling the window to wherever the spec landed
+- Sync evicts a stale `library.json` left inside the registry checkout by an
+  earlier layout — restored to `HEAD` when tracked, deleted when it is the
+  untracked copy rc4 hid with `.git/info/exclude`
 
 # 1.0.0-rc4
 
