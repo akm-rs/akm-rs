@@ -20,7 +20,7 @@ use std::path::Path;
 /// Returns `Err` only on filesystem failures (permission denied, disk full).
 /// Missing source file is a warning, not an error.
 pub fn run(paths: &Paths) -> Result<()> {
-    let source = paths.global_instructions();
+    let source = paths.instructions_file();
     let home = paths.home();
 
     let targets = default_targets(home);

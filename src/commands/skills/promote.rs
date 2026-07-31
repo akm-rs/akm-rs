@@ -104,7 +104,7 @@ pub fn run(
     }
 
     // Step 4: Check overwrite
-    let library_dir = paths.data_dir();
+    let library_dir = paths.library_dir();
     let dest_path = library_dir.join("skills").join(&id);
 
     if dest_path.exists() && !force {
@@ -132,21 +132,16 @@ pub fn run(
     copy_dir_recursive(&spec_path, &dest_path)?;
     println!("  Copied skill to cold storage");
 
-    // Step 6: Regenerate library.json
-    libgen::generate(library_dir)?;
-
-    // Step 7: Patch entry with user-provided metadata
-    let mut library = Library::load_from(&paths.library_json())?;
-    if let Some(spec) = library.get_mut(&id) {
-        spec.description = user_desc;
-        spec.tags = user_tags;
-        spec.core = user_core;
-    }
-    library.save(paths)?;
+    // Step 6: Record the metadata the user typed in the spec's sidecar, then
+    // derive library.json from it. Writing the sidecar first means one libgen
+    // run, and keeps the index a pure projection of what is on disk.
+    write_sidecar(&library_dir, &id, user_desc, user_tags, user_core, None)?;
+    libgen::generate(&library_dir)?;
+    let library = Library::load_from(&paths.library_json())?;
 
     // Step 8: Rebuild global symlinks
     let core_specs = library.core_specs();
-    let count = symlinks::rebuild_core(&core_specs, library_dir, tool_dirs.dirs())?;
+    let count = symlinks::rebuild_core(&core_specs, &library_dir, tool_dirs.dirs())?;
     println!("  {count} core symlinks rebuilt");
     println!();
     println!("Promoted skill '{id}' to cold storage");
@@ -160,6 +155,36 @@ pub fn run(
 /// Recursively copy a directory.
 ///
 /// `pub(crate)` visibility: also used by `publish.rs`.
+/// Write the sidecar for a freshly promoted or imported skill.
+///
+/// The name still comes from the skill's own frontmatter — it is the author's,
+/// not something the prompts ask for — while description, tags and the core
+/// default are what the user just typed.
+pub(crate) fn write_sidecar(
+    library_dir: &Path,
+    id: &str,
+    description: String,
+    tags: Vec<String>,
+    core: bool,
+    source: Option<String>,
+) -> Result<()> {
+    let skill_md = library_dir.join("skills").join(id).join("SKILL.md");
+    let name = Frontmatter::parse_file(&skill_md)
+        .ok()
+        .and_then(|fm| fm.name)
+        .unwrap_or_else(|| id.to_string());
+
+    crate::library::spec::SpecMeta {
+        name,
+        description,
+        tags,
+        core,
+        triggers: Default::default(),
+        source,
+    }
+    .save_to(&crate::library::spec::SpecType::Skill.sidecar_path(library_dir, id))
+}
+
 pub(crate) fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
     std::fs::create_dir_all(dst).io_context(format!("Creating directory {}", dst.display()))?;
 

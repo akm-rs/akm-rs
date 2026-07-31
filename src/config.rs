@@ -353,8 +353,11 @@ impl Config {
     }
 
     /// Get the personal registry URL (may be None).
-    pub fn personal_registry_url(&self) -> Option<&str> {
-        self.skills.personal_registry.as_deref()
+    pub fn registry_url(&self) -> Option<&str> {
+        self.skills
+            .personal_registry
+            .as_deref()
+            .filter(|url| !url.is_empty())
     }
 }
 
@@ -579,7 +582,7 @@ mod tests {
     #[test]
     fn config_default_has_no_personal_registry() {
         let config = Config::default();
-        assert!(config.personal_registry_url().is_none());
+        assert!(config.registry_url().is_none());
     }
 
     #[test]

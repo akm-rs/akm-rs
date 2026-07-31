@@ -6,13 +6,20 @@ use std::fs;
 use tempfile::TempDir;
 
 /// Helper: create a minimal AKM environment in a temp dir.
+///
+/// Returns `(home, config_dir, instructions_file)`. Global instructions live
+/// inside the registry working tree, so the third element points at
+/// `~/.local/share/akm/library/instructions/global.md`.
 fn setup_env(tmp: &TempDir) -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
     let home = tmp.path().join("home");
     let config_dir = home.join(".config").join("akm");
-    let akm_home = home.join(".akm");
+    let instructions_dir = home
+        .join(".local/share/akm")
+        .join("library")
+        .join("instructions");
 
     fs::create_dir_all(&config_dir).unwrap();
-    fs::create_dir_all(&akm_home).unwrap();
+    fs::create_dir_all(&instructions_dir).unwrap();
 
     // Minimal config with instructions enabled
     fs::write(
@@ -21,7 +28,7 @@ fn setup_env(tmp: &TempDir) -> (std::path::PathBuf, std::path::PathBuf, std::pat
     )
     .unwrap();
 
-    (home, config_dir, akm_home)
+    (home, config_dir, instructions_dir.join("global.md"))
 }
 
 #[test]
@@ -45,10 +52,10 @@ fn instructions_sync_warns_when_no_source_file() {
 #[test]
 fn instructions_sync_distributes_to_all_tool_dirs() {
     let tmp = TempDir::new().unwrap();
-    let (home, _, akm_home) = setup_env(&tmp);
+    let (home, _, instructions) = setup_env(&tmp);
 
     // Create source file
-    fs::write(akm_home.join("global-instructions.md"), "Be concise.").unwrap();
+    fs::write(&instructions, "Be concise.").unwrap();
 
     cargo_bin_cmd!("akm")
         .args(["instructions", "sync"])
@@ -86,9 +93,9 @@ fn instructions_sync_distributes_to_all_tool_dirs() {
 #[test]
 fn instructions_sync_is_idempotent() {
     let tmp = TempDir::new().unwrap();
-    let (home, _, akm_home) = setup_env(&tmp);
+    let (home, _, instructions) = setup_env(&tmp);
 
-    fs::write(akm_home.join("global-instructions.md"), "content").unwrap();
+    fs::write(&instructions, "content").unwrap();
 
     for _ in 0..3 {
         cargo_bin_cmd!("akm")
@@ -230,8 +237,8 @@ fn snapshot_instructions_sync_no_source() {
 #[test]
 fn snapshot_instructions_sync_success() {
     let tmp = TempDir::new().unwrap();
-    let (home, _, akm_home) = setup_env(&tmp);
-    fs::write(akm_home.join("global-instructions.md"), "test").unwrap();
+    let (home, _, instructions) = setup_env(&tmp);
+    fs::write(&instructions, "test").unwrap();
 
     let output = cargo_bin_cmd!("akm")
         .args(["instructions", "sync"])

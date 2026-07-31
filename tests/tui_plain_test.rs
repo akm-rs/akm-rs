@@ -14,7 +14,7 @@ fn setup_env() -> TempDir {
     let tmp = TempDir::new().unwrap();
 
     // Create necessary directories
-    let data_dir = tmp.path().join("data").join("akm");
+    let data_dir = tmp.path().join("data").join("akm").join("library");
     std::fs::create_dir_all(data_dir.join("skills").join("tdd")).unwrap();
     std::fs::create_dir_all(data_dir.join("agents")).unwrap();
 

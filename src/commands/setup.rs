@@ -254,8 +254,8 @@ fn configure_instructions(
 
     config.features.insert(Feature::Instructions);
 
-    // Create global-instructions.md if it doesn't exist
-    let instructions_file = paths.global_instructions();
+    // Create the global instructions file if it does not exist
+    let instructions_file = paths.instructions_file();
     if !instructions_file.exists() {
         if let Some(parent) = instructions_file.parent() {
             if let Err(e) = std::fs::create_dir_all(parent) {

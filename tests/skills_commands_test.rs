@@ -237,7 +237,7 @@ fn load_creates_symlinks_in_session() {
     let tmp = TempDir::new().unwrap();
     let paths = test_paths(&tmp);
     create_test_library(&paths);
-    create_spec_on_disk(paths.data_dir(), "tdd", SpecType::Skill);
+    create_spec_on_disk(&paths.library_dir(), "tdd", SpecType::Skill);
 
     let tool_dirs = test_tool_dirs(&tmp);
     let staging = tmp.path().join("session");
@@ -248,7 +248,7 @@ fn load_creates_symlinks_in_session() {
     let spec = library.get("tdd").unwrap();
     let created = akm::library::symlinks::create_session(
         spec,
-        paths.data_dir(),
+        &paths.library_dir(),
         &staging,
         &tool_dirs.staging_names(),
     )
@@ -268,7 +268,7 @@ fn load_idempotent() {
     let tmp = TempDir::new().unwrap();
     let paths = test_paths(&tmp);
     create_test_library(&paths);
-    create_spec_on_disk(paths.data_dir(), "tdd", SpecType::Skill);
+    create_spec_on_disk(&paths.library_dir(), "tdd", SpecType::Skill);
 
     let tool_dirs = test_tool_dirs(&tmp);
     let staging = tmp.path().join("session");
@@ -280,14 +280,14 @@ fn load_idempotent() {
     // Load twice — both should succeed
     let c1 = akm::library::symlinks::create_session(
         spec,
-        paths.data_dir(),
+        &paths.library_dir(),
         &staging,
         &tool_dirs.staging_names(),
     )
     .unwrap();
     let c2 = akm::library::symlinks::create_session(
         spec,
-        paths.data_dir(),
+        &paths.library_dir(),
         &staging,
         &tool_dirs.staging_names(),
     )
@@ -305,7 +305,7 @@ fn unload_removes_symlinks() {
     let tmp = TempDir::new().unwrap();
     let paths = test_paths(&tmp);
     create_test_library(&paths);
-    create_spec_on_disk(paths.data_dir(), "tdd", SpecType::Skill);
+    create_spec_on_disk(&paths.library_dir(), "tdd", SpecType::Skill);
 
     let tool_dirs = test_tool_dirs(&tmp);
     let staging = tmp.path().join("session");
@@ -316,7 +316,7 @@ fn unload_removes_symlinks() {
 
     akm::library::symlinks::create_session(
         spec,
-        paths.data_dir(),
+        &paths.library_dir(),
         &staging,
         &tool_dirs.staging_names(),
     )
@@ -476,7 +476,7 @@ fn promote_new_skill_via_cmd() {
     let tmp = TempDir::new().unwrap();
     let paths = test_paths(&tmp);
 
-    std::fs::create_dir_all(paths.data_dir().join("skills")).unwrap();
+    std::fs::create_dir_all(paths.library_dir().join("skills")).unwrap();
     Library::new().save(&paths).unwrap();
 
     let skill_dir = tmp.path().join("local-skill");
@@ -496,7 +496,11 @@ fn promote_new_skill_via_cmd() {
         .assert()
         .success();
 
-    assert!(paths.data_dir().join("skills").join("local-skill").is_dir());
+    assert!(paths
+        .library_dir()
+        .join("skills")
+        .join("local-skill")
+        .is_dir());
     let lib = Library::load(&paths).unwrap();
     assert!(lib.contains("local-skill"));
 }
@@ -510,7 +514,7 @@ fn promote_does_not_prompt_to_publish_non_tty() {
     let tmp = TempDir::new().unwrap();
     let paths = test_paths(&tmp);
 
-    std::fs::create_dir_all(paths.data_dir().join("skills")).unwrap();
+    std::fs::create_dir_all(paths.library_dir().join("skills")).unwrap();
     Library::new().save(&paths).unwrap();
 
     let config_dir = tmp.path().join("config").join("akm");
@@ -549,7 +553,7 @@ fn promote_overwrites_with_force_via_cmd() {
     let tmp = TempDir::new().unwrap();
     let paths = test_paths(&tmp);
 
-    let existing = paths.data_dir().join("skills").join("my-skill");
+    let existing = paths.library_dir().join("skills").join("my-skill");
     std::fs::create_dir_all(&existing).unwrap();
     std::fs::write(
         existing.join("SKILL.md"),
@@ -577,7 +581,7 @@ fn promote_overwrites_with_force_via_cmd() {
 
     let content = std::fs::read_to_string(
         paths
-            .data_dir()
+            .library_dir()
             .join("skills")
             .join("my-skill")
             .join("SKILL.md"),
@@ -593,7 +597,7 @@ fn promote_rejects_without_force_non_tty() {
     let tmp = TempDir::new().unwrap();
     let paths = test_paths(&tmp);
 
-    let existing = paths.data_dir().join("skills").join("my-skill");
+    let existing = paths.library_dir().join("skills").join("my-skill");
     std::fs::create_dir_all(&existing).unwrap();
     std::fs::write(
         existing.join("SKILL.md"),
@@ -628,7 +632,7 @@ fn promote_copies_nested_files_via_cmd() {
     let tmp = TempDir::new().unwrap();
     let paths = test_paths(&tmp);
 
-    std::fs::create_dir_all(paths.data_dir().join("skills")).unwrap();
+    std::fs::create_dir_all(paths.library_dir().join("skills")).unwrap();
     Library::new().save(&paths).unwrap();
 
     let skill_dir = tmp.path().join("nested-skill");
@@ -649,7 +653,7 @@ fn promote_copies_nested_files_via_cmd() {
         .assert()
         .success();
 
-    let dest = paths.data_dir().join("skills").join("nested-skill");
+    let dest = paths.library_dir().join("skills").join("nested-skill");
     assert!(dest.join("SKILL.md").is_file());
     assert!(dest.join("references").join("ref.md").is_file());
 }
@@ -695,8 +699,8 @@ fn session_symlinks_create_and_scan() {
     let tmp = TempDir::new().unwrap();
     let paths = test_paths(&tmp);
     create_test_library(&paths);
-    create_spec_on_disk(paths.data_dir(), "tdd", SpecType::Skill);
-    create_spec_on_disk(paths.data_dir(), "reviewer", SpecType::Agent);
+    create_spec_on_disk(&paths.library_dir(), "tdd", SpecType::Skill);
+    create_spec_on_disk(&paths.library_dir(), "reviewer", SpecType::Agent);
 
     let tool_dirs = test_tool_dirs(&tmp);
     let staging = tmp.path().join("session");
@@ -708,7 +712,7 @@ fn session_symlinks_create_and_scan() {
     let tdd = library.get("tdd").unwrap();
     akm::library::symlinks::create_session(
         tdd,
-        paths.data_dir(),
+        &paths.library_dir(),
         &staging,
         &tool_dirs.staging_names(),
     )
@@ -717,7 +721,7 @@ fn session_symlinks_create_and_scan() {
     let reviewer = library.get("reviewer").unwrap();
     akm::library::symlinks::create_session(
         reviewer,
-        paths.data_dir(),
+        &paths.library_dir(),
         &staging,
         &tool_dirs.staging_names(),
     )

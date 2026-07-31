@@ -43,7 +43,7 @@ pub(crate) fn ensure_instructions_file(path: &Path) -> Result<()> {
 /// # Errors
 /// Returns `Err` if the editor cannot be launched or exits with a non-zero status.
 pub fn run(paths: &Paths) -> Result<()> {
-    let instructions_file = paths.global_instructions();
+    let instructions_file = paths.instructions_file();
 
     // Create with starter header if it doesn't exist
     ensure_instructions_file(&instructions_file)?;

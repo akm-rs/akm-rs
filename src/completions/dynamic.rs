@@ -155,7 +155,7 @@ mod tests {
             ],
         };
 
-        std::fs::create_dir_all(paths.data_dir()).unwrap();
+        std::fs::create_dir_all(paths.library_dir()).unwrap();
         library.save(&paths).unwrap();
 
         (dir, paths)
@@ -224,7 +224,7 @@ mod tests {
             dir.path(),
         );
         let library = Library::new();
-        std::fs::create_dir_all(paths.data_dir()).unwrap();
+        std::fs::create_dir_all(paths.library_dir()).unwrap();
         library.save(&paths).unwrap();
 
         let candidates = SpecIdCompleter::candidates_with_paths(&paths);
