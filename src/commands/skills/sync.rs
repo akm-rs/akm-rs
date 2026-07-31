@@ -1,6 +1,7 @@
 //! `akm skills sync` — fast-forward the library, regenerate it, rebuild links.
 //!
 //! Pipeline:
+//! 0. Clear out an rc3 data layout, if this machine still has one
 //! 1. Clone the personal registry into the library directory, or fast-forward
 //!    an existing checkout (parking local edits around it when needed)
 //! 2. Run libgen to regenerate `library.json` from the specs and their sidecars
@@ -22,9 +23,13 @@ use crate::library::Library;
 use crate::paths::Paths;
 use crate::registry::{Registry, SyncOutcome};
 
+use super::migrate::{self, Rc3Wipe};
+
 /// Result of a sync operation, used for display.
 #[derive(Debug)]
 pub struct SyncReport {
+    /// What the rc3 → rc4 migration removed, if it ran.
+    pub migration: Rc3Wipe,
     /// What happened to the library working tree.
     pub registry: RegistryOutcome,
     /// Number of specs found on disk, if libgen ran.
@@ -65,10 +70,18 @@ pub enum RegistryOutcome {
 pub fn execute(paths: &Paths, registry: &Registry, tool_dirs: &ToolDirs) -> Result<SyncReport> {
     let library_dir = registry.dir().to_path_buf();
 
+    // The wipe is only safe while a registry is configured to clone back from.
+    let migration = if registry.is_configured() && migrate::needs_migration(paths) {
+        migrate::run(paths)?
+    } else {
+        Rc3Wipe::default()
+    };
+
     let registry_outcome = update_registry(registry)?;
 
     if matches!(registry_outcome, RegistryOutcome::SkippedNoLibrary) {
         return Ok(SyncReport {
+            migration,
             registry: registry_outcome,
             spec_count: None,
             symlink_count: 0,
@@ -108,6 +121,7 @@ pub fn execute(paths: &Paths, registry: &Registry, tool_dirs: &ToolDirs) -> Resu
     };
 
     Ok(SyncReport {
+        migration,
         registry: registry_outcome,
         spec_count,
         symlink_count,
@@ -149,6 +163,10 @@ fn update_registry(registry: &Registry) -> Result<RegistryOutcome> {
 
 /// Print sync results to stdout.
 pub fn print_report(report: &SyncReport, quiet: bool) {
+    // A one-time breaking migration is reported even under --quiet: the
+    // session-start sync is exactly where it happens, and it deleted files.
+    migrate::print_wipe(&report.migration);
+
     if quiet {
         return;
     }

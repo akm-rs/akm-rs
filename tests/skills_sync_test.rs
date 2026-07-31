@@ -328,3 +328,78 @@ fn sync_without_a_registry_uses_what_is_on_disk() {
     assert!(matches!(report.registry, RegistryOutcome::Skipped));
     assert_eq!(report.spec_count, Some(1));
 }
+
+// --- rc3 → rc4 migration ---
+
+impl Env {
+    /// Lay out the data dir the way rc3 did: specs copied straight under
+    /// `akm/`, no `library/` checkout, akm-owned files beside them.
+    fn make_rc3_layout(&self) {
+        let data = self.paths.data_dir();
+        write(
+            &data.join("skills/stale/SKILL.md"),
+            &skill_md("stale", "rc3"),
+        );
+        write(&data.join("agents/old.md"), &skill_md("old", "rc3"));
+        write(&data.join("library.json"), r#"{"version":1,"specs":[]}"#);
+        std::fs::create_dir_all(self.paths.cache_dir().join("skills-personal-registry")).unwrap();
+
+        write(&data.join("shell/akm-init.sh"), "#!/bin/bash\n");
+        write(&data.join("tools.json"), "[]");
+        write(&self.paths.local_json(), "{}");
+    }
+}
+
+/// D11: the migration is a clean wipe followed by a fresh clone. What the
+/// registry has comes back; what only existed locally does not.
+#[test]
+fn sync_replaces_an_rc3_layout_with_a_fresh_checkout() {
+    let env = Env::new();
+    env.make_rc3_layout();
+
+    let report = env.sync();
+
+    assert_eq!(report.migration.removed.len(), 4);
+    assert!(matches!(report.registry, RegistryOutcome::Cloned));
+    assert_eq!(report.spec_count, Some(2));
+
+    let data = env.paths.data_dir();
+    assert!(!data.join("skills").exists());
+    assert!(!data.join("agents").exists());
+    assert!(!data.join("library.json").exists());
+
+    // AKM-owned files are siblings of the tree and must survive the wipe.
+    assert!(data.join("shell/akm-init.sh").is_file());
+    assert!(data.join("tools.json").is_file());
+    assert!(env.paths.local_json().is_file());
+
+    let library = Library::load_from(&env.paths.library_json()).unwrap();
+    assert!(library.contains("alpha"));
+    assert!(!library.contains("stale"));
+}
+
+#[test]
+fn a_second_sync_does_not_migrate_again() {
+    let env = Env::new();
+    env.make_rc3_layout();
+    env.sync();
+
+    let report = env.sync();
+
+    assert!(report.migration.is_empty());
+    assert!(matches!(report.registry, RegistryOutcome::UpToDate));
+}
+
+/// Without a registry there is nothing to clone back from, so the old layout
+/// is left alone rather than deleted.
+#[test]
+fn an_rc3_layout_is_kept_when_no_registry_is_configured() {
+    let env = Env::new();
+    env.make_rc3_layout();
+
+    let registry = Registry::new("", env.paths.library_dir());
+    let report = sync::execute(&env.paths, &registry, &ToolDirs::builtin(&env.home)).unwrap();
+
+    assert!(report.migration.is_empty());
+    assert!(env.paths.data_dir().join("skills/stale/SKILL.md").is_file());
+}

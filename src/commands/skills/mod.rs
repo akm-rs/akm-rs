@@ -12,6 +12,7 @@ pub mod libgen;
 pub mod list;
 pub mod load;
 pub mod loaded;
+pub mod migrate;
 pub mod promote;
 pub mod publish;
 pub mod remove;
