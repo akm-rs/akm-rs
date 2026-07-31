@@ -19,7 +19,9 @@ No runtime dependencies beyond git — the release artifact is a single binary.
 All implementation must satisfy these criteria:
 
 1) Proper error handling (Result<T>, no .unwrap(), IoContext for wrapping IO errors)
-2) Registry abstraction integrity (no git leakage)
+2) Registry layering (`src/git.rs` is the only module that runs git; `registry`
+   and `library::drift` are the only callers of `Git` for the library; commands
+   go through `Registry`)
 3) Testability (DI, trait objects, temp dirs)
 4) CLI contract (snapshot tests, --plain, non-TTY detection)
 5) Config safety (typed structs, sane defaults)

@@ -13,8 +13,9 @@ src/
 ├── github.rs            # GitHub URL parser + Contents API client
 ├── editor.rs            # $EDITOR invocation
 ├── commands/            # CLI command implementations
-├── library/             # Spec model, libgen, manifest, symlinks, tool dirs
-├── registry/            # RegistrySource trait + GitRegistry
+├── library/             # Spec model, sidecars, libgen, drift, local overrides,
+│                        #   manifest, symlinks, tool dirs
+├── registry/            # The personal registry, checked out as the library
 ├── artifacts/           # Artifact repo sync
 ├── update/              # Self-update + version check
 ├── completions/         # Completion registration + dynamic completions
@@ -27,6 +28,38 @@ src/
 See [harnesses.md](harnesses.md) for how `shell/` and `library/tool_dirs.rs`
 fit together.
 
+## The library is a git working tree
+
+`$XDG_DATA_HOME/akm/library/` is the personal registry's checkout, not a copy of
+one. Everything the sync model needs follows from that:
+
+| need | implementation |
+|---|---|
+| local drift | `git status --porcelain` |
+| remote drift | `git diff --name-only HEAD @{upstream}` |
+| sync | `git fetch` + `git merge --ff-only`, parking blocking edits and putting them back |
+| publish | `git add -- <spec paths> && git commit && git push` |
+| revert | `git restore <paths>`, or `git checkout @{upstream} -- <paths>` |
+
+Layering, in one direction only:
+
+* `src/git.rs` is the only module that executes git;
+* `src/registry/` and `src/library/drift.rs` are the only modules that call
+  `Git` for the library;
+* commands go through `Registry`, so no command has to know what a
+  fast-forward is.
+
+Two files are not what they look like:
+
+* **`library.json` is derived.** libgen regenerates it from the specs on disk
+  and their `akm.json` sidecars on every sync, and it is excluded through
+  `.git/info/exclude`. Anything written to it directly is erased on the next
+  sync — human metadata belongs in the spec's sidecar.
+* **`local.json` is machine-local.** It holds only the `core` flags that
+  deviate from the registry's defaults, so a newly published core skill still
+  propagates while a local toggle stays put. It lives *outside* the working
+  tree, beside `tools.json` and `shell/`.
+
 ## Tests
 
 ```bash
@@ -38,6 +71,12 @@ cargo fmt --check
 Snapshots live in `tests/snapshots/`. `cargo-insta` is not assumed to be
 installed; `INSTA_FORCE_UPDATE=1 cargo test --test <name>` rewrites them, and the
 diff should be reviewed before committing.
+
+Tests that build a fixture library must write to `<data>/akm/library/…`. The
+git-backed suites (`git`, `drift`, `skills_sync`, `skills_publish`,
+`skills_drift_commands`, `instructions`) each carry their own small repo
+fixture; integration test files cannot share a module without a `mod common`,
+and the duplication is cheaper than adding one.
 
 `tests/shell_test.rs` drives `akm-init.sh` for real: it stubs `akm` and the
 harness binary on `PATH`, sources the script inside a temporary git repo, and

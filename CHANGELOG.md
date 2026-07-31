@@ -1,3 +1,41 @@
+# 1.0.0-rc4
+
+**Breaking: the cold library is wiped and re-cloned on first sync.** The
+library is now the personal registry's git working tree at
+`~/.local/share/akm/library/`, not a copy of one. The first `akm sync` after
+upgrading removes the old `~/.local/share/akm/{skills,agents,library.json}` and
+the registry cache, then clones fresh. **Anything you never published to your
+registry is lost** — publish it before upgrading. `tools.json`, `shell/` and
+your config are untouched.
+
+- Sync no longer destroys local edits
+  - `git fetch` + `merge --ff-only`, never a real merge, so no conflict marker
+    can ever reach a skill that is symlinked live into `~/.claude/skills/`
+  - An edit to a skill the update also changed is parked, the fast-forward is
+    applied to everything else, and the edit is put back on top — one
+    unresolved skill can no longer freeze the other forty-nine
+  - Sync reports what needs a decision and never prompts; only
+    `akm skills edit` asks anything
+- Know which side moved: `*` unpublished, `v` registry ahead, `!` diverged,
+  shown per spec in `akm skills list`, `akm skills status` and the sync report
+- New commands: `akm skills diff <id>`, `akm skills revert <id> [--remote]`,
+  `akm skills core [--adopt|--publish]`, `akm instructions publish`
+- `akm skills edit <id>` now opens `SKILL.md`; `--meta` opens the spec's
+  metadata sidecar. Both offer to publish when the spec has local changes
+- Human-facing metadata moves to a per-spec `akm.json` sidecar
+  - `library.json` becomes a derived, locally-excluded index, so it can never
+    be the thing that conflicts
+  - `core` defaults live in the sidecar and propagate to new machines;
+    deviations stay in `~/.local/share/akm/local.json`, machine-local
+- Global instructions move into the registry at `instructions/global.md`, and
+  gain the same drift, publish and propagation model as a skill. A pre-rc4
+  `~/.akm/global-instructions.md` is carried over on first sync
+- `registry.url` is the canonical config key; `skills.personal_registry` still
+  resolves silently
+- The TUI metadata editor gains a real cursor, wrapped multi-line fields and
+  Left/Right/Home/End/Delete, and its edits now survive the next sync — they
+  previously went to the derived index and were erased
+
 # 1.0.0-rc2
 
 - Fix the session staging directory silently eating agent output
