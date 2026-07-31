@@ -46,8 +46,12 @@ pub fn run(paths: &Paths, ids: &[String], tool_dirs: &ToolDirs) -> Result<()> {
             }
         };
 
-        match symlinks::create_session(spec, paths.data_dir(), &staging, &tool_dirs.staging_names())
-        {
+        match symlinks::create_session(
+            spec,
+            &paths.library_dir(),
+            &staging,
+            &tool_dirs.staging_names(),
+        ) {
             Ok(true) => {
                 println!("Loaded: {id} ({})", spec.spec_type);
             }

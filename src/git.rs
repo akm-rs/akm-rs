@@ -28,6 +28,9 @@ fn run_git(args: &[&str], cwd: Option<&Path>) -> Result<GitOutput> {
     }
     // Suppress interactive prompts
     cmd.env("GIT_TERMINAL_PROMPT", "0");
+    // Force English messages — `merge_ff_only` classifies failures by matching
+    // git's stderr, which is localized otherwise.
+    cmd.env("LC_ALL", "C");
 
     let output = cmd.output().map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
@@ -60,6 +63,39 @@ fn run_git_ok(args: &[&str], cwd: Option<&Path>) -> Result<String> {
             args: args.join(" "),
             stderr: output.stderr,
         })
+    }
+}
+
+/// Outcome of a fast-forward-only merge attempt.
+///
+/// Every variant leaves the working tree in a defined state: `Blocked` and
+/// `NotFastForward` mean git changed nothing at all, so the caller can park,
+/// clean and retry without fear of half-applied merges or conflict markers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MergeOutcome {
+    /// Already at (or ahead of) the target — nothing was applied.
+    UpToDate,
+    /// The working tree was fast-forwarded to the target.
+    FastForwarded,
+    /// Local changes to these paths would be overwritten. Tree untouched.
+    Blocked { paths: Vec<String> },
+    /// Histories have diverged, so no fast-forward is possible. Tree untouched.
+    NotFastForward,
+}
+
+/// A single entry from `git status --porcelain`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusEntry {
+    /// Two-character status code (e.g. ` M`, `??`, `A `).
+    pub code: String,
+    /// Path relative to the repository root. For renames, the destination.
+    pub path: String,
+}
+
+impl StatusEntry {
+    /// Whether this entry is an untracked file.
+    pub fn is_untracked(&self) -> bool {
+        self.code == "??"
     }
 }
 
@@ -217,4 +253,210 @@ impl Git {
         let output = run_git(&["diff", "--cached", "--quiet"], Some(repo_dir))?;
         Ok(output.success)
     }
+
+    // --- Primitives for the library working tree ---
+
+    /// Fetch from the default remote without touching the working tree.
+    pub fn fetch(repo_dir: &Path) -> Result<()> {
+        run_git_ok(&["fetch", "--quiet"], Some(repo_dir))?;
+        Ok(())
+    }
+
+    /// Resolve a revision to a commit SHA.
+    pub fn rev_parse(repo_dir: &Path, rev: &str) -> Result<String> {
+        run_git_ok(&["rev-parse", rev], Some(repo_dir))
+    }
+
+    /// Name of the upstream tracking ref (e.g. `origin/main`).
+    ///
+    /// Returns `Err(Error::Git)` when the branch has no upstream configured.
+    pub fn upstream_ref(repo_dir: &Path) -> Result<String> {
+        run_git_ok(
+            &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+            Some(repo_dir),
+        )
+    }
+
+    /// Merge `rev` into the current branch, fast-forward only.
+    ///
+    /// A fast-forward preserves uncommitted local edits to paths the incoming
+    /// commits do not touch, and aborts without writing anything when they do.
+    /// That is the whole reason sync never performs a real merge: a merge could
+    /// write conflict markers into files that are symlinked into live tool
+    /// directories.
+    ///
+    /// Failures git does not describe in terms we recognise are returned as
+    /// `Err` rather than guessed at — the caller must not touch the tree.
+    pub fn merge_ff_only(repo_dir: &Path, rev: &str) -> Result<MergeOutcome> {
+        let before = Self::rev_parse(repo_dir, "HEAD")?;
+        let output = run_git(&["merge", "--ff-only", "--quiet", rev], Some(repo_dir))?;
+
+        if output.success {
+            let after = Self::rev_parse(repo_dir, "HEAD")?;
+            return Ok(if before == after {
+                MergeOutcome::UpToDate
+            } else {
+                MergeOutcome::FastForwarded
+            });
+        }
+
+        if output.stderr.contains("would be overwritten by merge") {
+            return Ok(MergeOutcome::Blocked {
+                paths: parse_overwritten_paths(&output.stderr),
+            });
+        }
+
+        if output.stderr.contains("Not possible to fast-forward") {
+            return Ok(MergeOutcome::NotFastForward);
+        }
+
+        Err(Error::Git {
+            args: format!("merge --ff-only {rev}"),
+            stderr: output.stderr,
+        })
+    }
+
+    /// Parsed `git status --porcelain`, with untracked directories expanded
+    /// into individual files so every entry maps to one spec.
+    pub fn status_porcelain(repo_dir: &Path) -> Result<Vec<StatusEntry>> {
+        let stdout = run_git_ok(
+            &["status", "--porcelain", "--untracked-files=all"],
+            Some(repo_dir),
+        )?;
+        Ok(stdout.lines().filter_map(parse_status_line).collect())
+    }
+
+    /// Paths that differ between two revisions, optionally limited to pathspecs.
+    pub fn diff_names(
+        repo_dir: &Path,
+        from: &str,
+        to: &str,
+        pathspecs: &[&str],
+    ) -> Result<Vec<String>> {
+        let mut args = vec!["diff", "--name-only", from, to];
+        push_pathspecs(&mut args, pathspecs);
+        let stdout = run_git_ok(&args, Some(repo_dir))?;
+        Ok(stdout.lines().map(|l| l.to_string()).collect())
+    }
+
+    /// Textual diff between two revisions, limited to `pathspecs`.
+    pub fn diff(repo_dir: &Path, from: &str, to: &str, pathspecs: &[&str]) -> Result<String> {
+        let mut args = vec!["diff", from, to];
+        push_pathspecs(&mut args, pathspecs);
+        run_git_ok(&args, Some(repo_dir))
+    }
+
+    /// Textual diff of the working tree against a revision, limited to `pathspecs`.
+    pub fn diff_worktree(repo_dir: &Path, rev: &str, pathspecs: &[&str]) -> Result<String> {
+        let mut args = vec!["diff", rev];
+        push_pathspecs(&mut args, pathspecs);
+        run_git_ok(&args, Some(repo_dir))
+    }
+
+    /// Discard tracked changes under `pathspecs`, restoring them to `HEAD`.
+    ///
+    /// Untracked files are left alone — pair with [`Git::clean_path`] to wipe a
+    /// path completely. Pathspecs git does not know about are not an error:
+    /// callers pass the paths a spec *may* occupy, and a spec that exists only
+    /// locally has nothing to restore.
+    pub fn restore_path(repo_dir: &Path, pathspecs: &[&str]) -> Result<()> {
+        let mut args = vec!["restore", "--source=HEAD", "--staged", "--worktree"];
+        push_pathspecs(&mut args, pathspecs);
+
+        let output = run_git(&args, Some(repo_dir))?;
+        if output.success || output.stderr.contains("did not match any file") {
+            Ok(())
+        } else {
+            Err(Error::Git {
+                args: args.join(" "),
+                stderr: output.stderr,
+            })
+        }
+    }
+
+    /// Remove untracked files and directories under `pathspecs`.
+    pub fn clean_path(repo_dir: &Path, pathspecs: &[&str]) -> Result<()> {
+        let mut args = vec!["clean", "-qfd"];
+        push_pathspecs(&mut args, pathspecs);
+        run_git_ok(&args, Some(repo_dir))?;
+        Ok(())
+    }
+
+    /// Overwrite `pathspecs` in the working tree with their content at `rev`.
+    pub fn checkout_from(repo_dir: &Path, rev: &str, pathspecs: &[&str]) -> Result<()> {
+        let mut args = vec!["checkout", rev];
+        push_pathspecs(&mut args, pathspecs);
+        run_git_ok(&args, Some(repo_dir))?;
+        Ok(())
+    }
+
+    /// Stage the given paths, including deletions.
+    ///
+    /// Paths that match nothing are skipped rather than failing, so a caller
+    /// can hand over every path a spec might occupy.
+    pub fn add_path(repo_dir: &Path, pathspecs: &[&str]) -> Result<()> {
+        let mut args = vec!["add", "--all"];
+        push_pathspecs(&mut args, pathspecs);
+
+        let output = run_git(&args, Some(repo_dir))?;
+        if output.success || output.stderr.contains("did not match any file") {
+            Ok(())
+        } else {
+            Err(Error::Git {
+                args: args.join(" "),
+                stderr: output.stderr,
+            })
+        }
+    }
+}
+
+/// Append `-- <pathspec>...` to a git argument list, omitting the separator
+/// when there is nothing to limit the command to.
+fn push_pathspecs<'a>(args: &mut Vec<&'a str>, pathspecs: &[&'a str]) {
+    if pathspecs.is_empty() {
+        return;
+    }
+    args.push("--");
+    args.extend_from_slice(pathspecs);
+}
+
+/// Extract the file list from git's "would be overwritten by merge" message.
+///
+/// git indents each path with a tab under the header line. `run_git` trims the
+/// captured stderr as a whole, which only affects the first and last lines, so
+/// the path lines keep their indentation.
+fn parse_overwritten_paths(stderr: &str) -> Vec<String> {
+    stderr
+        .lines()
+        .filter(|line| line.starts_with('\t'))
+        .map(|line| unquote(line.trim()))
+        .collect()
+}
+
+/// Parse one `git status --porcelain` line into a [`StatusEntry`].
+///
+/// Rename entries are reported as `R  old -> new`; the destination is what
+/// matters for mapping a change back to a spec.
+fn parse_status_line(line: &str) -> Option<StatusEntry> {
+    if line.len() < 4 {
+        return None;
+    }
+    let (code, rest) = line.split_at(2);
+    let rest = rest.trim_start();
+    let path = match rest.split_once(" -> ") {
+        Some((_, dest)) => dest,
+        None => rest,
+    };
+    Some(StatusEntry {
+        code: code.to_string(),
+        path: unquote(path),
+    })
+}
+
+/// Strip the double quotes git adds around paths with unusual characters.
+fn unquote(path: &str) -> String {
+    path.strip_prefix('"')
+        .and_then(|p| p.strip_suffix('"'))
+        .unwrap_or(path)
+        .to_string()
 }

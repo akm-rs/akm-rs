@@ -68,12 +68,8 @@ fn print_all(paths: &Paths, config: &Config) {
     );
 
     println!(
-        "  skills.personal-registry  = {}",
-        config
-            .skills
-            .personal_registry
-            .as_deref()
-            .unwrap_or("(not set)")
+        "  registry.url              = {}",
+        config.registry_url().unwrap_or("(not set)")
     );
 
     println!(

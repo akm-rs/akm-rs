@@ -179,10 +179,12 @@ fn configure_skills(config: &mut Config, prompter: &mut dyn Prompter) -> Result<
 
     config.features.insert(Feature::Skills);
 
-    // Personal registry — the only skills source
-    let default = config.skills.personal_registry.as_deref().unwrap_or("");
-    let url = prompter.input("Git URL of your skills registry (or leave empty)", default)?;
-    config.skills.personal_registry = if url.is_empty() { None } else { Some(url) };
+    // Personal registry — the only skills source. Written to the canonical
+    // `registry.url`; the pre-rc4 alias is dropped so the file has one answer.
+    let default = config.registry_url().unwrap_or("").to_string();
+    let url = prompter.input("Git URL of your skills registry (or leave empty)", &default)?;
+    config.registry.url = if url.is_empty() { None } else { Some(url) };
+    config.skills.personal_registry = None;
 
     println!("  Skills enabled");
     println!();
@@ -254,8 +256,14 @@ fn configure_instructions(
 
     config.features.insert(Feature::Instructions);
 
-    // Create global-instructions.md if it doesn't exist
-    let instructions_file = paths.global_instructions();
+    // A machine upgrading from rc3 keeps what it already wrote, rather than
+    // having setup create an empty file over the top of it.
+    if let Err(e) = crate::commands::instructions::seed_from_legacy(paths) {
+        eprintln!("  Warning: could not carry over the previous instructions: {e}");
+    }
+
+    // Create the global instructions file if it does not exist
+    let instructions_file = paths.instructions_file();
     if !instructions_file.exists() {
         if let Some(parent) = instructions_file.parent() {
             if let Err(e) = std::fs::create_dir_all(parent) {
@@ -381,10 +389,7 @@ mod tests {
         let mut prompter = TestPrompter::new(vec!["y", "https://example.com/mine.git"]);
         configure_skills(&mut config, &mut prompter).unwrap();
         assert!(config.features.contains(&Feature::Skills));
-        assert_eq!(
-            config.skills.personal_registry.as_deref(),
-            Some("https://example.com/mine.git")
-        );
+        assert_eq!(config.registry_url(), Some("https://example.com/mine.git"));
     }
 
     #[test]
@@ -394,7 +399,7 @@ mod tests {
         let mut prompter = TestPrompter::new(vec!["y", ""]);
         configure_skills(&mut config, &mut prompter).unwrap();
         assert!(config.features.contains(&Feature::Skills));
-        assert!(config.skills.personal_registry.is_none());
+        assert!(config.registry_url().is_none());
     }
 
     #[test]

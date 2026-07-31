@@ -6,12 +6,13 @@
 
 use crate::error::Result;
 use crate::git::Git;
+use crate::library::drift::DriftReport;
 use crate::library::manifest::Manifest;
 use crate::library::spec::{Spec, SpecType};
 use crate::library::tool_dirs::ToolDirs;
 use crate::library::Library;
 use crate::paths::Paths;
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::PathBuf;
 
 /// Application state shared across TUI views.
@@ -30,8 +31,20 @@ pub struct App {
     pub tool_dirs: ToolDirs,
     /// Set of spec IDs currently in the manifest (for quick lookup).
     pub manifest_ids: HashSet<String>,
+    /// Per-spec drift as of TUI start.
+    ///
+    /// Computed once: it shells out to git twice, which is far too expensive
+    /// to redo per frame, and drift only changes when something outside the
+    /// TUI does.
+    pub drift: DriftReport,
     /// Whether the library has been modified and needs saving.
     pub library_dirty: bool,
+    /// Spec ids whose human-facing metadata was edited in this session.
+    ///
+    /// Tracked separately from `library_dirty` because the two land in
+    /// different places: metadata belongs in the spec's publishable sidecar,
+    /// while a core toggle is a preference for this machine only.
+    pub edited_meta: BTreeSet<String>,
     /// Whether the manifest has been modified and needs saving.
     pub manifest_dirty: bool,
 }
@@ -90,6 +103,9 @@ impl App {
             })
             .unwrap_or_default();
 
+        // Advisory only — a library that is not a git checkout still opens.
+        let drift = DriftReport::compute(&paths.library_dir()).unwrap_or_default();
+
         Ok(Self {
             paths,
             library,
@@ -98,7 +114,9 @@ impl App {
             manifest,
             tool_dirs,
             manifest_ids,
+            drift,
             library_dirty: false,
+            edited_meta: BTreeSet::new(),
             manifest_dirty: false,
         })
     }
@@ -150,8 +168,10 @@ impl App {
 
     /// Toggle the core flag for a spec. Returns the new core value.
     ///
-    /// Mutates the in-memory library. The caller is responsible for
-    /// saving the library to disk (done on exit).
+    /// Mutates the in-memory library; the change is persisted on exit as a
+    /// machine-local deviation, never as a change to the published default.
+    /// Promoting it for every machine is what `akm skills core --publish` is
+    /// for.
     pub fn toggle_core(&mut self, spec_id: &str) -> Option<bool> {
         if let Some(spec) = self.library.get_mut(spec_id) {
             spec.core = !spec.core;
@@ -222,25 +242,63 @@ impl App {
 
     /// Save any dirty state to disk and rebuild symlinks. Called on TUI exit.
     ///
-    /// This is the single point where mutations are persisted.
-    /// When the library is dirty (e.g., core flag toggled), symlinks are
-    /// rebuilt to match the new core state.
+    /// This is the single point where mutations are persisted. `library.json`
+    /// is derived and regenerated here rather than written from memory, so
+    /// each edit is routed to the file that actually owns it: metadata to the
+    /// spec's sidecar, core toggles to `local.json`.
     pub fn save_if_dirty(&self) -> Result<()> {
-        if self.library_dirty {
-            self.library.save(&self.paths)?;
-            // Rebuild symlinks to reflect core changes
-            let core_specs = self.library.core_specs();
-            crate::library::symlinks::rebuild_core(
-                &core_specs,
-                self.paths.data_dir(),
-                self.tool_dirs.dirs(),
-            )?;
-        }
         if self.manifest_dirty {
             if let Some(manifest) = &self.manifest {
                 manifest.save()?;
             }
         }
+
+        if !self.library_dirty && self.edited_meta.is_empty() {
+            return Ok(());
+        }
+
+        let library_dir = self.paths.library_dir();
+
+        // Metadata first: it is what the regenerated index is built from.
+        for id in &self.edited_meta {
+            let Some(spec) = self.library.get(id) else {
+                continue;
+            };
+            let sidecar = spec.sidecar_path(&library_dir);
+            let mut meta = if sidecar.is_file() {
+                crate::library::spec::SpecMeta::load_from(&sidecar)?
+            } else {
+                spec.to_meta()
+            };
+            meta.name = spec.name.clone();
+            meta.description = spec.description.clone();
+            meta.tags = spec.tags.clone();
+            // `core` is deliberately not written: see `toggle_core`.
+            meta.save_to(&sidecar)?;
+        }
+
+        crate::library::libgen::generate(&library_dir)?;
+        let mut published = Library::load_from(&self.paths.library_json())?;
+
+        // Whatever the session's core flags disagree with the published
+        // defaults about becomes this machine's deviation.
+        let mut overrides =
+            crate::library::local::LocalOverrides::load_from(&self.paths.local_json())?;
+        for spec in &published.specs {
+            if let Some(current) = self.library.get(&spec.id) {
+                overrides.set_core(&spec.id, current.core, spec.core);
+            }
+        }
+        overrides.apply(&mut published);
+        overrides.save_to(&self.paths.local_json())?;
+        published.save_to(&self.paths.library_json())?;
+
+        crate::library::symlinks::rebuild_core(
+            &published.core_specs(),
+            &library_dir,
+            self.tool_dirs.dirs(),
+        )?;
+
         Ok(())
     }
 
@@ -256,7 +314,7 @@ impl App {
                 id: spec_id.to_string(),
             })?;
 
-        let md_path = spec.markdown_path(self.paths.data_dir());
+        let md_path = spec.markdown_path(&self.paths.library_dir());
 
         if md_path.exists() {
             std::fs::read_to_string(&md_path).map_err(|e| crate::error::Error::Io {

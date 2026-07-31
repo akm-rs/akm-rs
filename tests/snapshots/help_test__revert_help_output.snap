@@ -1,0 +1,17 @@
+---
+source: tests/help_test.rs
+assertion_line: 51
+expression: "String::from_utf8_lossy(&output.stdout).to_string()"
+---
+Discard local changes to a spec
+
+Usage: akm skills revert [OPTIONS] <ID>
+
+Arguments:
+  <ID>  Spec ID to revert
+
+Options:
+      --remote   Take the registry's current version instead of the last synced one
+      --force    Skip the confirmation prompt
+  -h, --help     Print help
+  -V, --version  Print version

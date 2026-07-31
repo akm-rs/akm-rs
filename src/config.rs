@@ -64,6 +64,10 @@ pub struct Config {
     #[serde(default)]
     pub features: BTreeSet<Feature>,
 
+    /// Personal registry configuration section.
+    #[serde(default)]
+    pub registry: RegistryConfig,
+
     /// Skills configuration section.
     #[serde(default)]
     pub skills: SkillsConfig,
@@ -77,10 +81,25 @@ pub struct Config {
     pub update: UpdateConfig,
 }
 
+/// Personal registry configuration.
+///
+/// The registry holds skills, agents *and* the global instructions, so its URL
+/// is no longer a skills-only setting. [`SkillsConfig::personal_registry`] is
+/// the pre-rc4 spelling of the same value and is still honoured.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RegistryConfig {
+    /// Git URL of the personal (read-write) registry.
+    #[serde(default)]
+    pub url: Option<String>,
+}
+
 /// Skills-specific configuration.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SkillsConfig {
     /// Git URL for the personal (read-write) registry.
+    ///
+    /// Superseded by [`RegistryConfig::url`]; kept as a silent alias so a
+    /// config written before rc4 keeps working untouched.
     #[serde(default)]
     pub personal_registry: Option<String>,
 }
@@ -166,6 +185,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             features: BTreeSet::new(),
+            registry: RegistryConfig::default(),
             skills: SkillsConfig::default(),
             artifacts: ArtifactsConfig::default(),
             update: UpdateConfig::default(),
@@ -211,7 +231,8 @@ impl Config {
 
         // Step 2: Walk the table tree and warn about unknown keys
         if let Some(table) = raw.as_table() {
-            let known_top: &[&str] = &["features", "skills", "artifacts", "update"];
+            let known_top: &[&str] = &["features", "registry", "skills", "artifacts", "update"];
+            let known_registry: &[&str] = &["url"];
             // `community_registry` is obsolete but still tolerated silently so
             // configs written before it was dropped do not warn on every run.
             let known_skills: &[&str] = &["community_registry", "personal_registry"];
@@ -225,6 +246,17 @@ impl Config {
                         key,
                         config_file.display()
                     );
+                }
+            }
+            if let Some(toml::Value::Table(registry)) = table.get("registry") {
+                for key in registry.keys() {
+                    if !known_registry.contains(&key.as_str()) {
+                        eprintln!(
+                            "Warning: unknown config key 'registry.{}' in {}",
+                            key,
+                            config_file.display()
+                        );
+                    }
                 }
             }
             if let Some(toml::Value::Table(skills)) = table.get("skills") {
@@ -278,6 +310,15 @@ impl Config {
                             Ok(f) => config.features = f,
                             Err(e) => eprintln!(
                                 "Warning: invalid 'features' in {}, using defaults: {e}",
+                                config_file.display()
+                            ),
+                        }
+                    }
+                    if let Some(registry) = table.get("registry") {
+                        match registry.clone().try_into::<RegistryConfig>() {
+                            Ok(r) => config.registry = r,
+                            Err(e) => eprintln!(
+                                "Warning: invalid [registry] config in {}, using defaults: {e}",
                                 config_file.display()
                             ),
                         }
@@ -353,8 +394,15 @@ impl Config {
     }
 
     /// Get the personal registry URL (may be None).
-    pub fn personal_registry_url(&self) -> Option<&str> {
-        self.skills.personal_registry.as_deref()
+    ///
+    /// `registry.url` is canonical; `skills.personal_registry` is the pre-rc4
+    /// spelling and wins nothing when both are set.
+    pub fn registry_url(&self) -> Option<&str> {
+        self.registry
+            .url
+            .as_deref()
+            .or(self.skills.personal_registry.as_deref())
+            .filter(|url| !url.is_empty())
     }
 }
 
@@ -363,7 +411,9 @@ impl Config {
 pub enum ConfigKey {
     /// `features` — comma-separated enabled features
     Features,
-    /// `skills.personal-registry` → `skills.personal_registry`
+    /// `registry.url` — personal registry git URL
+    RegistryUrl,
+    /// `skills.personal-registry` → `skills.personal_registry` (pre-rc4 alias)
     SkillsPersonalRegistry,
     /// `artifacts.remote`
     ArtifactsRemote,
@@ -380,7 +430,7 @@ pub enum ConfigKey {
 }
 
 /// All valid config key names for help text.
-pub const ALL_CONFIG_KEYS: &str = "features, skills.personal-registry, \
+pub const ALL_CONFIG_KEYS: &str = "features, registry.url, skills.personal-registry, \
      artifacts.remote, artifacts.dir, artifacts.auto-push, \
      update.url, update.check-interval, update.auto-check";
 
@@ -391,6 +441,7 @@ impl std::str::FromStr for ConfigKey {
     fn from_str(s: &str) -> Result<Self> {
         match s {
             "features" => Ok(ConfigKey::Features),
+            "registry.url" => Ok(ConfigKey::RegistryUrl),
             "skills.personal-registry" => Ok(ConfigKey::SkillsPersonalRegistry),
             "artifacts.remote" => Ok(ConfigKey::ArtifactsRemote),
             "artifacts.dir" => Ok(ConfigKey::ArtifactsDir),
@@ -416,6 +467,7 @@ impl ConfigKey {
                 .map(|f| f.to_string())
                 .collect::<Vec<_>>()
                 .join(","),
+            ConfigKey::RegistryUrl => config.registry_url().unwrap_or_default().to_string(),
             ConfigKey::SkillsPersonalRegistry => {
                 config.skills.personal_registry.clone().unwrap_or_default()
             }
@@ -445,6 +497,16 @@ impl ConfigKey {
                     }
                 }
                 config.features = features;
+            }
+            ConfigKey::RegistryUrl => {
+                config.registry.url = if value.is_empty() {
+                    None
+                } else {
+                    Some(value.to_string())
+                };
+                // The alias would otherwise shadow nothing but still confuse
+                // anyone reading the file.
+                config.skills.personal_registry = None;
             }
             ConfigKey::SkillsPersonalRegistry => {
                 config.skills.personal_registry = if value.is_empty() {
@@ -579,7 +641,75 @@ mod tests {
     #[test]
     fn config_default_has_no_personal_registry() {
         let config = Config::default();
-        assert!(config.personal_registry_url().is_none());
+        assert!(config.registry_url().is_none());
+    }
+
+    /// The registry is no longer skills-only, but a config written before that
+    /// was true must keep working without being rewritten.
+    #[test]
+    fn registry_url_falls_back_to_the_skills_alias() {
+        let mut config = Config::default();
+        config.skills.personal_registry = Some("https://example.com/old.git".into());
+        assert_eq!(config.registry_url(), Some("https://example.com/old.git"));
+    }
+
+    #[test]
+    fn registry_url_prefers_the_canonical_key_over_the_alias() {
+        let mut config = Config::default();
+        config.skills.personal_registry = Some("https://example.com/old.git".into());
+        config.registry.url = Some("https://example.com/new.git".into());
+        assert_eq!(config.registry_url(), Some("https://example.com/new.git"));
+    }
+
+    #[test]
+    fn registry_url_ignores_an_empty_value() {
+        let mut config = Config::default();
+        config.registry.url = Some(String::new());
+        assert!(config.registry_url().is_none());
+    }
+
+    /// Setting the canonical key clears the alias, so the file never carries
+    /// two answers to the same question.
+    #[test]
+    fn setting_registry_url_drops_the_alias() {
+        let mut config = Config::default();
+        config.skills.personal_registry = Some("https://example.com/old.git".into());
+
+        ConfigKey::RegistryUrl
+            .set(&mut config, "https://example.com/new.git")
+            .unwrap();
+
+        assert!(config.skills.personal_registry.is_none());
+        assert_eq!(
+            ConfigKey::RegistryUrl.get(&config),
+            "https://example.com/new.git"
+        );
+    }
+
+    #[test]
+    fn config_load_reads_the_registry_section() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let paths = crate::paths::Paths::from_roots(
+            &tmp.path().join("data"),
+            &tmp.path().join("config"),
+            &tmp.path().join("cache"),
+            tmp.path(),
+        );
+        let config_dir = tmp.path().join("config").join("akm");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::write(
+            config_dir.join("config.toml"),
+            r#"
+features = ["skills"]
+
+[registry]
+url = "https://example.com/mine.git"
+"#,
+        )
+        .unwrap();
+
+        let config = Config::load(&paths).unwrap();
+        assert_eq!(config.registry_url(), Some("https://example.com/mine.git"));
     }
 
     #[test]

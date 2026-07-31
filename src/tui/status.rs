@@ -15,6 +15,7 @@
 //! - `Ctrl+C` — exit immediately
 
 use crate::error::Result;
+use crate::library::drift::DriftState;
 use crate::library::spec::SpecType;
 use crate::library::tool_dirs::ToolDirs;
 use crate::paths::Paths;
@@ -45,6 +46,7 @@ enum StatusRow {
         spec_type: SpecType,
         section: StatusSection,
         note: Option<String>,
+        drift: DriftState,
     },
     /// Empty section indicator "(none loaded)", "(empty manifest)".
     Empty(String),
@@ -110,6 +112,7 @@ impl StatusView {
                     spec_type: spec.spec_type,
                     section: StatusSection::Core,
                     note: None,
+                    drift: app.drift.state_of(&spec.id),
                 });
             }
         }
@@ -135,6 +138,7 @@ impl StatusView {
                             spec_type: *spec_type,
                             section: StatusSection::Session,
                             note: None,
+                            drift: app.drift.state_of(id),
                         });
                     }
                 }
@@ -163,6 +167,7 @@ impl StatusView {
                         spec_type: SpecType::Skill,
                         section: StatusSection::Manifest,
                         note,
+                        drift: app.drift.state_of(id),
                     });
                     has_entries = true;
                 }
@@ -179,6 +184,7 @@ impl StatusView {
                         spec_type: SpecType::Agent,
                         section: StatusSection::Manifest,
                         note,
+                        drift: app.drift.state_of(id),
                     });
                     has_entries = true;
                 }
@@ -206,6 +212,7 @@ impl StatusView {
                 spec_type: spec.spec_type,
                 section: StatusSection::Cold,
                 note: None,
+                drift: app.drift.state_of(&spec.id),
             });
         }
 
@@ -392,6 +399,7 @@ fn render_status(frame: &mut Frame, view: &mut StatusView) {
                 spec_type,
                 section,
                 note,
+                drift,
             } => {
                 let icon = match section {
                     StatusSection::Core | StatusSection::Session | StatusSection::Manifest => "✓",
@@ -408,7 +416,8 @@ fn render_status(frame: &mut Frame, view: &mut StatusView) {
                 let mut spans = vec![
                     Span::styled(format!("  {icon} "), icon_style),
                     Span::styled(format!("{:<6}", spec_type), type_style),
-                    Span::raw(format!("  {id}")),
+                    Span::styled(format!("  {} ", drift.marker()), theme::drift_style(*drift)),
+                    Span::raw(id.as_str()),
                 ];
                 if let Some(note) = note {
                     spans.push(Span::styled(format!(" {note}"), theme::WARNING));

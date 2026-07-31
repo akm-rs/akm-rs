@@ -1,0 +1,15 @@
+---
+source: tests/help_test.rs
+assertion_line: 51
+expression: "String::from_utf8_lossy(&output.stdout).to_string()"
+---
+Show what changed locally and in the registry for a spec
+
+Usage: akm skills diff <ID>
+
+Arguments:
+  <ID>  Spec ID to compare
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version

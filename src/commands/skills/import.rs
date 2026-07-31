@@ -48,7 +48,7 @@ pub fn run(
     println!();
 
     // Step 2: Check overwrite BEFORE downloading (fail fast)
-    let library_dir = paths.data_dir();
+    let library_dir = paths.library_dir();
     let dest_path = library_dir.join("skills").join(&id);
     let is_tty = io::stdin().is_terminal();
 
@@ -150,22 +150,22 @@ pub fn run(
     copy_dir_recursive(temp_dir.path(), &dest_path)?;
     println!("  Copied skill to cold storage");
 
-    // Step 7: Regenerate library.json
-    libgen::generate(library_dir)?;
-
-    // Step 8: Patch entry with user-provided metadata + source URL
-    let mut library = Library::load_from(&paths.library_json())?;
-    if let Some(spec) = library.get_mut(&id) {
-        spec.description = user_desc;
-        spec.tags = user_tags;
-        spec.core = user_core;
-        spec.source = Some(parsed.browsable_url());
-    }
-    library.save(paths)?;
+    // Step 7: Record the metadata the user typed, plus where the skill came
+    // from, in the spec's sidecar — then derive library.json from it.
+    super::promote::write_sidecar(
+        &library_dir,
+        &id,
+        user_desc,
+        user_tags,
+        user_core,
+        Some(parsed.browsable_url()),
+    )?;
+    libgen::generate(&library_dir)?;
+    let library = Library::load_from(&paths.library_json())?;
 
     // Step 9: Rebuild global symlinks
     let core_specs = library.core_specs();
-    let count = symlinks::rebuild_core(&core_specs, library_dir, tool_dirs.dirs())?;
+    let count = symlinks::rebuild_core(&core_specs, &library_dir, tool_dirs.dirs())?;
     println!("  {count} core symlinks rebuilt");
     println!();
     println!("Imported skill '{id}' from GitHub");

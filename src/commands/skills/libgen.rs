@@ -9,7 +9,7 @@ use crate::paths::Paths;
 /// Algorithm:
 /// 1. Locate target directory:
 ///    a. If in a git repo with `skills/` → use repo root
-///    b. Otherwise → use cold library (`Paths::data_dir()`)
+///    b. Otherwise → use cold library (`Paths::library_dir()`)
 /// 2. Call `libgen::generate(target_dir)`
 /// 3. Report count
 pub fn run(paths: &Paths) -> Result<()> {
@@ -34,10 +34,10 @@ fn resolve_target_dir(paths: &Paths) -> Result<std::path::PathBuf> {
         }
     }
 
-    let data_dir = paths.data_dir().to_path_buf();
-    if data_dir.join("skills").is_dir() || data_dir.join("agents").is_dir() {
-        return Ok(data_dir);
+    let library_dir = paths.library_dir();
+    if library_dir.join("skills").is_dir() || library_dir.join("agents").is_dir() {
+        return Ok(library_dir);
     }
 
-    Err(crate::error::Error::NoSpecDirs { path: data_dir })
+    Err(crate::error::Error::NoSpecDirs { path: library_dir })
 }

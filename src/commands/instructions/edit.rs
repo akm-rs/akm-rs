@@ -1,16 +1,19 @@
 //! `akm instructions edit` — edit global instructions in $EDITOR.
 //!
 //! Behavior:
-//! 1. Ensure global-instructions.md exists (create with starter header if not)
+//! 1. Ensure `library/instructions/global.md` exists — seeded from the pre-rc4
+//!    location if this machine has one, otherwise a starter header
 //! 2. Resolve editor ($EDITOR → git var GIT_EDITOR → nano)
 //! 3. Open editor
-//! 4. After editor exits, prompt to sync (if TTY)
-//! 5. If user says yes, run instructions sync
+//! 4. After editor exits, prompt to distribute to the tool dirs (if TTY)
+//! 5. Then offer to publish the change to the personal registry
 //!
-//! No backward-compat migration (Rust is v1.0).
+//! Editing is the only place that prompts. `akm sync` reports drift and moves
+//! on, so a session start is never blocked on a question.
 
-use crate::commands::instructions::default_targets;
 use crate::commands::instructions::sync::sync_instructions;
+use crate::commands::instructions::{default_targets, publish, seed_from_legacy};
+use crate::config::Config;
 use crate::editor::resolve_editor;
 use crate::error::{Error, IoContext, Result};
 use crate::paths::Paths;
@@ -42,10 +45,11 @@ pub(crate) fn ensure_instructions_file(path: &Path) -> Result<()> {
 ///
 /// # Errors
 /// Returns `Err` if the editor cannot be launched or exits with a non-zero status.
-pub fn run(paths: &Paths) -> Result<()> {
-    let instructions_file = paths.global_instructions();
+pub fn run(paths: &Paths, config: &Config) -> Result<()> {
+    let instructions_file = paths.instructions_file();
 
-    // Create with starter header if it doesn't exist
+    // An rc3 machine keeps what it already wrote; a fresh one gets a header.
+    seed_from_legacy(paths)?;
     ensure_instructions_file(&instructions_file)?;
 
     // Resolve and launch editor
@@ -79,6 +83,9 @@ pub fn run(paths: &Paths) -> Result<()> {
         let targets = default_targets(home);
         sync_instructions(&instructions_file, &targets)?;
     }
+
+    // Distributing is local; the other machines only see it once it is pushed.
+    publish::offer(paths, config);
 
     Ok(())
 }

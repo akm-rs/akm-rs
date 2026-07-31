@@ -4,6 +4,7 @@
 
 use crate::error::Result;
 use crate::git::Git;
+use crate::library::drift::DriftReport;
 use crate::library::manifest::Manifest;
 use crate::library::spec::SpecType;
 use crate::library::tool_dirs::ToolDirs;
@@ -24,9 +25,14 @@ pub fn run(paths: &Paths, tool_dirs: &ToolDirs, plain: bool) -> Result<()> {
     }
 }
 
-/// Plain output mode — identical to Task 4 implementation.
+/// Plain output mode.
+///
+/// Every spec line carries its drift marker, so the same list answers both
+/// "what is loaded" and "what needs publishing". Drift is advisory: a library
+/// that is not a git checkout simply reports every spec as clean.
 fn run_plain(paths: &Paths, tool_dirs: &ToolDirs) -> Result<()> {
     let library = Library::load_checked(paths)?;
+    let drift = DriftReport::compute(&paths.library_dir()).unwrap_or_default();
 
     // Section 1: Project info
     let project_root = Git::toplevel(None).ok();
@@ -53,7 +59,8 @@ fn run_plain(paths: &Paths, tool_dirs: &ToolDirs) -> Result<()> {
 
     for spec in &core_specs {
         let type_label = format!("{:<6}", spec.spec_type);
-        println!("  ✓ {type_label}  {}", spec.id);
+        let marker = drift.state_of(&spec.id).marker();
+        println!("  ✓ {type_label}  {marker} {}", spec.id);
     }
     println!();
 
@@ -68,7 +75,8 @@ fn run_plain(paths: &Paths, tool_dirs: &ToolDirs) -> Result<()> {
             } else {
                 for (id, spec_type) in &session_specs {
                     let type_label = format!("{:<6}", spec_type);
-                    println!("  ✓ {type_label}  {id}");
+                    let marker = drift.state_of(id).marker();
+                    println!("  ✓ {type_label}  {marker} {id}");
                 }
             }
             println!();
@@ -87,19 +95,21 @@ fn run_plain(paths: &Paths, tool_dirs: &ToolDirs) -> Result<()> {
 
                 for id in manifest.skill_ids() {
                     manifest_ids.insert(id.clone());
+                    let marker = drift.state_of(id).marker();
                     if library.contains(id) {
-                        manifest_lines.push(format!("  ✓ {:<6}  {id}", "skill"));
+                        manifest_lines.push(format!("  ✓ {:<6}  {marker} {id}", "skill"));
                     } else {
-                        manifest_lines.push(format!("  ? skill   {id} (not in library)"));
+                        manifest_lines.push(format!("  ? skill   {marker} {id} (not in library)"));
                     }
                 }
 
                 for id in manifest.agent_ids() {
                     manifest_ids.insert(id.clone());
+                    let marker = drift.state_of(id).marker();
                     if library.contains(id) {
-                        manifest_lines.push(format!("  ✓ {:<6}  {id}", "agent"));
+                        manifest_lines.push(format!("  ✓ {:<6}  {marker} {id}", "agent"));
                     } else {
-                        manifest_lines.push(format!("  ? agent   {id} (not in library)"));
+                        manifest_lines.push(format!("  ? agent   {marker} {id} (not in library)"));
                     }
                 }
 
@@ -125,10 +135,38 @@ fn run_plain(paths: &Paths, tool_dirs: &ToolDirs) -> Result<()> {
             continue;
         }
         let type_label = format!("{:<6}", spec.spec_type);
-        println!("  ○ {type_label}  {}", spec.id);
+        let marker = drift.state_of(&spec.id).marker();
+        println!("  ○ {type_label}  {marker} {}", spec.id);
     }
 
+    print_drift_legend(&drift);
+
     Ok(())
+}
+
+/// Explain the drift markers, and name what needs a decision.
+///
+/// Printed only when something has actually drifted — on a level library every
+/// marker is blank and there is nothing to explain.
+fn print_drift_legend(drift: &DriftReport) {
+    if drift.is_clean() {
+        return;
+    }
+
+    println!();
+    println!("Sync markers:  * unpublished   v remote ahead   ! diverged");
+
+    for (id, state) in drift.drifted() {
+        println!("  {} {id} ({state})", state.marker());
+    }
+
+    if drift.instructions() != crate::library::drift::DriftState::Clean {
+        println!(
+            "  {} global instructions ({})",
+            drift.instructions().marker(),
+            drift.instructions()
+        );
+    }
 }
 
 /// Scan the session staging directory for loaded specs.

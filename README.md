@@ -6,7 +6,9 @@
 
 A CLI tool for managing reusable LLM skills, artifacts, and instructions across projects and AI coding agents.
 
-AKM is a **client** of skill registries — it fetches, organizes, and wires skills into your development workflow. The registry itself is a separate git repository you own, configured via `skills.personal-registry`.
+AKM is a **client** of a skill registry — it fetches, organizes, and wires skills into your development workflow. The registry itself is a separate git repository you own, configured via `registry.url`.
+
+That repository is checked out as your library rather than copied out of it, so a skill you edit locally survives the next sync, AKM can tell you which side has moved, and publishing one skill is one commit.
 
 ## Supported harnesses
 
@@ -104,7 +106,7 @@ Commands:
 ### Skills
 
 ```bash
-akm skills sync                  # pull registries → rebuild library
+akm skills sync                  # fast-forward the registry → rebuild library
 akm skills list                  # interactive browsable list (TUI)
 akm skills list --plain          # plain text output (scripting)
 akm skills search "testing"      # search by keyword
@@ -114,12 +116,46 @@ akm skills load debugging        # load into active session
 akm skills unload debugging      # remove from session
 akm skills loaded                # show active session specs
 akm skills status                # full status dashboard (TUI)
-akm skills edit my-skill         # edit metadata in $EDITOR
+akm skills edit my-skill         # edit SKILL.md in $EDITOR
+akm skills edit my-skill --meta  # edit the skill's akm.json sidecar
+akm skills diff my-skill         # what changed here, and what changed on the registry
+akm skills revert my-skill       # discard local changes (--remote: take the registry's copy)
+akm skills core                  # show core flags (--adopt / --publish to reconcile)
 akm skills promote ./my-skill     # import local skill to cold storage
 akm skills import <github-url>   # import skill from a GitHub URL
 akm skills publish my-skill      # publish to personal registry
 akm skills clean --dry-run       # preview stale spec removal
 ```
+
+#### Keeping in step with the registry
+
+Your library is the registry's git working tree, so AKM answers "who is newer"
+from git rather than from bookkeeping of its own. `akm skills sync` fetches and
+fast-forwards; an uncommitted edit of yours to a skill the update does not touch
+survives untouched, and one it *does* touch is set aside and put back on top.
+
+Sync never merges and never prompts — it reports, and you decide:
+
+```
+Diverged from the registry (1):
+  grill-me
+  Review with 'akm skills diff <id>', then publish or revert.
+
+Not yet published (2):
+  my-skill
+  tdd
+  Publish with 'akm skills publish <id>'.
+```
+
+The same states show as markers in `akm skills list` and `akm skills status`:
+`*` edited here and unpublished, `v` the registry is ahead, `!` both moved.
+
+Each skill carries its human-facing metadata in an `akm.json` sidecar beside its
+`SKILL.md`, so two machines editing two different skills never collide.
+`library.json` is a derived index, regenerated on every sync — edit the sidecar
+(or `akm skills edit --meta`), never the index. `core` defaults live in the
+sidecar and propagate; a local `c` toggle in the TUI stays on this machine, and
+`akm skills core --publish` promotes it for every machine.
 
 #### Importing skills from GitHub
 
@@ -147,7 +183,7 @@ skill to your personal registry:
 Publish to personal registry? [y/N]:
 ```
 
-The prompt is skipped when `skills.personal_registry` is unset or when stdin is
+The prompt is skipped when `registry.url` is unset or when stdin is
 not a terminal. The description and tags you entered at the metadata prompts are
 carried into the registry. If publishing fails, the skill still stays in cold
 storage — retry with `akm skills publish <id>`.
@@ -162,11 +198,19 @@ akm artifacts sync               # bidirectional git sync
 
 ```bash
 akm instructions sync            # distribute global instructions to tool dirs
-akm instructions edit            # edit global-instructions.md in $EDITOR
+akm instructions edit            # edit global instructions in $EDITOR
+akm instructions publish         # push them to your personal registry
 akm instructions scaffold-project  # create AGENTS.md + CLAUDE.md in project root
 ```
 
-`instructions sync` writes `~/.akm/global-instructions.md` out under each tool's expected name: `~/.claude/CLAUDE.md`, `~/.copilot/copilot-instructions.md`, `~/.vibe/prompts/cli.md`, `~/.agents/AGENTS.md` and `~/.pi/agent/AGENTS.md`.
+Global instructions live in the registry, at `instructions/global.md`, so they
+propagate between your machines through the same clone, drift and publish flow
+as a skill. `instructions sync` writes that file out under each tool's expected
+name: `~/.claude/CLAUDE.md`, `~/.copilot/copilot-instructions.md`,
+`~/.vibe/prompts/cli.md`, `~/.agents/AGENTS.md` and `~/.pi/agent/AGENTS.md`.
+
+A pre-rc4 `~/.akm/global-instructions.md` is carried into the registry the first
+time the new file is needed; the old file is left where it is.
 
 ### Configuration
 
@@ -197,6 +241,26 @@ akm completions fish > ~/.config/fish/completions/akm.fish
 ## Configuration
 
 Config lives at `~/.config/akm/config.toml` (XDG-compliant). Created by `akm setup` or on first run with defaults.
+
+```toml
+features = ["skills", "artifacts", "instructions"]
+
+[registry]
+url = "git@github.com:you/your-registry.git"
+```
+
+`skills.personal_registry` is the pre-rc4 spelling of `registry.url` and still
+works; the canonical key wins when both are set.
+
+On disk:
+
+```
+~/.local/share/akm/
+  library/          the registry's git working tree — skills, agents, instructions
+  local.json        this machine's core deviations
+  tools.json        harness definitions
+  shell/            generated shell init
+```
 
 ## How a session works
 

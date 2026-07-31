@@ -62,7 +62,7 @@ pub fn run(paths: &Paths, ids: &[String], tool_dirs: &ToolDirs) -> Result<()> {
             if staging.is_dir() {
                 let _ = symlinks::create_session(
                     spec,
-                    paths.data_dir(),
+                    &paths.library_dir(),
                     staging,
                     &tool_dirs.staging_names(),
                 );

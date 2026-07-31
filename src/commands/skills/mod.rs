@@ -4,15 +4,19 @@
 
 pub mod add;
 pub mod clean;
+pub mod core;
+pub mod diff;
 pub mod edit;
 pub mod import;
 pub mod libgen;
 pub mod list;
 pub mod load;
 pub mod loaded;
+pub mod migrate;
 pub mod promote;
 pub mod publish;
 pub mod remove;
+pub mod revert;
 pub mod search;
 pub mod session_setup;
 pub mod status;
