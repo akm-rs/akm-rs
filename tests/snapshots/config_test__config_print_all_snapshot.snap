@@ -1,12 +1,11 @@
 ---
 source: tests/config_test.rs
-assertion_line: 112
 expression: normalized
 ---
 AKM Config (<CONFIG_DIR>/config.toml)
 
   features                  = skills,artifacts
-  skills.personal-registry  = https://github.com/rplsmn/skillfab.git
+  registry.url              = https://github.com/rplsmn/skillfab.git
   artifacts.remote          = (not set)
   artifacts.dir             = (not set)
   artifacts.auto-push       = true
