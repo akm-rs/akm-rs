@@ -1,3 +1,13 @@
+# Unreleased
+
+- Publishing is batched: one intent is one commit
+  - `akm skills core --publish` now promotes *and* pushes, in a single commit,
+    staging only sidecars so an in-flight `SKILL.md` is never swept in
+  - `akm skills publish` with no id publishes every pending spec at once
+  - `--dry-run` on both
+- Fix a commit whose push failed never being retried — publish now pushes
+  commits already on `HEAD` instead of reporting nothing to do
+
 # 1.0.0-rc4
 
 **Breaking: the cold library is wiped and re-cloned on first sync.** The

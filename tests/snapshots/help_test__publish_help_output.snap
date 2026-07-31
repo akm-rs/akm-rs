@@ -1,0 +1,15 @@
+---
+source: tests/help_test.rs
+expression: "String::from_utf8_lossy(&output.stdout).to_string()"
+---
+Publish spec to personal registry
+
+Usage: akm skills publish [OPTIONS] [ID]
+
+Arguments:
+  [ID]  Spec ID to publish. Omit to publish everything pending
+
+Options:
+      --dry-run  Preview changes without applying
+  -h, --help     Print help
+  -V, --version  Print version

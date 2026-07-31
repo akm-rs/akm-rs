@@ -1,6 +1,5 @@
 ---
 source: tests/help_test.rs
-assertion_line: 51
 expression: "String::from_utf8_lossy(&output.stdout).to_string()"
 ---
 Discard local changes to a spec

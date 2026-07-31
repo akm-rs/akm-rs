@@ -7,15 +7,17 @@
 //!
 //! * `--adopt` throws this machine's deviations away and follows the registry;
 //! * `--publish` promotes them into the sidecars so they become the default
-//!   everywhere, then leaves the specs staged for `akm skills publish`.
+//!   everywhere, and sends them to the registry.
 
-use crate::error::Result;
+use crate::config::Config;
+use crate::error::{Error, Result};
 use crate::library::local::LocalOverrides;
 use crate::library::spec::SpecMeta;
 use crate::library::symlinks;
 use crate::library::tool_dirs::ToolDirs;
 use crate::library::Library;
 use crate::paths::Paths;
+use crate::registry::{PublishOutcome, Registry};
 
 /// Which reconciliation the user asked for, if any.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,8 +31,13 @@ pub enum CoreAction {
 }
 
 /// Run the `akm skills core` command.
-pub fn run(paths: &Paths, action: CoreAction, tool_dirs: &ToolDirs) -> Result<()> {
-    let library_dir = paths.library_dir();
+pub fn run(
+    paths: &Paths,
+    config: &Config,
+    action: CoreAction,
+    tool_dirs: &ToolDirs,
+    dry_run: bool,
+) -> Result<()> {
     let library = Library::load_checked(paths)?;
     let mut overrides = LocalOverrides::load_from(&paths.local_json())?;
 
@@ -39,7 +46,7 @@ pub fn run(paths: &Paths, action: CoreAction, tool_dirs: &ToolDirs) -> Result<()
     match action {
         CoreAction::Show => return show(&library, &overrides),
         CoreAction::Adopt => adopt(paths, &mut overrides, tool_dirs)?,
-        CoreAction::Publish => publish_defaults(&library_dir, &library, &mut overrides)?,
+        CoreAction::Publish => publish_defaults(paths, config, &library, &mut overrides, dry_run)?,
     }
 
     overrides.save_to(&paths.local_json())?;
@@ -108,54 +115,125 @@ fn adopt(paths: &Paths, overrides: &mut LocalOverrides, tool_dirs: &ToolDirs) ->
     Ok(())
 }
 
-/// Write this machine's core choices into the sidecars, ready to publish.
+/// Promote this machine's core choices and send them to the registry.
+///
+/// One intent is one commit: every sidecar goes in a single commit and a
+/// single push. Only sidecar paths are staged, so a `SKILL.md` under edit is
+/// never swept into a metadata change.
 fn publish_defaults(
-    library_dir: &std::path::Path,
+    paths: &Paths,
+    config: &Config,
     library: &Library,
     overrides: &mut LocalOverrides,
+    dry_run: bool,
 ) -> Result<()> {
     if overrides.deviation_count() == 0 {
         println!("No local core overrides to publish.");
         return Ok(());
     }
 
-    let ids: Vec<String> = overrides.core.keys().cloned().collect();
-    let mut promoted = Vec::new();
+    let url = config.registry_url().ok_or(Error::NoPersonalRegistry)?;
+    let library_dir = paths.library_dir();
+    let registry = Registry::new(url, &library_dir);
 
-    for id in ids {
-        let Some(spec) = library.get(&id) else {
-            overrides.clear_core(&id);
+    if !registry.is_cloned() {
+        return Err(Error::RegistrySync {
+            name: "personal".into(),
+            message: "The library is not a registry checkout. Run 'akm skills sync' first.".into(),
+        });
+    }
+
+    // Resolve everything before writing anything, so a dry run and a real run
+    // report the same set.
+    let ids: Vec<String> = overrides.core.keys().cloned().collect();
+    let mut promoted: Vec<String> = Vec::new();
+    let mut pathspecs: Vec<String> = Vec::new();
+    let mut stale: Vec<String> = Vec::new();
+
+    for id in &ids {
+        match library.get(id) {
+            Some(spec) => {
+                promoted.push(id.clone());
+                pathspecs.push(spec.sidecar_pathspec());
+            }
+            // A deviation for a spec that no longer exists is just noise.
+            None => stale.push(id.clone()),
+        }
+    }
+
+    if promoted.is_empty() {
+        println!("No local core overrides to publish.");
+        for id in &stale {
+            overrides.clear_core(id);
+        }
+        return Ok(());
+    }
+
+    let message = commit_message(&promoted);
+
+    if dry_run {
+        println!(
+            "Dry run — would publish {} core setting(s):",
+            promoted.len()
+        );
+        for id in &promoted {
+            println!("  {id}");
+        }
+        println!();
+        println!(
+            "As one commit: {}",
+            message.lines().next().unwrap_or(&message)
+        );
+        println!("To: {}", registry.url());
+        return Ok(());
+    }
+
+    for id in &promoted {
+        let Some(spec) = library.get(id) else {
             continue;
         };
-
-        let sidecar = spec.sidecar_path(library_dir);
+        let sidecar = spec.sidecar_path(&library_dir);
         let mut meta = if sidecar.is_file() {
             SpecMeta::load_from(&sidecar)?
         } else {
             spec.to_meta()
         };
-
         // `library.json` already carries the effective value for this machine,
-        // which is precisely what we are promoting to the default.
+        // which is precisely what is being promoted to the default.
         meta.core = spec.core;
         meta.save_to(&sidecar)?;
-
-        overrides.clear_core(&id);
-        promoted.push(id);
     }
 
-    println!(
-        "Promoted {} core setting(s) to the registry default:",
-        promoted.len()
-    );
-    for id in &promoted {
-        println!("  {id}");
+    match registry.publish(&pathspecs, &message)? {
+        PublishOutcome::NothingToDo => {
+            println!("Core defaults already match the registry.");
+        }
+        PublishOutcome::Published => {
+            println!("Published {} core setting(s):", promoted.len());
+            for id in &promoted {
+                println!("  {id}");
+            }
+            println!();
+            println!("Pushed to {}", registry.url());
+        }
     }
-    println!();
-    println!("Publish them with:");
-    for id in &promoted {
-        println!("  akm skills publish {id}");
+
+    // Only a landed push makes it safe to forget the deviations: clearing them
+    // earlier would leave a failed publish with nothing to retry from.
+    for id in promoted.iter().chain(stale.iter()) {
+        overrides.clear_core(id);
     }
 
     Ok(())
+}
+
+/// One line naming the change, one body line naming the specs.
+///
+/// *update*, not *set*: a deviation can turn `core` off as well as on.
+fn commit_message(ids: &[String]) -> String {
+    format!(
+        "chore(core): update core defaults for {} spec(s)\n\n{}",
+        ids.len(),
+        ids.join(", ")
+    )
 }

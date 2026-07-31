@@ -1,6 +1,5 @@
 ---
 source: tests/help_test.rs
-assertion_line: 51
 expression: "String::from_utf8_lossy(&output.stdout).to_string()"
 ---
 Show or reconcile which specs are globally mounted
@@ -9,6 +8,7 @@ Usage: akm skills core [OPTIONS]
 
 Options:
       --adopt    Drop local overrides and follow the registry's defaults
-      --publish  Make this machine's core choices the registry defaults
+      --publish  Promote this machine's core choices and push them to the registry
+      --dry-run  Preview changes without applying
   -h, --help     Print help
   -V, --version  Print version

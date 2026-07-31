@@ -1,6 +1,5 @@
 ---
 source: tests/help_test.rs
-assertion_line: 35
 expression: "String::from_utf8_lossy(&output.stdout).to_string()"
 ---
 Skills management

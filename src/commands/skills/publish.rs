@@ -87,6 +87,86 @@ pub fn run(paths: &Paths, config: &Config, id: &str, dry_run: bool) -> Result<()
     Ok(())
 }
 
+/// Publish every spec holding changes the registry has not seen.
+///
+/// One commit and one push for the whole set: the unit of work is the user's
+/// intent, not the number of specs it happened to touch. Staging is by
+/// explicit spec pathspec, never `-A`, so the derived `library.json` index is
+/// left alone.
+pub fn run_all(paths: &Paths, config: &Config, dry_run: bool) -> Result<()> {
+    let url = config.registry_url().ok_or(Error::NoPersonalRegistry)?;
+    let library_dir = paths.library_dir();
+    let registry = Registry::new(url, &library_dir);
+
+    if !registry.is_cloned() {
+        return Err(Error::RegistrySync {
+            name: "personal".into(),
+            message: "The library is not a registry checkout. Run 'akm skills sync' first.".into(),
+        });
+    }
+
+    let library = Library::load_checked(paths)?;
+
+    // Ask the remote where it stands once, not once per spec.
+    registry.refresh()?;
+    let drift = registry.drift()?;
+
+    let pending: Vec<&Spec> = library
+        .specs
+        .iter()
+        .filter(|s| drift.state_of(&s.id).has_local_changes())
+        .collect();
+
+    if pending.is_empty() {
+        println!("Nothing to publish — every spec matches the registry.");
+        return Ok(());
+    }
+
+    let ids: Vec<String> = pending.iter().map(|s| s.id.clone()).collect();
+    let mut pathspecs: Vec<String> = Vec::new();
+    for spec in &pending {
+        pathspecs.extend(spec.pathspecs());
+    }
+
+    if dry_run {
+        println!("Dry run — {} spec(s) would be published:", ids.len());
+        for id in &ids {
+            println!("  {id}");
+        }
+        println!();
+        println!("Changes that would be pushed:");
+        println!("{}", registry.diff_local(&pathspecs)?);
+        return Ok(());
+    }
+
+    // A spec the remote also changed is rebased ours-wins, same as the
+    // single-spec path.
+    let diverged: Vec<String> = pending
+        .iter()
+        .filter(|s| drift.state_of(&s.id) == DriftState::Diverged)
+        .flat_map(|s| s.pathspecs())
+        .collect();
+    if !diverged.is_empty() {
+        registry.adopt_remote_then_keep_local(&diverged)?;
+    }
+
+    let message = format!("feat: publish {} spec(s)\n\n{}", ids.len(), ids.join(", "));
+
+    match registry.publish(&pathspecs, &message)? {
+        PublishOutcome::NothingToDo => println!("Nothing to publish."),
+        PublishOutcome::Published => {
+            println!("Published {} spec(s):", ids.len());
+            for id in &ids {
+                println!("  {id}");
+            }
+            println!();
+            println!("Pushed to {}", registry.url());
+        }
+    }
+
+    Ok(())
+}
+
 /// Show what publishing would send, without touching the remote.
 fn show_dry_run(registry: &Registry, spec: &Spec, state: DriftState) -> Result<()> {
     let pathspecs = spec.pathspecs();

@@ -203,9 +203,9 @@ enum SkillsCommands {
     },
     /// Publish spec to personal registry
     Publish {
-        /// Spec ID to publish
+        /// Spec ID to publish. Omit to publish everything pending.
         #[arg(add = ArgValueCandidates::new(SpecIdCompleter))]
-        id: String,
+        id: Option<String>,
         /// Preview changes without applying
         #[arg(long)]
         dry_run: bool,
@@ -233,9 +233,12 @@ enum SkillsCommands {
         /// Drop local overrides and follow the registry's defaults
         #[arg(long, conflicts_with = "publish")]
         adopt: bool,
-        /// Make this machine's core choices the registry defaults
+        /// Promote this machine's core choices and push them to the registry
         #[arg(long)]
         publish: bool,
+        /// Preview changes without applying
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Regenerate library.json from disk
     Libgen,
@@ -390,7 +393,10 @@ fn main() -> ExitCode {
                 }
                 Some(SkillsCommands::Publish { id, dry_run }) => {
                     let config = akm::config::Config::load(&paths).unwrap_or_default();
-                    commands::skills::publish::run(&paths, &config, &id, dry_run)
+                    match id {
+                        Some(id) => commands::skills::publish::run(&paths, &config, &id, dry_run),
+                        None => commands::skills::publish::run_all(&paths, &config, dry_run),
+                    }
                 }
                 Some(SkillsCommands::Diff { id }) => {
                     let config = akm::config::Config::load(&paths).unwrap_or_default();
@@ -400,13 +406,18 @@ fn main() -> ExitCode {
                     let config = akm::config::Config::load(&paths).unwrap_or_default();
                     commands::skills::revert::run(&paths, &config, &id, remote, force, &tool_dirs)
                 }
-                Some(SkillsCommands::Core { adopt, publish }) => {
+                Some(SkillsCommands::Core {
+                    adopt,
+                    publish,
+                    dry_run,
+                }) => {
+                    let config = akm::config::Config::load(&paths).unwrap_or_default();
                     let action = match (adopt, publish) {
                         (true, _) => commands::skills::core::CoreAction::Adopt,
                         (_, true) => commands::skills::core::CoreAction::Publish,
                         _ => commands::skills::core::CoreAction::Show,
                     };
-                    commands::skills::core::run(&paths, action, &tool_dirs)
+                    commands::skills::core::run(&paths, &config, action, &tool_dirs, dry_run)
                 }
                 Some(SkillsCommands::SessionSetup {
                     staging_dir,
