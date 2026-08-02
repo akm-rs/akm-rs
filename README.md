@@ -112,9 +112,6 @@ akm skills list --plain          # plain text output (scripting)
 akm skills search "testing"      # search by keyword
 akm skills add vitest tdd        # add specs to project manifest
 akm skills remove vitest         # remove from project manifest
-akm skills load debugging        # load into active session
-akm skills unload debugging      # remove from session
-akm skills loaded                # show active session specs
 akm skills status                # full status dashboard (TUI)
 akm skills edit my-skill         # edit SKILL.md in $EDITOR
 akm skills edit my-skill --meta  # edit the skill's akm.json sidecar

@@ -57,12 +57,6 @@ pub enum Error {
     #[error("Library not found at {path}\nRun 'akm skills sync' to populate the library.")]
     LibraryNotFound { path: PathBuf },
 
-    /// No active session (maps to _check_session).
-    #[error(
-        "No active skill session.\nLaunch via claude/copilot/opencode wrapper to start a session."
-    )]
-    NoActiveSession,
-
     /// Spec not found in library.
     #[error("Spec not found in library: '{id}'\nRun 'akm skills sync' to update your library, or 'akm skills list' to browse.")]
     SpecNotFound { id: String },
@@ -185,10 +179,6 @@ pub enum Error {
     /// Spec ID was changed during edit (not allowed).
     #[error("Cannot change spec id. Expected '{expected}', got '{actual}'.")]
     SpecIdChanged { expected: String, actual: String },
-
-    /// Session directory does not exist (AKM_SESSION env var set but dir missing).
-    #[error("Session directory does not exist: {path}\nThe session may have been cleaned up. Start a new session.")]
-    SessionDirNotFound { path: PathBuf },
 
     /// Spec already exists in cold storage (promote without --force).
     #[error("Spec '{id}' already exists in cold storage.\nUse --force to overwrite.")]

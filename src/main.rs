@@ -27,7 +27,6 @@ Examples:
   akm setup                      # interactive feature configuration
   akm sync                       # sync all enabled features
   akm skills add vitest tdd      # add specs to project manifest
-  akm skills load debugging      # load spec into active session
   akm skills list --type skill   # list all skills
   akm artifacts sync             # sync artifacts repo
   akm config artifacts.auto-push false")]
@@ -124,20 +123,6 @@ enum SkillsCommands {
         #[arg(required = true, add = ArgValueCandidates::new(SpecIdCompleter))]
         ids: Vec<String>,
     },
-    /// Load spec(s) into active session (JIT)
-    Load {
-        /// Spec IDs to load
-        #[arg(required = true, add = ArgValueCandidates::new(SpecIdCompleter))]
-        ids: Vec<String>,
-    },
-    /// Remove spec(s) from active session
-    Unload {
-        /// Spec IDs to unload
-        #[arg(required = true, add = ArgValueCandidates::new(SpecIdCompleter))]
-        ids: Vec<String>,
-    },
-    /// Show specs in active session
-    Loaded,
     /// Browse library
     List {
         /// Filter by tag
@@ -362,13 +347,6 @@ fn main() -> ExitCode {
                 Some(SkillsCommands::Status { plain }) => {
                     commands::skills::status::run(&paths, &tool_dirs, plain)
                 }
-                Some(SkillsCommands::Load { ids }) => {
-                    commands::skills::load::run(&paths, &ids, &tool_dirs)
-                }
-                Some(SkillsCommands::Unload { ids }) => {
-                    commands::skills::unload::run(&paths, &ids, &tool_dirs)
-                }
-                Some(SkillsCommands::Loaded) => commands::skills::loaded::run(&paths, &tool_dirs),
                 Some(SkillsCommands::Clean { project, dry_run }) => {
                     commands::skills::clean::run(&paths, &tool_dirs, project, dry_run)
                 }

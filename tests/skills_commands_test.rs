@@ -1,7 +1,7 @@
 //! Integration tests for skills subcommands (Task 4).
 //!
 //! Tests use temp directories and mock library data to exercise
-//! add, remove, list, search, status, load, unload, loaded, clean, promote.
+//! add, remove, list, search, status, clean, promote.
 
 use akm::config::Config;
 use akm::error::Error;
@@ -208,32 +208,11 @@ fn search_no_results() {
 }
 
 // =============================================================================
-// Load tests
+// Session symlink tests (used by add/remove auto-refresh and session-setup)
 // =============================================================================
 
 #[test]
-fn load_no_session_errors() {
-    // Test via assert_cmd where we control the environment
-    use assert_cmd::cargo::cargo_bin_cmd;
-
-    let tmp = TempDir::new().unwrap();
-    let paths = test_paths(&tmp);
-    create_test_library(&paths);
-
-    cargo_bin_cmd!("akm")
-        .args(["skills", "load", "tdd"])
-        .env("XDG_DATA_HOME", tmp.path().join("data"))
-        .env("XDG_CONFIG_HOME", tmp.path().join("config"))
-        .env("XDG_CACHE_HOME", tmp.path().join("cache"))
-        .env("HOME", tmp.path().join("home"))
-        .env_remove("AKM_SESSION")
-        .assert()
-        .failure()
-        .stderr(pred_contains("session"));
-}
-
-#[test]
-fn load_creates_symlinks_in_session() {
+fn session_symlink_create() {
     let tmp = TempDir::new().unwrap();
     let paths = test_paths(&tmp);
     create_test_library(&paths);
@@ -264,7 +243,7 @@ fn load_creates_symlinks_in_session() {
 }
 
 #[test]
-fn load_idempotent() {
+fn session_symlink_create_idempotent() {
     let tmp = TempDir::new().unwrap();
     let paths = test_paths(&tmp);
     create_test_library(&paths);
@@ -277,7 +256,7 @@ fn load_idempotent() {
     let library = Library::load_checked(&paths).unwrap();
     let spec = library.get("tdd").unwrap();
 
-    // Load twice — both should succeed
+    // Create twice — both should succeed
     let c1 = akm::library::symlinks::create_session(
         spec,
         &paths.library_dir(),
@@ -296,12 +275,8 @@ fn load_idempotent() {
     assert!(c2);
 }
 
-// =============================================================================
-// Unload tests
-// =============================================================================
-
 #[test]
-fn unload_removes_symlinks() {
+fn session_symlink_remove() {
     let tmp = TempDir::new().unwrap();
     let paths = test_paths(&tmp);
     create_test_library(&paths);
@@ -330,7 +305,7 @@ fn unload_removes_symlinks() {
 }
 
 #[test]
-fn unload_not_loaded_returns_false() {
+fn session_symlink_remove_missing_returns_false() {
     let tmp = TempDir::new().unwrap();
     let tool_dirs = test_tool_dirs(&tmp);
     let staging = tmp.path().join("session");
@@ -753,16 +728,6 @@ fn session_dir_empty_has_no_symlinks() {
 // =============================================================================
 // Error variant tests
 // =============================================================================
-
-#[test]
-fn error_session_dir_not_found_message() {
-    let err = Error::SessionDirNotFound {
-        path: "/tmp/missing".into(),
-    };
-    let msg = format!("{err}");
-    assert!(msg.contains("Session directory does not exist"));
-    assert!(msg.contains("/tmp/missing"));
-}
 
 #[test]
 fn error_spec_already_exists_message() {

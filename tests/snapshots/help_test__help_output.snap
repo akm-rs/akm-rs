@@ -25,7 +25,6 @@ Examples:
   akm setup                      # interactive feature configuration
   akm sync                       # sync all enabled features
   akm skills add vitest tdd      # add specs to project manifest
-  akm skills load debugging      # load spec into active session
   akm skills list --type skill   # list all skills
   akm artifacts sync             # sync artifacts repo
   akm config artifacts.auto-push false
