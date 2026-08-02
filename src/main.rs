@@ -28,6 +28,7 @@ Examples:
   akm sync                       # sync all enabled features
   akm skills add vitest tdd      # add specs to project manifest
   akm skills list --type skill   # list all skills
+  akm skills import <github-url> # import a skill from a GitHub URL
   akm artifacts sync             # sync artifacts repo
   akm config artifacts.auto-push false")]
 struct Cli {
@@ -51,15 +52,30 @@ enum Commands {
         instructions: bool,
     },
     /// View, get, or set configuration values
+    ///
+    /// With no arguments, prints all config values. With KEY, prints that
+    /// value. With KEY and VALUE, sets it.
+    ///
+    /// Keys:
+    ///   features                  Enabled features (comma-separated: skills,artifacts,instructions)
+    ///   registry.url              Registry git URL (canonical)
+    ///   skills.personal-registry  Pre-rc4 alias for registry.url
+    ///   artifacts.remote          Artifacts repo git URL
+    ///   artifacts.dir             Artifacts directory (default: ~/.akm/artifacts)
+    ///   artifacts.auto-push       Auto-commit/push artifacts on session end (true/false)
+    ///   update.url                GitHub Releases API URL for update checks
+    ///   update.check-interval     Seconds between background update checks
+    ///   update.auto-check         Enable background update checks (true/false)
+    #[command(verbatim_doc_comment)]
     Config {
         /// Config key (e.g. artifacts.auto-push, features)
         key: Option<String>,
         /// New value to set
         value: Option<String>,
     },
-    /// Sync all enabled domains
+    /// Sync all enabled features (skills, artifacts, instructions)
     Sync,
-    /// Pull latest and re-install
+    /// Check for a new release and self-update the akm binary
     Update,
     /// [hidden] Rewrite akm-init.sh and tools.json from this binary
     ///
@@ -67,7 +83,7 @@ enum Commands {
     /// process embeds the old template, so it cannot refresh the script itself.
     #[command(hide = true, name = "shell-install")]
     ShellInstall,
-    /// Skills management
+    /// Skills management (defaults to `status` when no subcommand is given)
     Skills {
         #[command(subcommand)]
         command: Option<SkillsCommands>,
@@ -93,6 +109,7 @@ enum Commands {
     ///   eval "$(akm completions bash)"
     ///   akm completions zsh >> ~/.zshrc
     ///   akm completions fish > ~/.config/fish/completions/akm.fish
+    #[command(verbatim_doc_comment)]
     Completions {
         /// Target shell
         #[arg(value_enum)]

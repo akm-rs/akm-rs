@@ -92,4 +92,20 @@ fn print_all(paths: &Paths, config: &Config) {
         "  artifacts.auto-push       = {}",
         config.artifacts.auto_push
     );
+
+    println!(
+        "  update.url                = {}",
+        if config.update.url == crate::config::DEFAULT_UPDATE_URL {
+            format!("{} (default)", config.update.url)
+        } else {
+            config.update.url.clone()
+        }
+    );
+
+    println!(
+        "  update.check-interval     = {}",
+        config.update.check_interval
+    );
+
+    println!("  update.auto-check         = {}", config.update.auto_check);
 }
