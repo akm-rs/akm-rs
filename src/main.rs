@@ -115,6 +115,32 @@ enum Commands {
         #[arg(value_enum)]
         shell: Shell,
     },
+    /// Turn off shell integration so harnesses run vanilla (reversible)
+    ///
+    /// New shells get the plain claude/copilot/opencode/pi binaries (no
+    /// session wrappers) and global core-spec symlinks are removed from tool
+    /// dirs. Nothing is deleted from config or the library. Undo with
+    /// `akm enable`.
+    ///
+    /// For a one-off bypass in the current shell, `command claude` skips the
+    /// wrapper without disabling anything.
+    Disable,
+    /// Re-enable shell integration after `akm disable`
+    Enable,
+    /// Remove akm from this machine
+    ///
+    /// Removes the binary, the ~/.bashrc integration block, global spec
+    /// symlinks, config, and caches. Preserves artifacts (~/.akm/artifacts),
+    /// legacy global instructions, and the library (the registry checkout,
+    /// which may hold unpublished local edits) unless --purge is given.
+    Uninstall {
+        /// Also delete artifacts, global instructions, and the library
+        #[arg(long)]
+        purge: bool,
+        /// Skip the confirmation prompt
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 /// Skills subcommands.
@@ -283,11 +309,17 @@ fn main() -> ExitCode {
         }
     };
 
+    // Uninstall must not race the background check, whose cache write would
+    // re-create ~/.cache/akm after uninstall deletes it.
+    let is_uninstall_command = matches!(&cli.command, Some(Commands::Uninstall { .. }));
+
     // Spawn background version check
     let update_rx = {
         match config::Config::load(&paths) {
-            Ok(cfg) => update::version_check::spawn_background_check(&cfg.update, &paths),
-            Err(_) => {
+            Ok(cfg) if !is_uninstall_command => {
+                update::version_check::spawn_background_check(&cfg.update, &paths)
+            }
+            _ => {
                 let (tx, rx) = std::sync::mpsc::channel();
                 let _ = tx.send(update::version_check::CheckResult::Skipped);
                 rx
@@ -445,6 +477,19 @@ fn main() -> ExitCode {
             }
         },
         Some(Commands::Completions { shell }) => commands::completions::run(&shell),
+        Some(Commands::Disable) => {
+            let tool_dirs = akm::library::tool_dirs::ToolDirs::load(&paths);
+            commands::disable::run(&paths, &tool_dirs)
+        }
+        Some(Commands::Enable) => {
+            let tool_dirs = akm::library::tool_dirs::ToolDirs::load(&paths);
+            commands::enable::run(&paths, &tool_dirs)
+        }
+        Some(Commands::Uninstall { purge, yes }) => {
+            let tool_dirs = akm::library::tool_dirs::ToolDirs::load(&paths);
+            let mut prompter = commands::setup::StdinPrompter;
+            commands::uninstall::run(&paths, &tool_dirs, purge, yes, &mut prompter)
+        }
     };
 
     // Print update notice after command output (unless user ran `akm update`)
