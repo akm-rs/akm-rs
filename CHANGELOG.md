@@ -1,3 +1,13 @@
+# Unreleased
+
+- **Breaking**: remove `akm skills load`, `akm skills unload`, and `akm skills loaded`
+  - `skills add`/`remove` already refresh the active session's symlinks, so
+    load/unload only offered manifest-free session loading — niche and unused
+  - `akm skills status --plain` covers the scriptable session view
+- Help page cleanup: `akm config --help` now documents all supported keys,
+  `akm config` prints the `update.*` keys, `akm update`/`akm sync`/`akm skills`
+  descriptions match actual behavior, `akm completions` examples render correctly
+
 # 1.0.0-rc5
 
 - Publishing is batched: one intent is one commit
