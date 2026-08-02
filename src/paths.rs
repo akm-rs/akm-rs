@@ -145,6 +145,14 @@ impl Paths {
         self.config_dir.join("config.toml")
     }
 
+    /// `$XDG_CONFIG_HOME/akm/disabled` — sentinel created by `akm disable`.
+    ///
+    /// When present, `akm-init.sh` returns early without defining tool
+    /// wrappers, leaving harness entrypoints vanilla in new shells.
+    pub fn disabled_sentinel(&self) -> PathBuf {
+        self.config_dir.join("disabled")
+    }
+
     // --- Cache dir ---
 
     /// `$XDG_CACHE_HOME/akm` — caches and ephemeral data

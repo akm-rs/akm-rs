@@ -1,5 +1,15 @@
 # Unreleased
 
+- Add `akm uninstall` — removes the binary, ~/.bashrc integration block,
+  global spec symlinks, config, caches, and machine-local metadata
+  (`library.json`, `local.json`, `tools.json`). Preserves artifacts, the
+  legacy global instructions file, and the library (the registry checkout,
+  which may hold unpublished local edits); `--purge` removes those too.
+  `--yes` skips the confirmation prompt.
+- Add `akm disable` / `akm enable` — reversible vanilla mode. `disable`
+  makes new shells skip the claude/copilot/opencode/pi wrappers and clears
+  global core symlinks without deleting anything; `enable` restores both.
+  Useful for checking default harness behavior without akm.
 - **Breaking**: remove `akm skills load`, `akm skills unload`, and `akm skills loaded`
   - `skills add`/`remove` already refresh the active session's symlinks, so
     load/unload only offered manifest-free session loading — niche and unused
