@@ -145,6 +145,34 @@ fn remove_marker_block(content: &str) -> String {
     result
 }
 
+/// Remove the AKM shell integration block from .bashrc.
+///
+/// Returns `Ok(true)` if a block was found and removed, `Ok(false)` if
+/// .bashrc is missing or contains no AKM block. Used by `akm uninstall`.
+pub fn unpatch_bashrc(paths: &Paths) -> Result<bool> {
+    let bashrc = paths.home().join(".bashrc");
+    if !bashrc.is_file() {
+        return Ok(false);
+    }
+
+    let existing = std::fs::read_to_string(&bashrc).map_err(|e| Error::ShellInitWrite {
+        path: bashrc.clone(),
+        source: e,
+    })?;
+
+    if !existing.contains(BASHRC_MARKER_START) {
+        return Ok(false);
+    }
+
+    let cleaned = remove_marker_block(&existing);
+    std::fs::write(&bashrc, &cleaned).map_err(|e| Error::ShellInitWrite {
+        path: bashrc,
+        source: e,
+    })?;
+
+    Ok(true)
+}
+
 /// Check if .bashrc already contains the AKM marker block.
 ///
 /// Used by setup to report status without re-patching.

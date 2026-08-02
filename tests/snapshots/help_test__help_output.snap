@@ -15,6 +15,9 @@ Commands:
   artifacts     Artifact sync
   instructions  Global instruction management
   completions   Generate shell completion script
+  disable       Turn off shell integration so harnesses run vanilla (reversible)
+  enable        Re-enable shell integration after `akm disable`
+  uninstall     Remove akm from this machine
   help          Print this message or the help of the given subcommand(s)
 
 Options:

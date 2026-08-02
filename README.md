@@ -79,6 +79,9 @@ Commands:
   artifacts     Artifact sync
   instructions  Global instruction management
   completions   Generate shell completion script
+  disable       Turn off shell integration so harnesses run vanilla
+  enable        Re-enable shell integration after akm disable
+  uninstall     Remove akm from this machine
 ```
 
 ### Skills
@@ -146,6 +149,25 @@ akm config artifacts.auto-push false  # set a value
 akm update                       # download and install latest version
 akm update --check               # check without installing
 ```
+
+### Disabling and Uninstalling
+
+```bash
+akm disable            # new shells get vanilla claude/copilot/opencode; nothing deleted
+akm enable             # restore wrappers and global core symlinks
+akm uninstall          # remove akm — preserves artifacts, global instructions, cold library
+akm uninstall --purge  # remove everything, including artifacts and the cold library
+```
+
+`akm disable` is the way to check default harness behavior without akm: it
+removes the global core-spec symlinks and makes new shells skip the tool
+wrappers, while leaving config, library, and manifests intact. For a one-off
+bypass in the current shell, `command claude` runs the real binary without
+the wrapper (the wrappers are shell functions, and `command` skips function
+lookup).
+
+Instruction files previously distributed to tool dirs (e.g. `~/.claude/CLAUDE.md`)
+are never deleted by either command — they may contain your own edits.
 
 ### Shell Completions
 

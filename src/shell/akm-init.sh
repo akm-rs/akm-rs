@@ -12,6 +12,10 @@
 # interactive shell — setting -e would cause the shell to exit on any error.
 # Individual functions handle errors with `|| true` and explicit return codes.
 
+# Respect `akm disable` — skip all integration so harness entrypoints
+# (claude, copilot, opencode) stay vanilla. Re-enable with `akm enable`.
+[[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/akm/disabled" ]] && return 0
+
 # --- Config ---
 
 # Reads config via the akm binary's proper TOML parser.

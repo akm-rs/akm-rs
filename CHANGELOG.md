@@ -1,3 +1,14 @@
+# Unreleased
+
+- Add `akm uninstall` — removes the binary, ~/.bashrc integration block,
+  global spec symlinks, config, and caches. Preserves artifacts,
+  global instructions, and the cold library; `--purge` removes those too.
+  `--yes` skips the confirmation prompt.
+- Add `akm disable` / `akm enable` — reversible vanilla mode. `disable`
+  makes new shells skip the claude/copilot/opencode wrappers and clears
+  global core symlinks without deleting anything; `enable` restores both.
+  Useful for checking default harness behavior without akm.
+
 # alpha.11
 
 - Add macOS Apple Silicon (aarch64) binary to releases
