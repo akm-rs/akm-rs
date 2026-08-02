@@ -68,7 +68,7 @@ _akm_skills_session_start() {
   local staging="${XDG_CACHE_HOME:-$HOME/.cache}/akm/$session_id"
 
   # Create staging directory structure. Pi gets an agents/ subdir it never
-  # reads, so the layout matches `akm skills load`, which creates both.
+  # reads, so the layout matches the session symlinks, which cover both.
   local tool_dir
   for tool_dir in .claude .copilot .agents .pi; do
     mkdir -p "$staging/$tool_dir"/{skills,agents}

@@ -2,7 +2,7 @@
 source: tests/help_test.rs
 expression: "String::from_utf8_lossy(&output.stdout).to_string()"
 ---
-Skills management
+Skills management (defaults to `status` when no subcommand is given)
 
 Usage: akm skills [COMMAND]
 
@@ -10,9 +10,6 @@ Commands:
   sync     Pull remote → cold library → rebuild symlinks
   add      Add spec(s) to project manifest
   remove   Remove spec(s) from project manifest
-  load     Load spec(s) into active session (JIT)
-  unload   Remove spec(s) from active session
-  loaded   Show specs in active session
   list     Browse library
   search   Search library by keyword
   status   Full status overview
