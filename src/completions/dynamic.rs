@@ -47,8 +47,6 @@ fn spec_to_candidate(spec: &Spec) -> CompletionCandidate {
 /// Used for arguments that accept any spec ID:
 /// - `akm skills add <id>...`
 /// - `akm skills remove <id>...`
-/// - `akm skills load <id>...`
-/// - `akm skills unload <id>...`
 /// - `akm skills edit <id>`
 /// - `akm skills publish <id>`
 #[derive(Clone, Debug)]

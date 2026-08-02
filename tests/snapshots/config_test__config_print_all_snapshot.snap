@@ -9,3 +9,6 @@ AKM Config (<CONFIG_DIR>/config.toml)
   artifacts.remote          = (not set)
   artifacts.dir             = (not set)
   artifacts.auto-push       = true
+  update.url                = https://api.github.com/repos/akm-rs/akm-rs/releases/latest (default)
+  update.check-interval     = 86400
+  update.auto-check         = true
