@@ -77,6 +77,21 @@ Three places must stay in step when a harness is added or changed:
 
 Add a `tests/shell_test.rs` case when changing `_akm_wrap_tool`.
 
+## Registries
+
+The personal registry (`registry.url`) is the only writable one and the only
+one that is mounted — it is checked out at `Paths::library_dir()` and *is* the
+cold library.
+
+Shared registries (`[shared]` in config) are read-only troves to import from.
+They are cloned into `Paths::shared_dir(name)` under the cache, are never
+symlinked into a tool dir, and never appear in `library.json`. Importing copies
+files into the personal library, where the copy becomes an ordinary spec.
+
+Keep it that way. Mounting a shared registry would put two sources into one flat
+namespace whose names are also the strings a model matches on, and would make
+drift, publish and revert per-registry — see issue #35 for the analysis.
+
 ## Tests
 
 ```bash

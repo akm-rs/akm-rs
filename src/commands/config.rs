@@ -72,6 +72,10 @@ fn print_all(paths: &Paths, config: &Config) {
         config.registry_url().unwrap_or("(not set)")
     );
 
+    for (name, url) in &config.shared {
+        println!("  shared.{name:<19}= {url}");
+    }
+
     println!(
         "  artifacts.remote          = {}",
         config.artifacts.remote.as_deref().unwrap_or("(not set)")

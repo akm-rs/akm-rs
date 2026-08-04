@@ -19,5 +19,7 @@ pub mod rename;
 pub mod revert;
 pub mod search;
 pub mod session_setup;
+pub mod share;
+pub mod shared;
 pub mod status;
 pub mod sync;
