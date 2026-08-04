@@ -194,6 +194,10 @@ pub enum Error {
     )]
     NoPersonalRegistry,
 
+    /// A shared registry was named that is not configured.
+    #[error("No shared registry named '{name}'.{}", available_hint(.available))]
+    UnknownSharedRemote { name: String, available: String },
+
     /// No SKILL.md found in directory.
     #[error("No SKILL.md found in {path}\nThe directory must contain a SKILL.md file (with optional supporting files).")]
     NoSkillMd { path: PathBuf },
@@ -302,6 +306,16 @@ pub enum Error {
 
 /// Convenience alias used throughout the codebase.
 pub type Result<T> = std::result::Result<T, Error>;
+
+/// Tail of [`Error::UnknownSharedRemote`]: list what *is* configured, or say
+/// that nothing is, so the message is actionable either way.
+fn available_hint(available: &str) -> String {
+    if available.is_empty() {
+        "\nAdd one with 'akm config shared.<name> <git-url>'.".to_string()
+    } else {
+        format!("\nConfigured: {available}")
+    }
+}
 
 /// Extension trait for adding context to `std::io::Error`.
 pub trait IoContext<T> {

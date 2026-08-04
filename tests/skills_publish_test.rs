@@ -132,7 +132,13 @@ impl Env {
             self.config.registry_url().unwrap(),
             self.paths.library_dir(),
         );
-        sync::execute(&self.paths, &registry, &ToolDirs::builtin(&self.home)).unwrap();
+        sync::execute(
+            &self.paths,
+            &registry,
+            &ToolDirs::builtin(&self.home),
+            Vec::new(),
+        )
+        .unwrap();
         identify(&self.paths.library_dir());
     }
 

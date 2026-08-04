@@ -48,19 +48,34 @@ pub enum PublishOutcome {
     NothingToDo,
 }
 
-/// A git-backed personal registry, checked out at `dir`.
+/// A git-backed registry, checked out at `dir`.
 pub struct Registry {
+    name: String,
     url: String,
     dir: PathBuf,
 }
 
 impl Registry {
-    /// Construct a registry handle. Does not touch the filesystem.
+    /// Construct a handle to the personal registry. Does not touch the filesystem.
     pub fn new(url: impl Into<String>, dir: impl Into<PathBuf>) -> Self {
+        Self::named("personal", url, dir)
+    }
+
+    /// Construct a handle to a named registry.
+    ///
+    /// The name only ever reaches the user through [`Error::RegistrySync`], so
+    /// a failure says which registry failed once more than one is in play.
+    pub fn named(name: impl Into<String>, url: impl Into<String>, dir: impl Into<PathBuf>) -> Self {
         Self {
+            name: name.into(),
             url: url.into(),
             dir: dir.into(),
         }
+    }
+
+    /// The registry's name, as used in error messages and reports.
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     /// The configured remote URL (empty when unconfigured).
@@ -86,7 +101,7 @@ impl Registry {
     /// Clone the registry into the library directory.
     pub fn clone_fresh(&self) -> Result<()> {
         Git::clone(&self.url, &self.dir).map_err(|e| Error::RegistrySync {
-            name: "personal".into(),
+            name: self.name.clone(),
             message: format!("Clone failed: {e}"),
         })
     }
@@ -101,7 +116,7 @@ impl Registry {
     /// so one unresolved skill can never freeze the other forty-nine.
     pub fn update(&self) -> Result<SyncOutcome> {
         Git::fetch(&self.dir).map_err(|e| Error::RegistrySync {
-            name: "personal".into(),
+            name: self.name.clone(),
             message: format!("Fetch failed: {e}"),
         })?;
 
@@ -156,7 +171,7 @@ impl Registry {
     /// merely unpublished, and the push that follows is rejected.
     pub fn refresh(&self) -> Result<()> {
         Git::fetch(&self.dir).map_err(|e| Error::RegistrySync {
-            name: "personal".into(),
+            name: self.name.clone(),
             message: format!("Fetch failed: {e}"),
         })
     }
@@ -191,10 +206,49 @@ impl Registry {
         Ok(PublishOutcome::Published)
     }
 
+    /// Switch to the branch a contribution will be pushed on.
+    ///
+    /// Starts from the remote's copy of that branch when it already has one, so
+    /// re-sharing a spec fast-forwards an open pull request instead of being
+    /// rejected as a non-fast-forward.
+    pub fn checkout_contribution_branch(&self, branch: &str) -> Result<()> {
+        let remote_branch = format!("origin/{branch}");
+        let start = Git::rev_parse(&self.dir, &remote_branch)
+            .ok()
+            .map(|_| remote_branch);
+        Git::checkout_new_branch(&self.dir, branch, start.as_deref())
+    }
+
+    /// Commit `pathspecs` on the current branch and push it to `origin`.
+    ///
+    /// Returns git's stderr, which carries the forge's own "open a pull
+    /// request" URL — see [`Git::push_branch`].
+    pub fn push_contribution(
+        &self,
+        branch: &str,
+        pathspecs: &[String],
+        message: &str,
+    ) -> Result<Option<String>> {
+        let refs: Vec<&str> = pathspecs.iter().map(String::as_str).collect();
+
+        Git::add_path(&self.dir, &refs)?;
+        if Git::is_staging_clean(&self.dir)? {
+            return Ok(None);
+        }
+
+        Git::commit(&self.dir, message)?;
+        Git::push_branch(&self.dir, branch)
+            .map(Some)
+            .map_err(|e| Error::RegistrySync {
+                name: self.name.clone(),
+                message: format!("Push failed: {e}"),
+            })
+    }
+
     /// Push, reporting a failure as a registry-sync error.
     fn push(&self) -> Result<()> {
         Git::push(&self.dir).map_err(|e| Error::RegistrySync {
-            name: "personal".into(),
+            name: self.name.clone(),
             message: format!("Push failed: {e}"),
         })
     }

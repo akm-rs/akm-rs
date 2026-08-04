@@ -123,6 +123,9 @@ akm skills revert my-skill       # discard local changes (--remote: take the reg
 akm skills core                  # show core flags (--adopt / --publish to reconcile)
 akm skills promote ./my-skill     # import local skill to cold storage
 akm skills import <github-url>   # import skill from a GitHub URL
+akm skills list acme             # browse a shared registry
+akm skills import acme tdd       # take one skill from it (--all for everything)
+akm skills share acme my-skill   # offer one of yours back, as a pull request
 akm skills publish my-skill      # publish one spec to personal registry
 akm skills publish               # publish everything pending, in one commit
 akm skills clean --dry-run       # preview stale spec removal
@@ -182,6 +185,66 @@ akm skills import https://github.com/user/repo/tree/main/skills/my-skill --force
 ```
 
 Both `/tree/` (directory) and `/blob/` (file) GitHub URLs are supported. For private repos, set the `GITHUB_TOKEN` environment variable.
+
+`--all` takes every skill a URL offers instead of one:
+
+```bash
+akm skills import https://github.com/user/repo/tree/main/skills --all
+```
+
+#### Shared registries
+
+A shared registry is somebody else's skills repository — a team's, a
+colleague's, a community's. AKM treats it as a trove to pick from, not a second
+library: nothing in it is ever mounted into a tool directory. You browse it,
+take what you want, and the copy becomes an ordinary skill of your own.
+
+```bash
+akm config shared.acme git@github.com:acme/skills.git   # add one
+akm config shared.acme ""                                # remove it
+
+akm skills list acme              # what it offers, marking what you already have
+akm skills import acme tdd        # take one
+akm skills import acme --all      # take everything usable
+```
+
+Checkouts live in `$XDG_CACHE_HOME/akm/shared/<name>` and are refreshed by
+`akm skills sync` and by any of the commands above. A registry that cannot be
+reached is reported, and browsing falls back to the copy on disk.
+
+Only directories holding a `SKILL.md` with a `name` and a `description` are
+importable; anything else is named and skipped. An id you already have is a
+conflict, and interactively you choose per skill:
+
+```
+  tdd — already in your library, and it differs.
+    [m]ine  [t]heirs  [b]oth as 'acme-tdd'  (add 'a' for all):
+```
+
+`both` keeps yours and stores theirs under the prefixed id. Without a terminal,
+`--all` keeps yours and says so, while a single import fails unless you pass
+`--force`. Identical content is skipped silently, so re-running an import is a
+no-op until the registry actually moves.
+
+A registry's `core: true` is never inherited — that flag is its owner's
+statement about their machines. Imported skills land unmounted, and making one
+core here is `akm skills edit <id> --meta`.
+
+#### Contributing back
+
+```bash
+akm skills share acme my-skill
+```
+
+This pushes the spec to the shared registry on branch `akm/<id>` and relays the
+URL the remote prints for opening a pull request. Nothing is merged — the
+registry's owners decide. It needs permission to push a branch, not to write to
+the default branch, and re-running it updates the same branch so an open pull
+request follows along.
+
+`publish` and `share` are not the same act: `publish` writes to *your* registry
+on your own authority, while `share` offers a copy to someone else's and waits
+for their review.
 
 #### Publishing after promote or import
 
@@ -281,10 +344,16 @@ features = ["skills", "artifacts", "instructions"]
 
 [registry]
 url = "git@github.com:you/your-registry.git"
+
+[shared]
+acme = "git@github.com:acme/skills.git"
 ```
 
 `skills.personal_registry` is the pre-rc4 spelling of `registry.url` and still
 works; the canonical key wins when both are set.
+
+`[shared]` holds read-only registries to import from, one line per registry,
+named however you like. Set them with `akm config shared.<name> <git-url>`.
 
 On disk:
 
@@ -295,6 +364,9 @@ On disk:
   local.json        this machine's core deviations
   tools.json        harness definitions
   shell/            generated shell init
+
+~/.cache/akm/
+  shared/<name>/    checkout of a shared registry — browsable, never mounted
 ```
 
 ## How a session works
