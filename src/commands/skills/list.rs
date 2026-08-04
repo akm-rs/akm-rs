@@ -3,12 +3,15 @@
 //! In Task 4 this was plain-only. Task 9 adds TUI as the default mode
 //! when stdout is a TTY and --plain is not passed.
 
+use crate::config::Config;
 use crate::error::Result;
 use crate::library::spec::SpecType;
 use crate::library::tool_dirs::ToolDirs;
 use crate::library::Library;
 use crate::paths::Paths;
 use std::io::IsTerminal;
+
+use super::shared;
 
 /// Determine whether to use TUI or plain output.
 ///
@@ -39,6 +42,46 @@ pub fn run(
     } else {
         run_plain(paths, tag, parsed_type)
     }
+}
+
+/// Run `akm skills list <remote>` — browse a shared registry.
+///
+/// Plain output only: there is nothing to drive a TUI with here. A shared
+/// registry has no drift, no core state and no project manifest — the only
+/// question it answers is what it holds and whether you already have it.
+pub fn run_shared(paths: &Paths, config: &Config, remote: &str) -> Result<()> {
+    let registry = shared::open(paths, config, remote)?;
+    let outcome = shared::refresh_for_use(&registry)?;
+    println!("{remote} ({}) — {outcome}", registry.url());
+    println!();
+
+    let catalogue = shared::catalogue(registry.dir())?;
+    let library = Library::load_or_default(&paths.library_json())?;
+    let library_dir = paths.library_dir();
+
+    for candidate in &catalogue.skills {
+        let mark = match library.get(&candidate.id) {
+            Some(spec) if spec.exists_on_disk(&library_dir) => "  [have]",
+            _ => "",
+        };
+        println!(
+            "  {:<35} {}{mark}",
+            candidate.id, candidate.meta.description
+        );
+    }
+
+    if catalogue.skills.is_empty() {
+        println!("  (no importable skills)");
+    }
+
+    for entry in &catalogue.skipped {
+        println!("  {:<35} (skipped: {})", entry.id, entry.reason);
+    }
+
+    println!();
+    println!("Import one with 'akm skills import {remote} <id>', or all of them with --all.");
+
+    Ok(())
 }
 
 /// Plain output mode — identical to Task 4 implementation.

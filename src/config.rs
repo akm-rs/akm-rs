@@ -6,7 +6,7 @@
 use crate::error::{Error, IoContext, Result};
 use crate::paths::Paths;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 /// Default GitHub Releases API URL for update checks.
@@ -67,6 +67,13 @@ pub struct Config {
     /// Personal registry configuration section.
     #[serde(default)]
     pub registry: RegistryConfig,
+
+    /// Shared registries to browse and import from, keyed by name.
+    ///
+    /// Read-only troves: nothing here is ever mounted into a tool directory.
+    /// See [`Config::shared_remote`].
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub shared: BTreeMap<String, String>,
 
     /// Skills configuration section.
     #[serde(default)]
@@ -186,6 +193,7 @@ impl Default for Config {
         Self {
             features: BTreeSet::new(),
             registry: RegistryConfig::default(),
+            shared: BTreeMap::new(),
             skills: SkillsConfig::default(),
             artifacts: ArtifactsConfig::default(),
             update: UpdateConfig::default(),
@@ -231,7 +239,16 @@ impl Config {
 
         // Step 2: Walk the table tree and warn about unknown keys
         if let Some(table) = raw.as_table() {
-            let known_top: &[&str] = &["features", "registry", "skills", "artifacts", "update"];
+            // `shared` holds user-chosen remote names, so its keys are never
+            // checked against a known list.
+            let known_top: &[&str] = &[
+                "features",
+                "registry",
+                "shared",
+                "skills",
+                "artifacts",
+                "update",
+            ];
             let known_registry: &[&str] = &["url"];
             // `community_registry` is obsolete but still tolerated silently so
             // configs written before it was dropped do not warn on every run.
@@ -323,6 +340,15 @@ impl Config {
                             ),
                         }
                     }
+                    if let Some(shared) = table.get("shared") {
+                        match shared.clone().try_into::<BTreeMap<String, String>>() {
+                            Ok(s) => config.shared = s,
+                            Err(e) => eprintln!(
+                                "Warning: invalid [shared] config in {}, ignoring it: {e}",
+                                config_file.display()
+                            ),
+                        }
+                    }
                     if let Some(skills) = table.get("skills") {
                         match skills.clone().try_into::<SkillsConfig>() {
                             Ok(s) => config.skills = s,
@@ -404,15 +430,44 @@ impl Config {
             .or(self.skills.personal_registry.as_deref())
             .filter(|url| !url.is_empty())
     }
+
+    /// Resolve a shared remote name to its git URL.
+    ///
+    /// The error carries the configured names, because a typo'd remote is the
+    /// most likely reason to land here.
+    pub fn shared_remote(&self, name: &str) -> Result<&str> {
+        self.shared
+            .get(name)
+            .map(String::as_str)
+            .filter(|url| !url.is_empty())
+            .ok_or_else(|| Error::UnknownSharedRemote {
+                name: name.to_string(),
+                available: self.shared_names(),
+            })
+    }
+
+    /// Configured shared remote names, comma-separated. Empty when there are none.
+    pub fn shared_names(&self) -> String {
+        self.shared
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 /// Addressable config keys for the `akm config <key> [value]` command.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Not `Copy`: [`ConfigKey::Shared`] carries the remote's name, which is
+/// user-chosen rather than one of a fixed set.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigKey {
     /// `features` — comma-separated enabled features
     Features,
     /// `registry.url` — personal registry git URL
     RegistryUrl,
+    /// `shared.<name>` — git URL of a shared registry to import from
+    Shared(String),
     /// `skills.personal-registry` → `skills.personal_registry` (pre-rc4 alias)
     SkillsPersonalRegistry,
     /// `artifacts.remote`
@@ -430,8 +485,8 @@ pub enum ConfigKey {
 }
 
 /// All valid config key names for help text.
-pub const ALL_CONFIG_KEYS: &str = "features, registry.url, skills.personal-registry, \
-     artifacts.remote, artifacts.dir, artifacts.auto-push, \
+pub const ALL_CONFIG_KEYS: &str = "features, registry.url, shared.<name>, \
+     skills.personal-registry, artifacts.remote, artifacts.dir, artifacts.auto-push, \
      update.url, update.check-interval, update.auto-check";
 
 impl std::str::FromStr for ConfigKey {
@@ -449,6 +504,17 @@ impl std::str::FromStr for ConfigKey {
             "update.url" => Ok(ConfigKey::UpdateUrl),
             "update.check-interval" => Ok(ConfigKey::UpdateCheckInterval),
             "update.auto-check" => Ok(ConfigKey::UpdateAutoCheck),
+            // `shared.<name>` is open-ended: the suffix is the remote's name.
+            other if other.starts_with("shared.") => {
+                let name = other.trim_start_matches("shared.");
+                if name.is_empty() || name.contains('.') {
+                    return Err(Error::ConfigValidation {
+                        key: other.to_string(),
+                        message: "Expected 'shared.<name>' with a single-segment name".into(),
+                    });
+                }
+                Ok(ConfigKey::Shared(name.to_string()))
+            }
             other => Err(Error::UnknownConfigKey {
                 key: other.to_string(),
                 available: ALL_CONFIG_KEYS.to_string(),
@@ -468,6 +534,7 @@ impl ConfigKey {
                 .collect::<Vec<_>>()
                 .join(","),
             ConfigKey::RegistryUrl => config.registry_url().unwrap_or_default().to_string(),
+            ConfigKey::Shared(name) => config.shared.get(name).cloned().unwrap_or_default(),
             ConfigKey::SkillsPersonalRegistry => {
                 config.skills.personal_registry.clone().unwrap_or_default()
             }
@@ -507,6 +574,15 @@ impl ConfigKey {
                 // The alias would otherwise shadow nothing but still confuse
                 // anyone reading the file.
                 config.skills.personal_registry = None;
+            }
+            // An empty value removes the remote — the only way to drop one
+            // without hand-editing config.toml.
+            ConfigKey::Shared(name) => {
+                if value.is_empty() {
+                    config.shared.remove(name);
+                } else {
+                    config.shared.insert(name.clone(), value.to_string());
+                }
             }
             ConfigKey::SkillsPersonalRegistry => {
                 config.skills.personal_registry = if value.is_empty() {

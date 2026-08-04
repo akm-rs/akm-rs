@@ -1,30 +1,67 @@
-//! `akm skills import` — import a remote skill from a GitHub URL into cold storage.
+//! `akm skills import` — copy a skill from elsewhere into cold storage.
 //!
-//! This is the remote counterpart to `promote`, which imports from local paths.
-//! Downloads the skill directory via the GitHub Contents API, validates it,
-//! runs interactive prompts, and copies to cold storage.
+//! Two address forms, one destination:
+//!
+//! - `import <url>` downloads a directory through the GitHub Contents API;
+//! - `import <remote> <id>` takes it from a configured shared registry, which
+//!   is a git checkout AKM already keeps in the cache.
+//!
+//! Either way the skill lands in the personal library as an ordinary spec. The
+//! only trace of where it came from is `source` in its sidecar: there is no
+//! lasting link, no upstream to track, and re-running the same import is how
+//! you take a later version.
+//!
+//! `core` is never inherited from a registry. Its `core: true` means "core on
+//! my machines", which is its owner's call about their own machines and nobody
+//! else's — so an imported skill lands unmounted and the choice stays local.
 
 use crate::commands::skills::promote::copy_dir_recursive;
 use crate::config::Config;
 use crate::error::{Error, IoContext, Result};
-use crate::github::{self, GitHubHttpClient};
+use crate::github::{self, GitHubClient, GitHubHttpClient, ParsedGitHubUrl};
 use crate::library::frontmatter::Frontmatter;
 use crate::library::libgen;
+use crate::library::spec::SpecMeta;
 use crate::library::symlinks;
 use crate::library::tool_dirs::ToolDirs;
 use crate::library::Library;
 use crate::paths::Paths;
 use std::io::{self, BufRead, IsTerminal, Write};
+use std::path::Path;
 
-/// Run the `akm skills import` command.
-///
-/// # Arguments
-/// * `paths` — Resolved XDG paths
-/// * `config` — Loaded config, for the optional publish prompt
-/// * `url` — GitHub URL to a directory containing SKILL.md
-/// * `force` — Skip overwrite confirmation
-/// * `custom_id` — Optional override for the skill ID
-/// * `tool_dirs` — Tool directories for symlink rebuild
+use super::shared;
+
+/// What to do about an id that is already in the library.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Choice {
+    /// Keep what is already there; skip the incoming copy.
+    Mine,
+    /// Overwrite with the incoming copy.
+    Theirs,
+    /// Keep both — the incoming one is stored under a prefixed id.
+    Both,
+}
+
+/// How an incoming skill relates to what is already in the library.
+#[derive(Debug, PartialEq, Eq)]
+enum Standing {
+    /// Nothing of that id in the library.
+    Fresh,
+    /// Byte-identical to what is already there.
+    Same,
+    /// An id clash with different content.
+    Clash,
+}
+
+/// A choice the user asked to apply to every remaining conflict.
+#[derive(Default)]
+struct Sticky(Option<Choice>);
+
+/// Skills waiting to be installed: the id they arrived under, where their
+/// files are staged, and the metadata to write beside them.
+type Incoming = Vec<(String, std::path::PathBuf, SpecMeta)>;
+
+/// Run `akm skills import <url>` — one skill from a GitHub URL.
 pub fn run(
     paths: &Paths,
     config: &Config,
@@ -33,7 +70,6 @@ pub fn run(
     custom_id: Option<&str>,
     tool_dirs: &ToolDirs,
 ) -> Result<()> {
-    // Step 1: Parse the GitHub URL
     let parsed = github::parse_github_url(url)?;
     let id = match custom_id {
         Some(id) if !id.is_empty() => id.to_string(),
@@ -47,131 +83,495 @@ pub fn run(
     println!("  id:    {id}");
     println!();
 
-    // Step 2: Check overwrite BEFORE downloading (fail fast)
-    let library_dir = paths.library_dir();
-    let dest_path = library_dir.join("skills").join(&id);
-    let is_tty = io::stdin().is_terminal();
-
-    if dest_path.exists() && !force {
-        if is_tty {
-            print!("Skill '{id}' already exists in cold storage. Overwrite? [y/N]: ");
-            io::stdout().flush().ok();
-            let mut input = String::new();
-            io::stdin().lock().read_line(&mut input).ok();
-            if !input.trim().eq_ignore_ascii_case("y") {
-                println!("Aborted.");
-                return Ok(());
-            }
-        } else {
-            return Err(Error::SpecAlreadyExists { id });
-        }
-    }
-
-    // Step 3: Download to temp directory (atomic pattern)
-    // TempDir is dropped (and cleaned up) on all exit paths, including errors
-    let temp_dir = tempfile::tempdir().io_context("Creating temporary directory for import")?;
-
     let client = GitHubHttpClient::new();
-    let files = github::download_directory(&client, &parsed, temp_dir.path())?;
-
+    let staged = tempfile::tempdir().io_context("Creating temporary directory for import")?;
+    let files = github::download_directory(&client, &parsed, staged.path())?;
     if files.is_empty() {
         return Err(Error::ImportNoSkillMd {
             url: url.to_string(),
         });
     }
-
     println!("  Downloaded {} file(s)", files.len());
 
-    // Step 4: Validate SKILL.md exists and has valid frontmatter
-    let skill_md = temp_dir.path().join("SKILL.md");
+    let skill_md = staged.path().join("SKILL.md");
     if !skill_md.is_file() {
         return Err(Error::ImportNoSkillMd {
             url: url.to_string(),
         });
     }
-
     let fm = Frontmatter::parse_file(&skill_md)?;
     fm.require_name_and_description(&skill_md)?;
 
-    let name = fm.name.unwrap_or_else(|| id.clone());
-    let description = fm.description.unwrap_or_default();
-
-    // Step 5: Interactive prompts (TTY only) — mirrors promote.rs
-    let mut user_desc = description.clone();
-    let mut user_tags: Vec<String> = Vec::new();
-    let mut user_core = false;
-
-    if is_tty {
-        println!();
-        println!("Importing skill:");
-        println!("  id:     {id}");
-        println!("  name:   {name}");
-        println!("  source: {}", parsed.browsable_url());
-        println!();
-
-        print!("  Description [{description}]: ");
-        io::stdout().flush().ok();
-        let mut input = String::new();
-        io::stdin().lock().read_line(&mut input).ok();
-        let input = input.trim();
-        if !input.is_empty() {
-            user_desc = input.to_string();
-        }
-
-        print!("  Tags (comma-separated) []: ");
-        io::stdout().flush().ok();
-        let mut input = String::new();
-        io::stdin().lock().read_line(&mut input).ok();
-        let input = input.trim();
-        if !input.is_empty() {
-            user_tags = input
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-        }
-
-        print!("  Core skill (always available globally)? [y/N]: ");
-        io::stdout().flush().ok();
-        let mut input = String::new();
-        io::stdin().lock().read_line(&mut input).ok();
-        user_core = input.trim().eq_ignore_ascii_case("y");
-
-        println!();
-    }
-
-    // Step 6: Copy to cold storage (from temp dir, not directly from GitHub)
-    if dest_path.exists() {
-        std::fs::remove_dir_all(&dest_path).io_context(format!(
-            "Removing existing skill at {}",
-            dest_path.display()
-        ))?;
-    }
-    copy_dir_recursive(temp_dir.path(), &dest_path)?;
-    println!("  Copied skill to cold storage");
-
-    // Step 7: Record the metadata the user typed, plus where the skill came
-    // from, in the spec's sidecar — then derive library.json from it.
-    super::promote::write_sidecar(
+    let library_dir = paths.library_dir();
+    let mut sticky = Sticky::default();
+    let resolved = match settle(
         &library_dir,
         &id,
-        user_desc,
-        user_tags,
-        user_core,
-        Some(parsed.browsable_url()),
-    )?;
-    libgen::generate(&library_dir, &paths.library_json())?;
-    let library = Library::load_from(&paths.library_json())?;
+        staged.path(),
+        &parsed.owner,
+        force,
+        false,
+        &mut sticky,
+    )? {
+        Some(id) => id,
+        None => {
+            println!("Aborted.");
+            return Ok(());
+        }
+    };
 
-    // Step 9: Rebuild global symlinks
-    let core_specs = library.core_specs();
-    let count = symlinks::rebuild_core(&core_specs, &library_dir, tool_dirs.dirs())?;
-    println!("  {count} core symlinks rebuilt");
+    let meta = prompted_meta(&id, &fm, Some(parsed.browsable_url()));
+    install(&library_dir, &resolved, staged.path(), meta)?;
+    println!("  Copied skill to cold storage");
+
+    rebuild(paths, tool_dirs, &library_dir)?;
     println!();
-    println!("Imported skill '{id}' from GitHub");
+    println!("Imported skill '{resolved}' from GitHub");
 
-    // Step 10: Offer to publish to the personal registry
-    super::publish::offer(paths, config, &id);
+    super::publish::offer(paths, config, &resolved);
+    Ok(())
+}
+
+/// Run `akm skills import <remote> <id>` — one skill from a shared registry.
+pub fn run_remote(
+    paths: &Paths,
+    config: &Config,
+    remote: &str,
+    id: &str,
+    force: bool,
+    custom_id: Option<&str>,
+    tool_dirs: &ToolDirs,
+) -> Result<()> {
+    let registry = shared::open(paths, config, remote)?;
+    println!("Refreshing '{remote}' ({})...", registry.url());
+    shared::refresh_for_use(&registry)?;
+
+    let catalogue = shared::catalogue(registry.dir())?;
+    let candidate = catalogue
+        .get(id)
+        .ok_or_else(|| Error::SpecNotFound { id: id.to_string() })?;
+
+    let stored_as = custom_id.filter(|id| !id.is_empty()).unwrap_or(id);
+    let library_dir = paths.library_dir();
+    let mut sticky = Sticky::default();
+
+    let resolved = match settle(
+        &library_dir,
+        stored_as,
+        &candidate.dir,
+        remote,
+        force,
+        false,
+        &mut sticky,
+    )? {
+        Some(id) => id,
+        None => {
+            println!("Kept your own '{stored_as}' — nothing was imported.");
+            return Ok(());
+        }
+    };
+
+    let meta = source_meta(&candidate.meta, remote, registry.url());
+    let was_core = candidate.meta.core;
+    install(&library_dir, &resolved, &candidate.dir, meta)?;
+    rebuild(paths, tool_dirs, &library_dir)?;
+
+    println!("Imported skill '{resolved}' from '{remote}'");
+    if was_core {
+        println!("  ('{remote}' marks it core; run 'akm skills edit {resolved} --meta' to do the same here)");
+    }
+
+    super::publish::offer(paths, config, &resolved);
+    Ok(())
+}
+
+/// Run `akm skills import <remote> --all` — every valid skill in a registry.
+pub fn run_all_remote(
+    paths: &Paths,
+    config: &Config,
+    remote: &str,
+    force: bool,
+    tool_dirs: &ToolDirs,
+) -> Result<()> {
+    let registry = shared::open(paths, config, remote)?;
+    println!("Refreshing '{remote}' ({})...", registry.url());
+    shared::refresh_for_use(&registry)?;
+
+    let catalogue = shared::catalogue(registry.dir())?;
+    report_skipped(&catalogue.skipped);
+
+    let url = registry.url().to_string();
+    let incoming: Incoming = catalogue
+        .skills
+        .iter()
+        .map(|c| {
+            (
+                c.id.clone(),
+                c.dir.clone(),
+                source_meta(&c.meta, remote, &url),
+            )
+        })
+        .collect();
+
+    import_many(paths, config, remote, incoming, force, tool_dirs)
+}
+
+/// Run `akm skills import <url> --all` — every valid skill under a GitHub path.
+///
+/// Each subdirectory is listed before anything is downloaded, so a repository
+/// holding a dozen non-skill directories costs a dozen cheap listings rather
+/// than a dozen full downloads.
+pub fn run_all_url(
+    paths: &Paths,
+    config: &Config,
+    url: &str,
+    force: bool,
+    tool_dirs: &ToolDirs,
+) -> Result<()> {
+    let parsed = github::parse_github_url(url)?;
+    let client = GitHubHttpClient::new();
+
+    println!(
+        "Scanning {}/{} at {}...",
+        parsed.owner, parsed.repo, parsed.path
+    );
+
+    let staged = tempfile::tempdir().io_context("Creating temporary directory for import")?;
+    let (incoming, skipped) = download_all(&client, &parsed, staged.path())?;
+    report_skipped(&skipped);
+
+    import_many(paths, config, &parsed.owner, incoming, force, tool_dirs)
+}
+
+/// Download every subdirectory that holds a usable `SKILL.md`.
+fn download_all(
+    client: &dyn GitHubClient,
+    parsed: &ParsedGitHubUrl,
+    staged: &Path,
+) -> Result<(Incoming, Vec<shared::Skipped>)> {
+    let mut incoming = Vec::new();
+    let mut skipped = Vec::new();
+
+    let mut entries = client.list_contents(parsed, "")?;
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+
+    for entry in entries.iter().filter(|e| e.entry_type == "dir") {
+        let child = ParsedGitHubUrl {
+            path: entry.path.clone(),
+            ..parsed.clone()
+        };
+
+        let contents = client.list_contents(&child, "")?;
+        if !contents.iter().any(|e| e.name == "SKILL.md") {
+            skipped.push(shared::Skipped {
+                id: entry.name.clone(),
+                reason: "no SKILL.md".into(),
+            });
+            continue;
+        }
+
+        let dest = staged.join(&entry.name);
+        std::fs::create_dir_all(&dest)
+            .io_context(format!("Creating staging dir {}", dest.display()))?;
+        github::download_directory(client, &child, &dest)?;
+
+        let skill_md = dest.join("SKILL.md");
+        let fm = match Frontmatter::parse_file(&skill_md)
+            .and_then(|fm| fm.require_name_and_description(&skill_md).map(|()| fm))
+        {
+            Ok(fm) => fm,
+            Err(e) => {
+                skipped.push(shared::Skipped {
+                    id: entry.name.clone(),
+                    reason: format!("{e}").replace('\n', " "),
+                });
+                continue;
+            }
+        };
+
+        let mut meta = SpecMeta::from_frontmatter(&entry.name, &fm);
+        meta.source = Some(child.browsable_url());
+        incoming.push((entry.name.clone(), dest, meta));
+    }
+
+    Ok((incoming, skipped))
+}
+
+/// Import a batch, resolving each id clash as it comes.
+fn import_many(
+    paths: &Paths,
+    config: &Config,
+    prefix: &str,
+    incoming: Incoming,
+    force: bool,
+    tool_dirs: &ToolDirs,
+) -> Result<()> {
+    let library_dir = paths.library_dir();
+    let mut sticky = Sticky::default();
+    let mut imported: Vec<String> = Vec::new();
+    let mut unchanged = 0usize;
+    let mut kept_mine: Vec<String> = Vec::new();
+
+    let fresh = incoming
+        .iter()
+        .filter(|(id, dir, _)| {
+            standing(&library_dir.join("skills").join(id), dir) == Standing::Fresh
+        })
+        .count();
+    println!();
+    println!(
+        "{} skill(s) available: {fresh} new, {} already in your library",
+        incoming.len(),
+        incoming.len() - fresh
+    );
+    println!();
+
+    for (id, dir, meta) in &incoming {
+        match settle(&library_dir, id, dir, prefix, force, true, &mut sticky)? {
+            Some(resolved) => {
+                install(&library_dir, &resolved, dir, meta.clone())?;
+                imported.push(resolved);
+            }
+            None if standing(&library_dir.join("skills").join(id), dir) == Standing::Same => {
+                unchanged += 1;
+            }
+            None => kept_mine.push(id.clone()),
+        }
+    }
+
+    if imported.is_empty() {
+        println!("Nothing imported.");
+        return Ok(());
+    }
+
+    rebuild(paths, tool_dirs, &library_dir)?;
+
+    println!();
+    println!("Imported {} skill(s):", imported.len());
+    for id in &imported {
+        println!("  {id}");
+    }
+    if unchanged > 0 {
+        println!("{unchanged} already up to date.");
+    }
+    if !kept_mine.is_empty() {
+        println!("Kept your own: {}", kept_mine.join(", "));
+    }
+
+    if config.registry_url().is_some() {
+        println!();
+        println!("Publish them to your registry with 'akm skills publish'.");
+    }
 
     Ok(())
+}
+
+/// Decide the id an incoming skill lands under, or `None` to skip it.
+///
+/// Identical content is skipped without asking: re-running an import must be
+/// a no-op, or `--all` becomes a wall of prompts about skills that have not
+/// moved. `--force` answers every clash with "theirs", which is what it has
+/// always meant here.
+fn settle(
+    library_dir: &Path,
+    id: &str,
+    incoming: &Path,
+    prefix: &str,
+    force: bool,
+    batch: bool,
+    sticky: &mut Sticky,
+) -> Result<Option<String>> {
+    let dest = library_dir.join("skills").join(id);
+
+    match standing(&dest, incoming) {
+        Standing::Fresh => return Ok(Some(id.to_string())),
+        Standing::Same => return Ok(None),
+        Standing::Clash => {}
+    }
+
+    if force {
+        return Ok(Some(id.to_string()));
+    }
+
+    // No terminal to ask. A single import fails, the way it always has, so a
+    // script gets an exit code; a batch skips the clash and keeps going, since
+    // one contested id must not cost the other eleven.
+    if !io::stdin().is_terminal() {
+        if !batch {
+            return Err(Error::SpecAlreadyExists { id: id.to_string() });
+        }
+        println!("  {id}: already in your library, kept yours (no terminal to ask)");
+        return Ok(None);
+    }
+
+    let choice = match sticky.0 {
+        Some(choice) => choice,
+        None => ask(id, prefix, sticky)?,
+    };
+
+    match choice {
+        Choice::Mine => Ok(None),
+        Choice::Theirs => Ok(Some(id.to_string())),
+        Choice::Both => {
+            let prefixed = format!("{prefix}-{id}");
+            if library_dir.join("skills").join(&prefixed).exists() {
+                return Err(Error::SpecAlreadyExists { id: prefixed });
+            }
+            Ok(Some(prefixed))
+        }
+    }
+}
+
+/// Prompt for one clash.
+fn ask(id: &str, prefix: &str, sticky: &mut Sticky) -> Result<Choice> {
+    loop {
+        println!("  {id} — already in your library, and it differs.");
+        print!("    [m]ine  [t]heirs  [b]oth as '{prefix}-{id}'  (add 'a' for all): ");
+        io::stdout().flush().ok();
+
+        let mut input = String::new();
+        io::stdin().lock().read_line(&mut input).ok();
+        let input = input.trim().to_lowercase();
+        let all = input.ends_with('a') && input.len() > 1;
+
+        let choice = match input.chars().next() {
+            Some('m') => Choice::Mine,
+            Some('t') => Choice::Theirs,
+            Some('b') => Choice::Both,
+            _ => {
+                println!("    Please answer m, t or b.");
+                continue;
+            }
+        };
+
+        if all {
+            sticky.0 = Some(choice);
+        }
+        return Ok(choice);
+    }
+}
+
+/// Where an incoming skill stands relative to the library.
+fn standing(dest: &Path, incoming: &Path) -> Standing {
+    if !dest.exists() {
+        Standing::Fresh
+    } else if same_tree(dest, incoming) {
+        Standing::Same
+    } else {
+        Standing::Clash
+    }
+}
+
+/// Whether two directory trees hold the same files with the same bytes.
+///
+/// The sidecar is excluded: it carries `source`, which the import itself
+/// writes, so comparing it would make every imported skill look changed the
+/// moment it landed.
+fn same_tree(a: &Path, b: &Path) -> bool {
+    let (mut left, mut right) = (Vec::new(), Vec::new());
+    if collect(a, a, &mut left).is_err() || collect(b, b, &mut right).is_err() {
+        return false;
+    }
+    left.sort();
+    right.sort();
+
+    if left != right {
+        return false;
+    }
+
+    left.iter().all(
+        |rel| match (std::fs::read(a.join(rel)), std::fs::read(b.join(rel))) {
+            (Ok(x), Ok(y)) => x == y,
+            _ => false,
+        },
+    )
+}
+
+/// Relative paths of every file under `dir`, ignoring the metadata sidecar.
+fn collect(root: &Path, dir: &Path, out: &mut Vec<std::path::PathBuf>) -> Result<()> {
+    for entry in std::fs::read_dir(dir).io_context(format!("Reading {}", dir.display()))? {
+        let path = entry.io_context("Reading directory entry")?.path();
+        if path.is_dir() {
+            collect(root, &path, out)?;
+        } else if path.file_name().map(|n| n != "akm.json").unwrap_or(false) {
+            if let Ok(rel) = path.strip_prefix(root) {
+                out.push(rel.to_path_buf());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Copy an incoming skill into the library and write its sidecar.
+fn install(library_dir: &Path, id: &str, src: &Path, meta: SpecMeta) -> Result<()> {
+    let dest = library_dir.join("skills").join(id);
+    if dest.exists() {
+        std::fs::remove_dir_all(&dest)
+            .io_context(format!("Removing existing skill at {}", dest.display()))?;
+    }
+    copy_dir_recursive(src, &dest)?;
+    meta.save_to(&crate::library::spec::SpecType::Skill.sidecar_path(library_dir, id))
+}
+
+/// Metadata for a skill taken from a shared registry.
+fn source_meta(meta: &SpecMeta, remote: &str, url: &str) -> SpecMeta {
+    let mut meta = meta.clone();
+    meta.source = Some(format!("{remote} ({url})"));
+    // Core is a local decision — see the module docs.
+    meta.core = false;
+    meta
+}
+
+/// Ask for the metadata an interactive URL import has always asked for.
+fn prompted_meta(id: &str, fm: &Frontmatter, source: Option<String>) -> SpecMeta {
+    let mut meta = SpecMeta::from_frontmatter(id, fm);
+    meta.source = source;
+
+    if !io::stdin().is_terminal() {
+        return meta;
+    }
+
+    print!("  Description [{}]: ", meta.description);
+    io::stdout().flush().ok();
+    let mut input = String::new();
+    io::stdin().lock().read_line(&mut input).ok();
+    if !input.trim().is_empty() {
+        meta.description = input.trim().to_string();
+    }
+
+    print!("  Tags (comma-separated) []: ");
+    io::stdout().flush().ok();
+    let mut input = String::new();
+    io::stdin().lock().read_line(&mut input).ok();
+    meta.tags = input
+        .trim()
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    print!("  Core skill (always available globally)? [y/N]: ");
+    io::stdout().flush().ok();
+    let mut input = String::new();
+    io::stdin().lock().read_line(&mut input).ok();
+    meta.core = input.trim().eq_ignore_ascii_case("y");
+
+    println!();
+    meta
+}
+
+/// Regenerate the index and the global symlinks after an import.
+fn rebuild(paths: &Paths, tool_dirs: &ToolDirs, library_dir: &Path) -> Result<()> {
+    libgen::generate(library_dir, &paths.library_json())?;
+    let library = Library::load_from(&paths.library_json())?;
+    let count = symlinks::rebuild_core(&library.core_specs(), library_dir, tool_dirs.dirs())?;
+    println!("  {count} core symlinks rebuilt");
+    Ok(())
+}
+
+/// Name the directories that looked like skills but could not be imported.
+fn report_skipped(skipped: &[shared::Skipped]) {
+    for entry in skipped {
+        println!("  skipped {}: {}", entry.id, entry.reason);
+    }
 }

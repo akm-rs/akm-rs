@@ -162,6 +162,37 @@ impl Git {
         Ok(())
     }
 
+    /// Create and switch to a new branch, off `start` or off the current HEAD.
+    pub fn checkout_new_branch(repo_dir: &Path, branch: &str, start: Option<&str>) -> Result<()> {
+        let mut args = vec!["checkout", "--quiet", "-b", branch];
+        if let Some(start) = start {
+            args.push(start);
+        }
+        run_git_ok(&args, Some(repo_dir))?;
+        Ok(())
+    }
+
+    /// Push a branch to `origin`, returning git's stderr.
+    ///
+    /// The stderr is the point, not a diagnostic: on a first push of a new
+    /// branch the *remote* answers with the URL for opening a pull (or merge)
+    /// request. Handing that back verbatim is what keeps AKM from having to
+    /// know one forge's URL shape from another's.
+    pub fn push_branch(repo_dir: &Path, branch: &str) -> Result<String> {
+        let output = run_git(
+            &["push", "--set-upstream", "origin", branch],
+            Some(repo_dir),
+        )?;
+        if output.success {
+            Ok(output.stderr)
+        } else {
+            Err(Error::Git {
+                args: format!("push --set-upstream origin {branch}"),
+                stderr: output.stderr,
+            })
+        }
+    }
+
     /// Stage all changes.
     pub fn add_all(repo_dir: &Path) -> Result<()> {
         run_git_ok(&["add", "-A"], Some(repo_dir))?;

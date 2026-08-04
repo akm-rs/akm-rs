@@ -103,7 +103,7 @@ impl Env {
             self.config.registry_url().unwrap(),
             self.paths.library_dir(),
         );
-        sync::execute(&self.paths, &registry, &self.tool_dirs()).unwrap();
+        sync::execute(&self.paths, &registry, &self.tool_dirs(), Vec::new()).unwrap();
         let library_dir = self.paths.library_dir();
         git(&library_dir, &["config", "user.email", "test@example.com"]);
         git(&library_dir, &["config", "user.name", "Test"]);
