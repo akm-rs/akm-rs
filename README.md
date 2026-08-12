@@ -140,6 +140,13 @@ another project's manifest keeps its old (or now-deleted) id there until that
 project is updated. In the `list` TUI, `R` renames the selected spec and `D`
 deletes it; the publish offer appears after you quit the TUI.
 
+Publishing a rename or delete lands on top of the registry the same way an
+edit does: if the remote moved on since your last sync, AKM fast-forwards onto
+it first and then commits your change, so the push is never rejected. If another
+machine changed the very same spec, your rename/delete wins (its old id is gone
+and the new one holds your version) — no git conflict, and you are never dropped
+into the library to sort out history by hand.
+
 #### Keeping in step with the registry
 
 Your library is the registry's git working tree, so AKM answers "who is newer"

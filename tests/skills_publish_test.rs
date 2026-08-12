@@ -144,6 +144,38 @@ impl Env {
         publish::run(&self.paths, &self.config, id, false)
     }
 
+    /// Publish an explicit set of working-tree paths, as rename/delete do.
+    ///
+    /// Mirrors `publish::publish_pathspecs`, which the TTY-gated offer prompt
+    /// keeps out of reach in tests: refresh, then land on top of the remote.
+    fn publish_worktree(&self, pathspecs: &[&str]) -> akm::error::Result<()> {
+        let registry = Registry::new(
+            self.config.registry_url().unwrap(),
+            self.paths.library_dir(),
+        );
+        registry.refresh()?;
+        let owned: Vec<String> = pathspecs.iter().map(|s| s.to_string()).collect();
+        registry.publish_worktree(&owned, "test: worktree publish")?;
+        Ok(())
+    }
+
+    /// Whether the registry still holds `rel`, as seen from the other checkout.
+    fn remote_has(&self, rel: &str) -> bool {
+        git(&self.other, &["pull", "--quiet", "--ff-only"]);
+        self.other.join(rel).exists()
+    }
+
+    /// The library's working tree is clean and level with the remote — i.e. the
+    /// publish landed as a fast-forward, leaving no diverged local commit.
+    fn library_is_level_with_remote(&self) -> bool {
+        let dir = self.paths.library_dir();
+        let status = git(&dir, &["status", "--porcelain"]);
+        let local = git(&dir, &["rev-parse", "HEAD"]);
+        git(&dir, &["fetch", "--quiet"]);
+        let remote = git(&dir, &["rev-parse", "@{u}"]);
+        status.is_empty() && local == remote
+    }
+
     /// What the registry holds for `rel`, as seen from the other checkout.
     fn remote_content(&self, rel: &str) -> String {
         git(&self.other, &["pull", "--quiet", "--ff-only"]);
@@ -353,4 +385,85 @@ fn publishing_an_unchanged_spec_does_nothing() {
     git(&env.other, &["fetch", "--quiet"]);
     let count = git(&env.other, &["rev-list", "--count", "origin/main"]);
     assert_eq!(count, "1");
+}
+
+// =============================================================================
+// rename / delete land on top of a remote that moved on — never bare-git detours
+// =============================================================================
+
+/// A rename published while the remote advanced on a *different* spec must
+/// fast-forward over that change and land cleanly, not fork history.
+#[test]
+fn renaming_over_a_moved_remote_lands_and_keeps_their_other_changes() {
+    let env = Env::new();
+    env.sync();
+    let ld = env.paths.library_dir();
+
+    std::fs::rename(ld.join("skills/alpha"), ld.join("skills/alpha-v2")).unwrap();
+    env.push_from_other("skills/beta/SKILL.md", &skill_md("beta", "their beta"));
+
+    env.publish_worktree(&["skills/alpha", "skills/alpha-v2"])
+        .unwrap();
+
+    assert!(env.remote_has("skills/alpha-v2/SKILL.md"));
+    assert!(!env.remote_has("skills/alpha/SKILL.md"));
+    assert!(env
+        .remote_content("skills/beta/SKILL.md")
+        .contains("their beta"));
+    assert!(env.library_is_level_with_remote());
+}
+
+/// A rename published while the remote changed the *same* spec: our rename wins
+/// (old id gone, new id holds our content), with no conflict markers.
+#[test]
+fn renaming_over_a_diverged_remote_keeps_the_local_version() {
+    let env = Env::new();
+    env.sync();
+    let ld = env.paths.library_dir();
+
+    std::fs::rename(ld.join("skills/alpha"), ld.join("skills/alpha-v2")).unwrap();
+    env.push_from_other("skills/alpha/SKILL.md", &skill_md("alpha", "THEIR ALPHA"));
+
+    env.publish_worktree(&["skills/alpha", "skills/alpha-v2"])
+        .unwrap();
+
+    let v2 = env.remote_content("skills/alpha-v2/SKILL.md");
+    assert!(v2.contains("v1"), "our content should win, got: {v2}");
+    assert!(!v2.contains("<<<<<<<"));
+    assert!(!env.remote_has("skills/alpha/SKILL.md"));
+    assert!(env.library_is_level_with_remote());
+}
+
+/// A delete published while the remote advanced on a different spec lands as a
+/// fast-forward and preserves the other change.
+#[test]
+fn deleting_over_a_moved_remote_lands_and_keeps_their_other_changes() {
+    let env = Env::new();
+    env.sync();
+
+    std::fs::remove_dir_all(env.library_file("skills/alpha")).unwrap();
+    env.push_from_other("skills/beta/SKILL.md", &skill_md("beta", "their beta"));
+
+    env.publish_worktree(&["skills/alpha"]).unwrap();
+
+    assert!(!env.remote_has("skills/alpha/SKILL.md"));
+    assert!(env
+        .remote_content("skills/beta/SKILL.md")
+        .contains("their beta"));
+    assert!(env.library_is_level_with_remote());
+}
+
+/// A delete wins over a concurrent edit of the same spec: the remote drops it.
+#[test]
+fn deleting_over_a_diverged_remote_removes_the_spec() {
+    let env = Env::new();
+    env.sync();
+
+    std::fs::remove_dir_all(env.library_file("skills/alpha")).unwrap();
+    env.push_from_other("skills/alpha/SKILL.md", &skill_md("alpha", "THEIR ALPHA"));
+
+    env.publish_worktree(&["skills/alpha"]).unwrap();
+
+    assert!(!env.remote_has("skills/alpha/SKILL.md"));
+    assert!(env.library_is_level_with_remote());
 }

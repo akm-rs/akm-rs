@@ -191,6 +191,109 @@ impl Registry {
         Ok(PublishOutcome::Published)
     }
 
+    /// Publish uncommitted working-tree changes to `pathspecs`, keeping the
+    /// push a fast-forward.
+    ///
+    /// rename and delete leave their change in the working tree, uncommitted.
+    /// Committing straight onto a remote that has moved on since the last sync
+    /// would fork history: the push would be rejected and the user left with a
+    /// diverged local commit to untangle in git by hand — exactly the kind of
+    /// bare-git detour AKM exists to spare them. So the branch is fast-forwarded
+    /// onto the remote *first*, and only then does the change get committed on
+    /// top, where the push cannot be refused.
+    ///
+    /// When the update would overwrite our own change (both sides touched the
+    /// same files) that change is parked — including as a deletion, which is
+    /// what a rename or delete leaves behind — the fast-forward retried, and our
+    /// version laid back on top, so ours wins on any overlap without a merge
+    /// ever running.
+    pub fn publish_worktree(&self, pathspecs: &[String], message: &str) -> Result<PublishOutcome> {
+        // Only rebase when the remote has actually moved. With no upstream, or
+        // when we are already level with it, the change commits straight on top
+        // and the push is a fast-forward regardless.
+        if let Ok(upstream) = Git::upstream_ref(&self.dir) {
+            if Git::rev_parse(&self.dir, "HEAD")? != Git::rev_parse(&self.dir, &upstream)? {
+                self.rebase_worktree_onto(&upstream, pathspecs)?;
+            }
+        }
+        self.publish(pathspecs, message)
+    }
+
+    /// Fast-forward onto `upstream` while keeping our uncommitted changes to
+    /// `pathspecs`, ours winning on any path both sides touched.
+    ///
+    /// The changes — including deletions, which a rename or delete leaves — are
+    /// parked and set aside first, so a plain fast-forward can run (an unstaged
+    /// deletion does not block `merge --ff-only`; git would silently resurrect
+    /// the file). Our version is then laid back on top. Unrelated uncommitted
+    /// work that blocks the fast-forward is parked around it too, exactly as
+    /// sync does, so one draft cannot wedge a publish.
+    fn rebase_worktree_onto(&self, upstream: &str, pathspecs: &[String]) -> Result<()> {
+        let diverged = || Error::RegistrySync {
+            name: "personal".into(),
+            message: "The library has local commits the registry has not seen.\n\
+                      Run 'akm skills sync' first, then retry."
+                .into(),
+        };
+
+        // 1. Set our change to these paths aside, then clean the paths back to
+        //    HEAD so nothing under them can block the fast-forward.
+        let refs: Vec<&str> = pathspecs.iter().map(String::as_str).collect();
+        let mine: Vec<Parked> = self
+            .changed_paths_under(pathspecs)?
+            .iter()
+            .map(|rel| Parked::take(&self.dir, rel))
+            .collect::<Result<_>>()?;
+        Git::restore_path(&self.dir, &refs)?;
+        Git::clean_path(&self.dir, &refs)?;
+
+        // 2. Fast-forward. Unrelated work that blocks it is parked and restored.
+        let outcome = match Git::merge_ff_only(&self.dir, upstream)? {
+            outcome @ (MergeOutcome::UpToDate | MergeOutcome::FastForwarded) => outcome,
+            MergeOutcome::Blocked { paths } => {
+                let other: Vec<Parked> = paths
+                    .iter()
+                    .map(|rel| Parked::take(&self.dir, rel))
+                    .collect::<Result<_>>()?;
+                let orefs: Vec<&str> = paths.iter().map(String::as_str).collect();
+                Git::restore_path(&self.dir, &orefs)?;
+                Git::clean_path(&self.dir, &orefs)?;
+                let outcome = Git::merge_ff_only(&self.dir, upstream)?;
+                for entry in &other {
+                    entry.restore(&self.dir)?;
+                }
+                outcome
+            }
+            other => other,
+        };
+
+        // 3. Lay our change back on top — ours wins on any overlap. It is
+        //    restored whatever happened, so a failed retry never costs the edit.
+        for entry in &mine {
+            entry.restore(&self.dir)?;
+        }
+
+        match outcome {
+            MergeOutcome::UpToDate | MergeOutcome::FastForwarded => Ok(()),
+            _ => Err(diverged()),
+        }
+    }
+
+    /// Paths under `pathspecs` that differ from HEAD in the working tree,
+    /// including untracked additions and deletions.
+    fn changed_paths_under(&self, pathspecs: &[String]) -> Result<Vec<String>> {
+        let under = |path: &str| {
+            pathspecs
+                .iter()
+                .any(|ps| path == ps || path.starts_with(&format!("{ps}/")))
+        };
+        Ok(Git::status_porcelain(&self.dir)?
+            .into_iter()
+            .filter(|e| under(&e.path))
+            .map(|e| e.path)
+            .collect())
+    }
+
     /// Push, reporting a failure as a registry-sync error.
     fn push(&self) -> Result<()> {
         Git::push(&self.dir).map_err(|e| Error::RegistrySync {

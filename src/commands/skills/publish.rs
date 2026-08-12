@@ -227,11 +227,13 @@ pub(crate) fn offer_pathspecs(paths: &Paths, config: &Config, pathspecs: &[Strin
 
 /// Refresh, then commit and push an explicit pathspec set.
 ///
-/// Unlike the single-spec path there is no ours-wins rebase: a remote that has
-/// diverged on these paths will reject the push, which is surfaced as-is.
+/// Fast-forwards onto the remote before committing (see
+/// [`Registry::publish_worktree`]), so a remote that moved on — even on the same
+/// paths — is landed on top of rather than rejected, and the user is never left
+/// with a diverged local commit to resolve in git by hand.
 fn publish_pathspecs(registry: &Registry, pathspecs: &[String], message: &str) -> Result<()> {
     registry.refresh()?;
-    match registry.publish(pathspecs, message)? {
+    match registry.publish_worktree(pathspecs, message)? {
         PublishOutcome::NothingToDo => println!("No changes to publish."),
         PublishOutcome::Published => println!("Pushed to {}", registry.url()),
     }
