@@ -5,6 +5,7 @@
 pub mod add;
 pub mod clean;
 pub mod core;
+pub mod delete;
 pub mod diff;
 pub mod edit;
 pub mod import;
@@ -14,6 +15,7 @@ pub mod migrate;
 pub mod promote;
 pub mod publish;
 pub mod remove;
+pub mod rename;
 pub mod revert;
 pub mod search;
 pub mod session_setup;

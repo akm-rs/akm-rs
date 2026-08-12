@@ -191,6 +191,55 @@ fn show_dry_run(registry: &Registry, spec: &Spec, state: DriftState) -> Result<(
     Ok(())
 }
 
+/// Offer to publish an explicit set of paths to the personal registry.
+///
+/// Used by rename and delete, whose change spans paths that do not map to a
+/// single live spec id (a rename touches both the old and new paths; a delete
+/// removes a spec entirely). Silently does nothing unless stdin is a TTY and a
+/// personal registry is cloned. A failed publish is a warning, never a hard
+/// error: the local library change has already landed.
+pub(crate) fn offer_pathspecs(paths: &Paths, config: &Config, pathspecs: &[String], message: &str) {
+    if !io::stdin().is_terminal() {
+        return;
+    }
+    let Some(url) = config.registry_url() else {
+        return;
+    };
+    let registry = Registry::new(url, paths.library_dir());
+    if !registry.is_cloned() {
+        return;
+    }
+
+    println!();
+    print!("Publish to personal registry? [y/N]: ");
+    io::stdout().flush().ok();
+    let mut input = String::new();
+    io::stdin().lock().read_line(&mut input).ok();
+    if !input.trim().eq_ignore_ascii_case("y") {
+        return;
+    }
+
+    if let Err(e) = publish_pathspecs(&registry, pathspecs, message) {
+        eprintln!("Warning: publish failed: {e}");
+        eprintln!("Retry with: akm skills publish");
+    }
+}
+
+/// Refresh, then commit and push an explicit pathspec set.
+///
+/// Fast-forwards onto the remote before committing (see
+/// [`Registry::publish_worktree`]), so a remote that moved on — even on the same
+/// paths — is landed on top of rather than rejected, and the user is never left
+/// with a diverged local commit to resolve in git by hand.
+fn publish_pathspecs(registry: &Registry, pathspecs: &[String], message: &str) -> Result<()> {
+    registry.refresh()?;
+    match registry.publish_worktree(pathspecs, message)? {
+        PublishOutcome::NothingToDo => println!("No changes to publish."),
+        PublishOutcome::Published => println!("Pushed to {}", registry.url()),
+    }
+    Ok(())
+}
+
 /// Offer to publish `id` to the personal registry, after a promote or import.
 ///
 /// Silently does nothing unless stdin is a TTY and a personal registry is

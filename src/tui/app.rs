@@ -4,7 +4,8 @@
 //! when the TUI starts and passed to each view. Views read from `App`
 //! and may mutate it (e.g., toggling core flag updates the library).
 
-use crate::error::Result;
+use crate::commands::skills::{delete, rename};
+use crate::error::{Error, Result};
 use crate::git::Git;
 use crate::library::drift::DriftReport;
 use crate::library::manifest::Manifest;
@@ -47,6 +48,46 @@ pub struct App {
     pub edited_meta: BTreeSet<String>,
     /// Whether the manifest has been modified and needs saving.
     pub manifest_dirty: bool,
+    /// Library changes made this session that the remote has not seen.
+    ///
+    /// Rename and delete run eagerly against the working tree, but the publish
+    /// prompt reads stdin line-by-line and cannot run inside the raw-mode TUI.
+    /// So each such change is recorded here and offered for publishing once the
+    /// terminal has been restored on exit.
+    pub pending_publish: Vec<PendingPublish>,
+}
+
+/// A library change awaiting a publish offer after the TUI exits.
+#[derive(Debug, Clone)]
+pub struct PendingPublish {
+    /// One-line summary shown to the user (e.g. "Renamed skill 'a' -> 'b'").
+    pub summary: String,
+    /// The paths whose change should be pushed.
+    pub pathspecs: Vec<String>,
+    /// The commit message for the push.
+    pub message: String,
+}
+
+/// Result of a rename attempt in the TUI.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RenameOutcome {
+    /// The spec was renamed.
+    Renamed,
+    /// The proposed id is not a usable slug; carries the reason.
+    InvalidId(String),
+    /// Another spec already uses the proposed id.
+    Collision,
+    /// The spec to rename was not found.
+    NotFound,
+}
+
+/// Result of a delete attempt in the TUI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeleteOutcome {
+    /// The spec was deleted.
+    Deleted,
+    /// The spec to delete was not found.
+    NotFound,
 }
 
 /// Result of an add-to-manifest operation.
@@ -118,6 +159,7 @@ impl App {
             library_dirty: false,
             edited_meta: BTreeSet::new(),
             manifest_dirty: false,
+            pending_publish: Vec::new(),
         })
     }
 
@@ -238,6 +280,101 @@ impl App {
         self.manifest_ids.remove(spec_id);
         self.manifest_dirty = true;
         Ok(RemoveResult::Removed)
+    }
+
+    /// Rename a spec's id, eagerly, from within the TUI.
+    ///
+    /// Unlike core/manifest toggles this cannot be deferred to exit: it moves
+    /// files and rewrites the index. Deferred edits are flushed first so the
+    /// reload afterwards does not drop them, and the change is queued for a
+    /// publish offer once the terminal is restored.
+    pub fn rename_spec(&mut self, old: &str, new: &str) -> Result<RenameOutcome> {
+        let Some(spec) = self.library.get(old) else {
+            return Ok(RenameOutcome::NotFound);
+        };
+        let spec_type = spec.spec_type;
+        let mut pathspecs = spec_type.pathspecs(old);
+        pathspecs.extend(spec_type.pathspecs(new));
+
+        self.flush_deferred()?;
+
+        match rename::apply(&self.paths, old, new, &self.tool_dirs) {
+            Ok(_) => {}
+            Err(Error::InvalidSpecId { reason, .. }) => {
+                return Ok(RenameOutcome::InvalidId(reason))
+            }
+            Err(Error::SpecAlreadyExists { .. }) => return Ok(RenameOutcome::Collision),
+            Err(Error::SpecNotFound { .. }) => return Ok(RenameOutcome::NotFound),
+            Err(e) => return Err(e),
+        }
+
+        if self.manifest_ids.remove(old) {
+            if let Some(manifest) = &mut self.manifest {
+                manifest.remove(old, Some(spec_type));
+                manifest.add(new, spec_type);
+            }
+            self.manifest_ids.insert(new.to_string());
+            self.manifest_dirty = true;
+        }
+
+        self.reload_library()?;
+        self.pending_publish.push(PendingPublish {
+            summary: format!("Renamed {spec_type} '{old}' -> '{new}'"),
+            pathspecs,
+            message: format!("refactor: rename {spec_type} '{old}' -> '{new}'"),
+        });
+        Ok(RenameOutcome::Renamed)
+    }
+
+    /// Delete a spec from the library, eagerly, from within the TUI.
+    ///
+    /// See [`Self::rename_spec`] for why this cannot be deferred to exit.
+    pub fn delete_spec(&mut self, id: &str) -> Result<DeleteOutcome> {
+        let Some(spec) = self.library.get(id) else {
+            return Ok(DeleteOutcome::NotFound);
+        };
+        let spec_type = spec.spec_type;
+        let pathspecs = spec.pathspecs();
+
+        self.flush_deferred()?;
+
+        match delete::apply(&self.paths, id, &self.tool_dirs) {
+            Ok(()) => {}
+            Err(Error::SpecNotFound { .. }) => return Ok(DeleteOutcome::NotFound),
+            Err(e) => return Err(e),
+        }
+
+        if self.manifest_ids.remove(id) {
+            if let Some(manifest) = &mut self.manifest {
+                manifest.remove(id, Some(spec_type));
+            }
+            self.manifest_dirty = true;
+        }
+
+        self.reload_library()?;
+        self.pending_publish.push(PendingPublish {
+            summary: format!("Deleted {spec_type} '{id}'"),
+            pathspecs,
+            message: format!("chore: remove {spec_type} '{id}'"),
+        });
+        Ok(DeleteOutcome::Deleted)
+    }
+
+    /// Persist any deferred edits (core toggles, metadata, manifest) and clear
+    /// the dirty flags, so a subsequent reload from disk keeps them.
+    fn flush_deferred(&mut self) -> Result<()> {
+        self.save_if_dirty()?;
+        self.library_dirty = false;
+        self.edited_meta.clear();
+        self.manifest_dirty = false;
+        Ok(())
+    }
+
+    /// Reload the library index and drift after an eager on-disk change.
+    fn reload_library(&mut self) -> Result<()> {
+        self.library = Library::load_from(&self.paths.library_json())?;
+        self.drift = DriftReport::compute(&self.paths.library_dir()).unwrap_or_default();
+        Ok(())
     }
 
     /// Save any dirty state to disk and rebuild symlinks. Called on TUI exit.

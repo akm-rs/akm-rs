@@ -118,6 +118,8 @@ akm skills remove vitest         # remove from project manifest
 akm skills status                # full status dashboard (TUI)
 akm skills edit my-skill         # edit SKILL.md in $EDITOR
 akm skills edit my-skill --meta  # edit the skill's akm.json sidecar
+akm skills rename old new         # rename a spec's id (its slug / directory name)
+akm skills delete my-skill       # delete a spec from the library (and the registry)
 akm skills diff my-skill         # what changed here, and what changed on the registry
 akm skills revert my-skill       # discard local changes (--remote: take the registry's copy)
 akm skills core                  # show core flags (--adopt / --publish to reconcile)
@@ -127,6 +129,23 @@ akm skills publish my-skill      # publish one spec to personal registry
 akm skills publish               # publish everything pending, in one commit
 akm skills clean --dry-run       # preview stale spec removal
 ```
+
+`remove` and `delete` are different verbs: `remove` only unwires a spec from the
+current project's manifest, while `delete` takes it out of the library
+entirely — files, index, core symlinks — and offers to push the removal to the
+personal registry. `rename` likewise moves the spec's files and fixes up the
+current project's manifest and this machine's core override. Both `rename` and
+`delete` can only reach the *current* repository's manifest; a spec referenced by
+another project's manifest keeps its old (or now-deleted) id there until that
+project is updated. In the `list` TUI, `R` renames the selected spec and `D`
+deletes it; the publish offer appears after you quit the TUI.
+
+Publishing a rename or delete lands on top of the registry the same way an
+edit does: if the remote moved on since your last sync, AKM fast-forwards onto
+it first and then commits your change, so the push is never rejected. If another
+machine changed the very same spec, your rename/delete wins (its old id is gone
+and the new one holds your version) — no git conflict, and you are never dropped
+into the library to sort out history by hand.
 
 #### Keeping in step with the registry
 

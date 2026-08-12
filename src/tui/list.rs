@@ -17,6 +17,8 @@
 //! - `e` → edit metadata (tags, triggers)
 //! - `a` → add to current project manifest
 //! - `r` → remove from current project manifest
+//! - `R` → rename the spec's id (its slug)
+//! - `D` → delete the spec from the library
 //! - `q` → quit
 //! - `Esc` → clear the search filter (never quits)
 //! - `↑`/`↓` or `j`/`k` → navigate
@@ -30,14 +32,16 @@
 //! - `↑`/`↓` → navigate
 //! - `Ctrl+C` → exit immediately
 
+use crate::config::Config;
 use crate::error::Result;
 use crate::library::spec::SpecType;
 use crate::library::tool_dirs::ToolDirs;
 use crate::paths::Paths;
-use crate::tui::app::{AddResult, App, RemoveResult};
+use crate::tui::app::{AddResult, App, DeleteOutcome, RemoveResult, RenameOutcome};
 use crate::tui::detail;
 use crate::tui::edit as tui_edit;
 use crate::tui::event::{self, Event};
+use crate::tui::input::TextInput;
 use crate::tui::theme;
 use crate::tui::{self, EventOutcome, Term, ViewSwitch};
 
@@ -58,6 +62,10 @@ enum Mode {
     Normal,
     /// Letters are appended to the search query.
     Search,
+    /// Typing the new id for the spec being renamed.
+    Rename,
+    /// Awaiting `y`/`n` to confirm deleting the spec.
+    ConfirmDelete,
 }
 
 /// State for the list view.
@@ -76,6 +84,10 @@ struct ListView {
     type_filter: Option<SpecType>,
     /// Status message shown briefly after an action (e.g., "✓ Added to manifest").
     status_message: Option<String>,
+    /// The id targeted by an in-progress rename/delete (the modal target).
+    pending_id: Option<String>,
+    /// Text field for the new id while renaming.
+    rename_input: TextInput,
 }
 
 impl ListView {
@@ -96,6 +108,8 @@ impl ListView {
             tag_filter,
             type_filter,
             status_message: None,
+            pending_id: None,
+            rename_input: TextInput::default(),
         }
     }
 
@@ -188,7 +202,27 @@ pub fn run(
         eprintln!("Warning: failed to save changes: {save_err}");
     }
 
+    // Eager rename/delete changes could not be published inside the raw-mode
+    // TUI. Now that the terminal is restored, offer them on the normal terminal.
+    if result.is_ok() && !app.pending_publish.is_empty() {
+        offer_pending_publishes(paths, &app);
+    }
+
     result
+}
+
+/// After the TUI exits, offer to publish the rename/delete changes it made.
+fn offer_pending_publishes(paths: &Paths, app: &App) {
+    let config = Config::load(paths).unwrap_or_default();
+    for change in &app.pending_publish {
+        println!("{}", change.summary);
+        crate::commands::skills::publish::offer_pathspecs(
+            paths,
+            &config,
+            &change.pathspecs,
+            &change.message,
+        );
+    }
 }
 
 /// The main event loop for the list view.
@@ -232,6 +266,8 @@ fn handle_list_key(key: KeyEvent, app: &mut App, view: &mut ListView) -> Result<
             handle_search_key(key, view);
             Ok(EventOutcome::Continue)
         }
+        Mode::Rename => handle_rename_key(key, app, view),
+        Mode::ConfirmDelete => handle_confirm_delete_key(key, app, view),
     }
 }
 
@@ -314,7 +350,93 @@ fn handle_normal_key(key: KeyEvent, app: &mut App, view: &mut ListView) -> Resul
             }
         }
 
+        KeyCode::Char('R') => {
+            if let Some(id) = view.selected_id() {
+                let id = id.to_string();
+                view.rename_input = TextInput::new(&id);
+                view.pending_id = Some(id);
+                view.mode = Mode::Rename;
+            }
+        }
+        KeyCode::Char('D') => {
+            if let Some(id) = view.selected_id() {
+                view.pending_id = Some(id.to_string());
+                view.mode = Mode::ConfirmDelete;
+            }
+        }
+
         _ => {}
+    }
+
+    Ok(EventOutcome::Continue)
+}
+
+/// Handle a key event while typing the new id for a rename.
+///
+/// `Enter` commits, `Esc` cancels. A rejected id (bad slug or collision) keeps
+/// the field open so it can be corrected; success returns to normal mode.
+fn handle_rename_key(key: KeyEvent, app: &mut App, view: &mut ListView) -> Result<EventOutcome> {
+    if event::is_escape(&key) {
+        view.mode = Mode::Normal;
+        view.pending_id = None;
+        return Ok(EventOutcome::Continue);
+    }
+
+    match key.code {
+        KeyCode::Enter => {
+            let (Some(old), new) = (view.pending_id.clone(), view.rename_input.value()) else {
+                view.mode = Mode::Normal;
+                return Ok(EventOutcome::Continue);
+            };
+            if new == old {
+                view.mode = Mode::Normal;
+                view.pending_id = None;
+                return Ok(EventOutcome::Continue);
+            }
+            match app.rename_spec(&old, &new)? {
+                RenameOutcome::Renamed => {
+                    view.status_message = Some(format!("Renamed '{old}' -> '{new}'"));
+                    view.mode = Mode::Normal;
+                    view.pending_id = None;
+                }
+                RenameOutcome::InvalidId(reason) => {
+                    view.status_message = Some(format!("Invalid id: {reason}"));
+                }
+                RenameOutcome::Collision => {
+                    view.status_message = Some(format!("'{new}' already exists"));
+                }
+                RenameOutcome::NotFound => {
+                    view.status_message = Some(format!("Spec not found: {old}"));
+                    view.mode = Mode::Normal;
+                    view.pending_id = None;
+                }
+            }
+        }
+        KeyCode::Backspace => view.rename_input.backspace(),
+        KeyCode::Left => view.rename_input.left(),
+        KeyCode::Right => view.rename_input.right(),
+        KeyCode::Char(c) => view.rename_input.insert(c),
+        _ => {}
+    }
+
+    Ok(EventOutcome::Continue)
+}
+
+/// Handle the `y`/`n` confirmation before deleting a spec.
+fn handle_confirm_delete_key(
+    key: KeyEvent,
+    app: &mut App,
+    view: &mut ListView,
+) -> Result<EventOutcome> {
+    let id = view.pending_id.clone();
+    view.mode = Mode::Normal;
+    view.pending_id = None;
+
+    if let (KeyCode::Char('y') | KeyCode::Char('Y'), Some(id)) = (key.code, id) {
+        match app.delete_spec(&id)? {
+            DeleteOutcome::Deleted => view.status_message = Some(format!("Deleted '{id}'")),
+            DeleteOutcome::NotFound => view.status_message = Some(format!("Spec not found: {id}")),
+        }
     }
 
     Ok(EventOutcome::Continue)
@@ -354,7 +476,7 @@ fn render_list(frame: &mut Frame, app: &App, view: &mut ListView) {
         ])
         .split(frame.area());
 
-    render_search_bar(frame, chunks[0], view.mode, &view.search_query);
+    render_prompt_bar(frame, chunks[0], view);
     render_table(frame, chunks[1], app, view);
 
     if let Some(ref msg) = view.status_message {
@@ -363,6 +485,32 @@ fn render_list(frame: &mut Frame, app: &App, view: &mut ListView) {
     }
 
     render_help_bar(frame, chunks[3], view.mode, !app.drift.is_clean());
+}
+
+/// Render the top bar: the search field, or the rename/confirm-delete prompt.
+fn render_prompt_bar(frame: &mut Frame, area: Rect, view: &ListView) {
+    match view.mode {
+        Mode::Rename => {
+            let target = view.pending_id.as_deref().unwrap_or("");
+            let line = Line::from(vec![
+                Span::styled(format!(" Rename {target} -> "), theme::SEARCH_BAR),
+                Span::raw(view.rename_input.value()),
+                Span::styled("█", theme::SEARCH_BAR),
+            ]);
+            frame.render_widget(Paragraph::new(line).style(theme::SEARCH_BAR), area);
+        }
+        Mode::ConfirmDelete => {
+            let target = view.pending_id.as_deref().unwrap_or("");
+            let line = Line::from(vec![Span::styled(
+                format!(" Delete '{target}' from the library? [y/N]"),
+                theme::WARNING,
+            )]);
+            frame.render_widget(Paragraph::new(line), area);
+        }
+        Mode::Normal | Mode::Search => {
+            render_search_bar(frame, area, view.mode, &view.search_query)
+        }
+    }
 }
 
 /// Render the search/filter bar.
@@ -385,6 +533,8 @@ fn render_search_bar(frame: &mut Frame, area: Rect, mode: Mode, query: &str) {
             Span::raw(query),
             Span::styled("  [filtered]", theme::DIM),
         ]),
+        // The modal modes render their own prompt via `render_prompt_bar`.
+        (Mode::Rename, _) | (Mode::ConfirmDelete, _) => Line::from(""),
     };
     let para = Paragraph::new(text).style(theme::SEARCH_BAR);
     frame.render_widget(para, area);
@@ -461,6 +611,8 @@ fn render_help_bar(frame: &mut Frame, area: Rect, mode: Mode, show_drift_legend:
             ("e", " edit  "),
             ("a", " add  "),
             ("r", " remove  "),
+            ("R", " rename  "),
+            ("D", " delete  "),
             ("/", " search  "),
             ("Esc", " clear filter  "),
             ("q", " quit"),
@@ -472,6 +624,12 @@ fn render_help_bar(frame: &mut Frame, area: Rect, mode: Mode, show_drift_legend:
             ("Enter/Esc", " done  "),
             ("Ctrl+C", " quit"),
         ],
+        Mode::Rename => &[
+            (" type", " new id  "),
+            ("Enter", " confirm  "),
+            ("Esc", " cancel"),
+        ],
+        Mode::ConfirmDelete => &[("y", " delete  "), ("n/Esc", " cancel")],
     };
     let help_text = Line::from(
         pairs
@@ -553,6 +711,98 @@ mod tests {
         let tool_dirs = ToolDirs::builtin(tmp.path());
         let app = App::new(paths, tool_dirs).unwrap();
         (app, tmp)
+    }
+
+    /// An App whose specs actually exist on disk, so rename/delete (which move
+    /// and remove files) can run. Returns the App and its temp-dir guard.
+    fn test_app_on_disk() -> (App, tempfile::TempDir) {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_roots(tmp.path(), tmp.path(), tmp.path(), tmp.path());
+        let library_dir = paths.library_dir();
+
+        for id in ["git-commit", "git-worktrees"] {
+            let dir = library_dir.join("skills").join(id);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("SKILL.md"),
+                format!("---\nname: {id}\ndescription: a test skill\n---\nBody"),
+            )
+            .unwrap();
+        }
+        crate::library::libgen::generate(&library_dir, &paths.library_json()).unwrap();
+
+        let tool_dirs = ToolDirs::builtin(tmp.path());
+        let app = App::new(paths, tool_dirs).unwrap();
+        (app, tmp)
+    }
+
+    /// A normal-mode view over `app`, cursor on the first row.
+    fn normal_view(app: &mut App) -> ListView {
+        let mut view = ListView::new(None, None, None);
+        view.update_visible(app);
+        view
+    }
+
+    #[test]
+    fn capital_r_opens_rename_prefilled_with_the_id() {
+        let (mut app, _tmp) = test_app_on_disk();
+        let mut view = normal_view(&mut app);
+        handle_list_key(ch('R'), &mut app, &mut view).unwrap();
+        assert_eq!(view.mode, Mode::Rename);
+        assert_eq!(view.pending_id.as_deref(), Some("git-commit"));
+        assert_eq!(view.rename_input.value(), "git-commit");
+    }
+
+    #[test]
+    fn committing_a_rename_moves_the_spec_and_queues_a_publish() {
+        let (mut app, _tmp) = test_app_on_disk();
+        let mut view = normal_view(&mut app);
+        handle_list_key(ch('R'), &mut app, &mut view).unwrap();
+        view.rename_input = TextInput::new("git-renamed");
+        handle_list_key(key(KeyCode::Enter), &mut app, &mut view).unwrap();
+
+        assert_eq!(view.mode, Mode::Normal);
+        assert!(app.library.get("git-commit").is_none());
+        assert!(app.library.get("git-renamed").is_some());
+        assert_eq!(app.pending_publish.len(), 1);
+    }
+
+    #[test]
+    fn rename_collision_keeps_the_field_open() {
+        let (mut app, _tmp) = test_app_on_disk();
+        let mut view = normal_view(&mut app);
+        handle_list_key(ch('R'), &mut app, &mut view).unwrap();
+        view.rename_input = TextInput::new("git-worktrees");
+        handle_list_key(key(KeyCode::Enter), &mut app, &mut view).unwrap();
+
+        // Still renaming, both specs intact.
+        assert_eq!(view.mode, Mode::Rename);
+        assert!(app.library.get("git-commit").is_some());
+        assert!(app.pending_publish.is_empty());
+    }
+
+    #[test]
+    fn capital_d_then_y_deletes_and_queues_a_publish() {
+        let (mut app, _tmp) = test_app_on_disk();
+        let mut view = normal_view(&mut app);
+        handle_list_key(ch('D'), &mut app, &mut view).unwrap();
+        assert_eq!(view.mode, Mode::ConfirmDelete);
+
+        handle_list_key(ch('y'), &mut app, &mut view).unwrap();
+        assert_eq!(view.mode, Mode::Normal);
+        assert!(app.library.get("git-commit").is_none());
+        assert_eq!(app.pending_publish.len(), 1);
+    }
+
+    #[test]
+    fn delete_cancelled_leaves_the_spec() {
+        let (mut app, _tmp) = test_app_on_disk();
+        let mut view = normal_view(&mut app);
+        handle_list_key(ch('D'), &mut app, &mut view).unwrap();
+        handle_list_key(ch('n'), &mut app, &mut view).unwrap();
+        assert_eq!(view.mode, Mode::Normal);
+        assert!(app.library.get("git-commit").is_some());
+        assert!(app.pending_publish.is_empty());
     }
 
     /// A view already filtered to "git" and back in normal mode.

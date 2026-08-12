@@ -4,6 +4,31 @@ akm-rs is a CLI tool for AKM (Agent Kit Manager). It manages a shared library of
 skills, agents and instructions and wires them into coding harnesses per project
 and per session.
 
+## Philosophy
+
+AKM is meant to feel like Obsidian. It is a tool you use on **one machine** — a
+local library of skills, agents and instructions that you edit and wire into
+your harnesses. If you want the same library on another machine you **opt in to
+sync**, and from then on it just stays in step. Sync has its own rules (see the
+README's "Keeping in step with the registry" and `docs/`), but the user should
+**never have to think about them**, and must **never** be told to go run git by
+hand. "Resolve it in the library repository" is a bug, not an answer.
+
+Git is an implementation detail. Today AKM leans on git directly — the library
+*is* the registry's working tree — because that buys drift, history and
+ours-wins reconciliation without a database, and keeps the binary dependency-free.
+That is a deliberate trade to avoid over-engineering, not a constraint: git must
+stay **below the surface**. Any place a git concept (rebase, conflict, detached
+HEAD, "non-fast-forward") reaches the user is a place to fix — by having AKM do
+the reconciliation on their behalf in terms of *specs*, not commits.
+
+When git starts doing too much — anything stateful git is a poor fit for, e.g.
+tracking skill activations, monitoring sessions, or recording user actions over
+time — reach for a local store (a SQLite DB under the XDG data dir is the
+intended tool) rather than contorting git. The bar for adding that machinery: it
+either removes a git-detour the user would otherwise hit, or it backs a stateful
+feature git genuinely cannot. Not before.
+
 ## Tech stack
 
 Rust (MSRV 1.88).
