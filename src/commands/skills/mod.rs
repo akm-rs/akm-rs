@@ -5,6 +5,7 @@
 pub mod add;
 pub mod clean;
 pub mod core;
+pub mod delete;
 pub mod diff;
 pub mod edit;
 pub mod import;

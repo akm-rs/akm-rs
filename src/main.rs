@@ -237,6 +237,15 @@ enum SkillsCommands {
         /// New spec ID
         new: String,
     },
+    /// Delete a spec from the library (and the personal registry)
+    Delete {
+        /// Spec ID to delete
+        #[arg(add = ArgValueCandidates::new(SpecIdCompleter))]
+        id: String,
+        /// Skip the confirmation prompt
+        #[arg(long)]
+        force: bool,
+    },
     /// Publish spec to personal registry
     Publish {
         /// Spec ID to publish. Omit to publish everything pending.
@@ -429,6 +438,10 @@ fn main() -> ExitCode {
                 Some(SkillsCommands::Rename { old, new }) => {
                     let config = akm::config::Config::load(&paths).unwrap_or_default();
                     commands::skills::rename::run(&paths, &config, &old, &new, &tool_dirs)
+                }
+                Some(SkillsCommands::Delete { id, force }) => {
+                    let config = akm::config::Config::load(&paths).unwrap_or_default();
+                    commands::skills::delete::run(&paths, &config, &id, force, &tool_dirs)
                 }
                 Some(SkillsCommands::Publish { id, dry_run }) => {
                     let config = akm::config::Config::load(&paths).unwrap_or_default();
