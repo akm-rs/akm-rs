@@ -86,6 +86,17 @@ impl LocalOverrides {
         self.core.remove(id);
     }
 
+    /// Move any deviation from `old` to `new`, following a spec rename.
+    ///
+    /// Without this the entry for `old` would be dropped by [`Self::apply`] as
+    /// a stale id, silently resetting the renamed spec to its published core
+    /// default on this machine.
+    pub fn rename(&mut self, old: &str, new: &str) {
+        if let Some(value) = self.core.remove(old) {
+            self.core.insert(new.to_string(), value);
+        }
+    }
+
     /// Number of specs deviating from their published default.
     pub fn deviation_count(&self) -> usize {
         self.core.len()

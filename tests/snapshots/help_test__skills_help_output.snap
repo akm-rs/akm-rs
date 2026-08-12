@@ -17,6 +17,7 @@ Commands:
   promote  Import local skill into cold storage
   import   Import a skill from a GitHub URL into cold storage
   edit     Edit a spec's markdown in $EDITOR
+  rename   Rename a spec's id (its slug / directory name)
   publish  Publish spec to personal registry
   diff     Show what changed locally and in the registry for a spec
   revert   Discard local changes to a spec

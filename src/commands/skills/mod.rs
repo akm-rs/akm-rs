@@ -14,6 +14,7 @@ pub mod migrate;
 pub mod promote;
 pub mod publish;
 pub mod remove;
+pub mod rename;
 pub mod revert;
 pub mod search;
 pub mod session_setup;

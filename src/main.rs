@@ -229,6 +229,14 @@ enum SkillsCommands {
         #[arg(long)]
         meta: bool,
     },
+    /// Rename a spec's id (its slug / directory name)
+    Rename {
+        /// Current spec ID
+        #[arg(add = ArgValueCandidates::new(SpecIdCompleter))]
+        old: String,
+        /// New spec ID
+        new: String,
+    },
     /// Publish spec to personal registry
     Publish {
         /// Spec ID to publish. Omit to publish everything pending.
@@ -417,6 +425,10 @@ fn main() -> ExitCode {
                 Some(SkillsCommands::Edit { id, meta }) => {
                     let config = akm::config::Config::load(&paths).unwrap_or_default();
                     commands::skills::edit::run(&paths, &config, &id, meta, &tool_dirs)
+                }
+                Some(SkillsCommands::Rename { old, new }) => {
+                    let config = akm::config::Config::load(&paths).unwrap_or_default();
+                    commands::skills::rename::run(&paths, &config, &old, &new, &tool_dirs)
                 }
                 Some(SkillsCommands::Publish { id, dry_run }) => {
                     let config = akm::config::Config::load(&paths).unwrap_or_default();

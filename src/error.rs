@@ -65,6 +65,10 @@ pub enum Error {
     #[error("Invalid spec type: '{value}' (expected 'skill' or 'agent')")]
     InvalidSpecType { value: String },
 
+    /// Proposed spec id is not a usable slug.
+    #[error("Invalid spec id '{id}': {reason}")]
+    InvalidSpecId { id: String, reason: String },
+
     /// Frontmatter missing required field.
     #[error("Missing required frontmatter field '{field}' in {path}\nAdd '{field}: ...' to the YAML frontmatter.")]
     FrontmatterMissing { field: String, path: PathBuf },
