@@ -1,0 +1,15 @@
+---
+source: tests/help_test.rs
+expression: "String::from_utf8_lossy(&output.stdout).to_string()"
+---
+Rename a spec's id (its slug / directory name)
+
+Usage: akm skills rename <OLD> <NEW>
+
+Arguments:
+  <OLD>  Current spec ID
+  <NEW>  New spec ID
+
+Options:
+  -h, --help     Print help
+  -V, --version  Print version

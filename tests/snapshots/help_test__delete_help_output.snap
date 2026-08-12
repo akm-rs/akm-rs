@@ -1,0 +1,15 @@
+---
+source: tests/help_test.rs
+expression: "String::from_utf8_lossy(&output.stdout).to_string()"
+---
+Delete a spec from the library (and the personal registry)
+
+Usage: akm skills delete [OPTIONS] <ID>
+
+Arguments:
+  <ID>  Spec ID to delete
+
+Options:
+      --force    Skip the confirmation prompt
+  -h, --help     Print help
+  -V, --version  Print version
