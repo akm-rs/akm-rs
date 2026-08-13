@@ -492,10 +492,10 @@ pub const ALL_CONFIG_KEYS: &str = "features, registry.url, shared.<name>, \
 /// Whether `name` is a usable shared-registry name.
 ///
 /// The rule — non-empty and single-segment (no `.`) — is shared by the
-/// `shared.<name>` config-key parser and the `akm skills shared` menu, so it
-/// lives here as one predicate rather than being spelled out in both. A
-/// predicate, not a `Result`: the menu re-prompts on a bad name, while the
-/// parser turns `false` into a `ConfigValidation` error.
+/// `shared.<name>` config-key parser and the settings panel's add-registry
+/// flow, so it lives here as one predicate rather than being spelled out in
+/// both. A predicate, not a `Result`: the panel re-prompts on a bad name, while
+/// the parser turns `false` into a `ConfigValidation` error.
 pub(crate) fn is_valid_shared_name(name: &str) -> bool {
     !name.is_empty() && !name.contains('.')
 }

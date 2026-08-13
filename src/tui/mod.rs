@@ -1,8 +1,8 @@
 //! TUI framework for AKM.
 //!
 //! Provides terminal setup/teardown with crossterm, a panic handler that
-//! restores the terminal, and the shared `run_app` function that drives
-//! the event loop for any view.
+//! restores the terminal, and shared event/draw helpers. Each view owns its
+//! own event loop (see [`list`], [`artifacts`], [`settings`]).
 
 pub mod app;
 pub mod artifacts;

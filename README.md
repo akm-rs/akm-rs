@@ -219,8 +219,7 @@ library: nothing in it is ever mounted into a tool directory. You browse it,
 take what you want, and the copy becomes an ordinary skill of your own.
 
 ```bash
-akm skills shared                # add/remove them from an interactive menu
-akm skills shared --plain         # or just list them (also the default when piped)
+akm config                       # add / remove / verify them in the settings panel
 
 akm config shared.acme git@github.com:acme/skills.git   # add one, scriptably
 akm config shared.acme ""                                # remove it, scriptably
@@ -230,14 +229,16 @@ akm skills import acme tdd        # take one
 akm skills import acme --all      # take everything usable
 ```
 
-`akm skills shared` is the friendly front-end; `akm config shared.<name>` is the
-scriptable one. Both write the same config, so use whichever suits.
+The settings panel — `akm config` with no arguments on a terminal — is the
+friendly front-end; `akm config shared.<name>` is the scriptable one. Both write
+the same config, so use whichever suits.
 
 Checkouts live in `$XDG_CACHE_HOME/akm/shared/<name>` and are refreshed by
 `akm skills sync` and by any of the commands above. Removing a registry deletes
-its checkout too — interactively at once, and otherwise on the next
-`akm skills sync`, which sweeps any checkout config no longer names. A registry
-that cannot be reached is reported, and browsing falls back to the copy on disk.
+its checkout too — at once when you remove it in the settings panel, and
+otherwise on the next `akm skills sync`, which sweeps any checkout config no
+longer names. A registry that cannot be reached is reported, and browsing falls
+back to the copy on disk.
 
 Only directories holding a `SKILL.md` with a `name` and a `description` are
 importable; anything else is named and skipped. An id you already have is a

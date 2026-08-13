@@ -38,21 +38,6 @@ fn test_skills_help_output_snapshot() {
     );
 }
 
-/// `shared` has a TTY-vs-pipe split and a `--plain` escape hatch, so its help —
-/// and the fact that it takes no verb subcommands — is pinned.
-#[test]
-fn test_shared_help_output_snapshot() {
-    let output = cargo_bin_cmd!("akm")
-        .args(["skills", "shared", "--help"])
-        .output()
-        .unwrap();
-
-    insta::assert_snapshot!(
-        "shared_help_output",
-        String::from_utf8_lossy(&output.stdout).to_string()
-    );
-}
-
 /// Rename and delete are destructive/structural, so their contract — argument
 /// order and `delete`'s `--force` — is pinned.
 #[test]
