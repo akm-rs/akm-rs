@@ -24,6 +24,7 @@ use crate::paths::Paths;
 use crate::registry::{Registry, SyncOutcome};
 
 use super::migrate::{self, Rc3Wipe};
+use super::shared;
 
 /// Result of a sync operation, used for display.
 #[derive(Debug)]
@@ -40,6 +41,10 @@ pub struct SyncReport {
     pub tool_dir_count: usize,
     /// Per-spec divergence after the update.
     pub drift: DriftReport,
+    /// One entry per configured shared registry: name, outcome, skill count.
+    pub shared: Vec<(String, shared::RefreshOutcome, usize)>,
+    /// Names of cached checkouts swept because config no longer names them.
+    pub swept: Vec<String>,
 }
 
 /// Outcome of a single registry update attempt.
@@ -67,7 +72,18 @@ pub enum RegistryOutcome {
 }
 
 /// Execute the full sync pipeline.
-pub fn execute(paths: &Paths, registry: &Registry, tool_dirs: &ToolDirs) -> Result<SyncReport> {
+///
+/// `shared` is the outcome of refreshing the configured shared registries. It
+/// is passed in rather than computed here because nothing downstream of the
+/// personal registry depends on it: shared registries are browsable troves,
+/// never mounted, so refreshing one can neither add a symlink nor change the
+/// index.
+pub fn execute(
+    paths: &Paths,
+    registry: &Registry,
+    tool_dirs: &ToolDirs,
+    shared: Vec<(String, shared::RefreshOutcome, usize)>,
+) -> Result<SyncReport> {
     let library_dir = registry.dir().to_path_buf();
 
     // The wipe is only safe while a registry is configured to clone back from.
@@ -87,6 +103,8 @@ pub fn execute(paths: &Paths, registry: &Registry, tool_dirs: &ToolDirs) -> Resu
             symlink_count: 0,
             tool_dir_count: tool_dirs.count(),
             drift: DriftReport::default(),
+            shared,
+            swept: Vec::new(),
         });
     }
 
@@ -127,6 +145,8 @@ pub fn execute(paths: &Paths, registry: &Registry, tool_dirs: &ToolDirs) -> Resu
         symlink_count,
         tool_dir_count: tool_dirs.count(),
         drift: registry.drift()?,
+        shared,
+        swept: Vec::new(),
     })
 }
 
@@ -219,7 +239,33 @@ pub fn print_report(report: &SyncReport, quiet: bool) {
         report.symlink_count, report.tool_dir_count
     );
 
+    print_shared(&report.shared, &report.swept);
     print_drift(&report.drift);
+}
+
+/// Report each shared registry's refresh.
+///
+/// Informational only — nothing here is mounted, so an unreachable registry is
+/// a warning about browsing, not about this session's skills.
+fn print_shared(shared: &[(String, shared::RefreshOutcome, usize)], swept: &[String]) {
+    if shared.is_empty() && swept.is_empty() {
+        return;
+    }
+
+    println!();
+    println!("Shared registries:");
+    for (name, outcome, count) in shared {
+        match outcome {
+            shared::RefreshOutcome::Failed { .. } => {
+                println!("  {name}: {outcome}, browsing the copy on disk")
+            }
+            _ => println!("  {name}: {outcome} ({count} skills)"),
+        }
+    }
+    // A cache vanishing silently is a debugging trap, so name what was swept.
+    for name in swept {
+        println!("  {name}: removed (no longer configured)");
+    }
 }
 
 /// Report what needs a decision, without asking for one.
@@ -264,7 +310,12 @@ pub fn run_cli(paths: &Paths, quiet: bool) -> Result<()> {
         paths.library_dir(),
     );
 
-    let report = execute(paths, &registry, &tool_dirs)?;
+    let shared = shared::refresh_all(paths, &config);
+    let mut report = execute(paths, &registry, &tool_dirs, shared)?;
+    // Reconcile the cache against config: drop checkouts of registries that were
+    // removed with `akm config shared.<name> ""`, which cannot touch the cache
+    // itself. Sync is the only place with both the config and the paths.
+    report.swept = shared::sweep_orphans(paths, &config);
     print_report(&report, quiet);
 
     Ok(())

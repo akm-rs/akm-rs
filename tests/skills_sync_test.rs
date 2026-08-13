@@ -91,6 +91,7 @@ impl Env {
             &self.paths,
             &self.registry(),
             &ToolDirs::builtin(&self.home),
+            Vec::new(),
         )
         .unwrap()
     }
@@ -408,7 +409,13 @@ fn sync_without_a_registry_uses_what_is_on_disk() {
     );
 
     let registry = Registry::new("", env.paths.library_dir());
-    let report = sync::execute(&env.paths, &registry, &ToolDirs::builtin(&env.home)).unwrap();
+    let report = sync::execute(
+        &env.paths,
+        &registry,
+        &ToolDirs::builtin(&env.home),
+        Vec::new(),
+    )
+    .unwrap();
 
     assert!(matches!(report.registry, RegistryOutcome::Skipped));
     assert_eq!(report.spec_count, Some(1));
@@ -489,7 +496,13 @@ fn an_rc3_layout_is_kept_when_no_registry_is_configured() {
     env.make_rc3_layout();
 
     let registry = Registry::new("", env.paths.library_dir());
-    let report = sync::execute(&env.paths, &registry, &ToolDirs::builtin(&env.home)).unwrap();
+    let report = sync::execute(
+        &env.paths,
+        &registry,
+        &ToolDirs::builtin(&env.home),
+        Vec::new(),
+    )
+    .unwrap();
 
     assert!(report.migration.is_empty());
     assert!(env.paths.data_dir().join("skills/stale/SKILL.md").is_file());

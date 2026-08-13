@@ -114,7 +114,12 @@ pub fn generate(scan_dir: &Path, out_path: &Path) -> Result<LibgenResult> {
 /// A sidecar that exists but does not parse is reported and left untouched —
 /// falling back in memory keeps the rest of the library usable without
 /// overwriting whatever the user was in the middle of editing.
-fn resolve_meta(library_dir: &Path, id: &str, spec_type: SpecType, md_file: &Path) -> SpecMeta {
+pub(crate) fn resolve_meta(
+    library_dir: &Path,
+    id: &str,
+    spec_type: SpecType,
+    md_file: &Path,
+) -> SpecMeta {
     let sidecar = spec_type.sidecar_path(library_dir, id);
 
     if sidecar.is_file() {

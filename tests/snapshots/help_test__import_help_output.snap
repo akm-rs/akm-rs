@@ -2,15 +2,38 @@
 source: tests/help_test.rs
 expression: "String::from_utf8_lossy(&output.stdout).to_string()"
 ---
-Import a skill from a GitHub URL into cold storage
+Import a skill from a GitHub URL or a shared registry
 
-Usage: akm skills import [OPTIONS] <URL>
+SOURCE is either a GitHub URL or the name of a configured shared
+registry. Give SKILL_ID to take one skill from a registry, or --all to
+take every valid skill the source offers.
+
+Examples:
+  akm skills import https://github.com/acme/kit/tree/main/skills/tdd
+  akm skills import acme tdd
+  akm skills import acme --all
+
+Usage: akm skills import [OPTIONS] <SOURCE> [SKILL_ID]
 
 Arguments:
-  <URL>  GitHub URL to a directory containing SKILL.md
+  <SOURCE>
+          GitHub URL, or the name of a configured shared registry
+
+  [SKILL_ID]
+          Skill to take from a shared registry
 
 Options:
-      --force    Overwrite without confirmation
-      --id <ID>  Override the skill ID (default: last path segment from URL)
-  -h, --help     Print help
-  -V, --version  Print version
+      --all
+          Import every valid skill the source offers
+
+      --force
+          Overwrite without confirmation
+
+      --id <ID>
+          Store the skill under this ID instead
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version

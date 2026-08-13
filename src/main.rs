@@ -59,6 +59,7 @@ enum Commands {
     /// Keys:
     ///   features                  Enabled features (comma-separated: skills,artifacts,instructions)
     ///   registry.url              Registry git URL (canonical)
+    ///   shared.<name>             Git URL of a shared registry to import from (empty value removes)
     ///   skills.personal-registry  Pre-rc4 alias for registry.url
     ///   artifacts.remote          Artifacts repo git URL
     ///   artifacts.dir             Artifacts directory (default: ~/.akm/artifacts)
@@ -166,8 +167,13 @@ enum SkillsCommands {
         #[arg(required = true, add = ArgValueCandidates::new(SpecIdCompleter))]
         ids: Vec<String>,
     },
-    /// Browse library
+    /// Browse the library, or a shared registry
+    ///
+    /// With no argument, lists your own library. With REMOTE, lists what that
+    /// shared registry offers and marks the skills you already have.
     List {
+        /// Shared registry to browse (see `akm config shared.<name>`)
+        remote: Option<String>,
         /// Filter by tag
         #[arg(long)]
         tag: Option<String>,
@@ -192,6 +198,16 @@ enum SkillsCommands {
         #[arg(long)]
         plain: bool,
     },
+    /// Manage shared registries interactively
+    ///
+    /// On a terminal this opens an add/remove menu. Piped, redirected, or with
+    /// --plain, it prints the configured registries and exits. Scriptable writes
+    /// stay on `akm config shared.<name> <url>`.
+    Shared {
+        /// List the registries and exit, without the menu
+        #[arg(long)]
+        plain: bool,
+    },
     /// Remove stale specs
     Clean {
         /// Clean project directories
@@ -209,16 +225,46 @@ enum SkillsCommands {
         #[arg(long)]
         force: bool,
     },
-    /// Import a skill from a GitHub URL into cold storage
+    /// Import a skill from a GitHub URL or a shared registry
+    ///
+    /// SOURCE is either a GitHub URL or the name of a configured shared
+    /// registry. Give SKILL_ID to take one skill from a registry, or --all to
+    /// take every valid skill the source offers.
+    ///
+    /// Examples:
+    ///   akm skills import https://github.com/acme/kit/tree/main/skills/tdd
+    ///   akm skills import acme tdd
+    ///   akm skills import acme --all
+    #[command(verbatim_doc_comment)]
     Import {
-        /// GitHub URL to a directory containing SKILL.md
-        url: String,
+        /// GitHub URL, or the name of a configured shared registry
+        source: String,
+        /// Skill to take from a shared registry
+        skill_id: Option<String>,
+        /// Import every valid skill the source offers
+        #[arg(long, conflicts_with = "skill_id")]
+        all: bool,
         /// Overwrite without confirmation
         #[arg(long)]
         force: bool,
-        /// Override the skill ID (default: last path segment from URL)
-        #[arg(long)]
+        /// Store the skill under this ID instead
+        #[arg(long, conflicts_with = "all")]
         id: Option<String>,
+    },
+    /// Offer a spec to a shared registry as a pull request
+    ///
+    /// Pushes the spec to REMOTE on its own branch and relays the URL the
+    /// remote prints for opening a pull (or merge) request. Nothing is merged:
+    /// the registry's owners decide. Requires permission to push a branch.
+    Share {
+        /// Shared registry to contribute to
+        remote: String,
+        /// Spec ID to share
+        #[arg(add = ArgValueCandidates::new(SpecIdCompleter))]
+        id: String,
+        /// Show what would be pushed, without pushing
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Edit a spec's markdown in $EDITOR
     Edit {
@@ -400,18 +446,32 @@ fn main() -> ExitCode {
                 Some(SkillsCommands::Remove { ids }) => {
                     commands::skills::remove::run(&paths, &ids, &tool_dirs)
                 }
-                Some(SkillsCommands::List { tag, r#type, plain }) => commands::skills::list::run(
-                    &paths,
-                    tag.as_deref(),
-                    r#type.as_deref(),
+                Some(SkillsCommands::List {
+                    remote,
+                    tag,
+                    r#type,
                     plain,
-                    &tool_dirs,
-                ),
+                }) => match remote {
+                    Some(remote) => {
+                        let config = akm::config::Config::load(&paths).unwrap_or_default();
+                        commands::skills::list::run_shared(&paths, &config, &remote)
+                    }
+                    None => commands::skills::list::run(
+                        &paths,
+                        tag.as_deref(),
+                        r#type.as_deref(),
+                        plain,
+                        &tool_dirs,
+                    ),
+                },
                 Some(SkillsCommands::Search { query, plain }) => {
                     commands::skills::search::run(&paths, &query, plain, &tool_dirs)
                 }
                 Some(SkillsCommands::Status { plain }) => {
                     commands::skills::status::run(&paths, &tool_dirs, plain)
+                }
+                Some(SkillsCommands::Shared { plain }) => {
+                    commands::skills::shared_menu::run(&paths, plain)
                 }
                 Some(SkillsCommands::Clean { project, dry_run }) => {
                     commands::skills::clean::run(&paths, &tool_dirs, project, dry_run)
@@ -420,16 +480,51 @@ fn main() -> ExitCode {
                     let config = akm::config::Config::load(&paths).unwrap_or_default();
                     commands::skills::promote::run(&paths, &config, &path, force, &tool_dirs)
                 }
-                Some(SkillsCommands::Import { url, force, id }) => {
+                Some(SkillsCommands::Import {
+                    source,
+                    skill_id,
+                    all,
+                    force,
+                    id,
+                }) => {
                     let config = akm::config::Config::load(&paths).unwrap_or_default();
-                    commands::skills::import::run(
-                        &paths,
-                        &config,
-                        &url,
-                        force,
-                        id.as_deref(),
-                        &tool_dirs,
-                    )
+                    let from_registry = config.shared.contains_key(&source);
+                    match (skill_id, all) {
+                        (Some(skill_id), _) => commands::skills::import::run_remote(
+                            &paths,
+                            &config,
+                            &source,
+                            &skill_id,
+                            force,
+                            id.as_deref(),
+                            &tool_dirs,
+                        ),
+                        (None, true) if from_registry => commands::skills::import::run_all_remote(
+                            &paths, &config, &source, force, &tool_dirs,
+                        ),
+                        (None, true) => commands::skills::import::run_all_url(
+                            &paths, &config, &source, force, &tool_dirs,
+                        ),
+                        // A bare registry name is ambiguous on its own: it
+                        // names a source but not what to take from it.
+                        (None, false) if from_registry => Err(error::Error::ConfigValidation {
+                            key: "import".into(),
+                            message: format!(
+                                "'{source}' is a shared registry. Name a skill \
+                                 ('akm skills import {source} <id>'), take everything \
+                                 ('akm skills import {source} --all'), or see what it has \
+                                 ('akm skills list {source}')."
+                            ),
+                        }),
+                        (None, false) => commands::skills::import::run(
+                            &paths,
+                            &config,
+                            &source,
+                            force,
+                            id.as_deref(),
+                            &tool_dirs,
+                        ),
+                    }
                 }
                 Some(SkillsCommands::Edit { id, meta }) => {
                     let config = akm::config::Config::load(&paths).unwrap_or_default();
@@ -449,6 +544,14 @@ fn main() -> ExitCode {
                         Some(id) => commands::skills::publish::run(&paths, &config, &id, dry_run),
                         None => commands::skills::publish::run_all(&paths, &config, dry_run),
                     }
+                }
+                Some(SkillsCommands::Share {
+                    remote,
+                    id,
+                    dry_run,
+                }) => {
+                    let config = akm::config::Config::load(&paths).unwrap_or_default();
+                    commands::skills::share::run(&paths, &config, &remote, &id, dry_run)
                 }
                 Some(SkillsCommands::Diff { id }) => {
                     let config = akm::config::Config::load(&paths).unwrap_or_default();

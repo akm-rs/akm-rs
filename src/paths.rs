@@ -165,6 +165,21 @@ impl Paths {
         self.cache_dir.join(session_id)
     }
 
+    /// `$XDG_CACHE_HOME/akm/shared/<name>/` — checkout of a shared registry.
+    ///
+    /// In the cache, not the data dir, because it is neither owned nor mounted:
+    /// nothing here is ever symlinked into a tool directory, and a shared
+    /// registry is only ever read from, so the whole tree is reconstructible
+    /// from its remote. Deleting it costs one clone.
+    pub fn shared_dir(&self, name: &str) -> PathBuf {
+        self.cache_dir.join("shared").join(name)
+    }
+
+    /// Root of every shared registry checkout: `$XDG_CACHE_HOME/akm/shared/`.
+    pub fn shared_root(&self) -> PathBuf {
+        self.cache_dir.join("shared")
+    }
+
     // --- AKM home (non-XDG, user-visible) ---
 
     /// `$HOME/.akm` — artifacts root, global instructions
