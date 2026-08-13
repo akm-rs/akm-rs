@@ -73,6 +73,9 @@ enum Commands {
         key: Option<String>,
         /// New value to set
         value: Option<String>,
+        /// With no key: print config as plain text instead of the settings panel
+        #[arg(long)]
+        plain: bool,
     },
     /// Sync all enabled features (skills, artifacts, instructions)
     Sync,
@@ -410,7 +413,9 @@ fn main() -> ExitCode {
                     source: e,
                 })
         }
-        Some(Commands::Config { key, value }) => commands::config::run(&paths, key, value),
+        Some(Commands::Config { key, value, plain }) => {
+            commands::config::run(&paths, key, value, plain)
+        }
         Some(Commands::Setup {
             skills,
             artifacts,

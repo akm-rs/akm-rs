@@ -112,6 +112,30 @@ auto_push = true
     insta::assert_snapshot!(normalized);
 }
 
+/// `--plain` forces the dump even on a TTY, and that dump stays a superset of
+/// the settings panel — it keeps the `update.*` keys the panel omits, so a
+/// scripted read never loses a key.
+#[test]
+fn config_plain_dumps_the_full_superset() {
+    let tmp = TempDir::new().unwrap();
+    let config_dir = tmp.path().join("config").join("akm");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::write(config_dir.join("config.toml"), "features = [\"skills\"]\n").unwrap();
+
+    let mut cmd = akm_cmd();
+    cmd.args(["config", "--plain"]);
+    cmd.env("XDG_CONFIG_HOME", tmp.path().join("config"))
+        .env("XDG_DATA_HOME", tmp.path().join("data"))
+        .env("XDG_CACHE_HOME", tmp.path().join("cache"))
+        .env("HOME", tmp.path());
+    let out = cmd.output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+
+    assert!(stdout.contains("AKM Config"));
+    assert!(stdout.contains("update.url"));
+    assert!(stdout.contains("update.auto-check"));
+}
+
 /// Shared registries are addressed by a name the user chooses, so the key is
 /// open-ended where every other config key is one of a fixed set.
 #[test]

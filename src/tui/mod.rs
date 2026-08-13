@@ -11,6 +11,7 @@ pub mod edit;
 pub mod event;
 pub mod input;
 pub mod list;
+pub mod settings;
 pub mod status;
 pub mod theme;
 
