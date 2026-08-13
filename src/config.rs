@@ -489,6 +489,17 @@ pub const ALL_CONFIG_KEYS: &str = "features, registry.url, shared.<name>, \
      skills.personal-registry, artifacts.remote, artifacts.dir, artifacts.auto-push, \
      update.url, update.check-interval, update.auto-check";
 
+/// Whether `name` is a usable shared-registry name.
+///
+/// The rule — non-empty and single-segment (no `.`) — is shared by the
+/// `shared.<name>` config-key parser and the `akm skills shared` menu, so it
+/// lives here as one predicate rather than being spelled out in both. A
+/// predicate, not a `Result`: the menu re-prompts on a bad name, while the
+/// parser turns `false` into a `ConfigValidation` error.
+pub(crate) fn is_valid_shared_name(name: &str) -> bool {
+    !name.is_empty() && !name.contains('.')
+}
+
 impl std::str::FromStr for ConfigKey {
     type Err = Error;
 
@@ -507,7 +518,7 @@ impl std::str::FromStr for ConfigKey {
             // `shared.<name>` is open-ended: the suffix is the remote's name.
             other if other.starts_with("shared.") => {
                 let name = other.trim_start_matches("shared.");
-                if name.is_empty() || name.contains('.') {
+                if !is_valid_shared_name(name) {
                     return Err(Error::ConfigValidation {
                         key: other.to_string(),
                         message: "Expected 'shared.<name>' with a single-segment name".into(),
@@ -683,6 +694,13 @@ mod tests {
     #[test]
     fn config_key_from_str_unknown() {
         assert!("nonexistent.key".parse::<ConfigKey>().is_err());
+    }
+
+    #[test]
+    fn is_valid_shared_name_accepts_single_segment_only() {
+        assert!(is_valid_shared_name("foo"));
+        assert!(!is_valid_shared_name(""));
+        assert!(!is_valid_shared_name("a.b"));
     }
 
     #[test]

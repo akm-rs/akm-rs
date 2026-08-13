@@ -12,6 +12,7 @@ use akm::library::libgen;
 use akm::library::tool_dirs::ToolDirs;
 use akm::library::Library;
 use akm::paths::Paths;
+use assert_cmd::cargo::cargo_bin_cmd;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::TempDir;
@@ -475,4 +476,49 @@ fn a_registry_that_was_never_cloned_is_an_error() {
 
     let err = list::run_shared(&env.paths, &env.config, "acme").unwrap_err();
     assert!(format!("{err}").contains("acme"));
+}
+
+/// Run `akm skills shared` against an isolated home. Captured stdout is not a
+/// terminal, so this exercises the non-interactive read path an agent or a pipe
+/// hits: it prints and exits, never waiting for a menu answer.
+fn run_shared_cli(tmp: &TempDir, config_toml: Option<&str>) -> std::process::Output {
+    let config_dir = tmp.path().join("config");
+    if let Some(toml) = config_toml {
+        std::fs::create_dir_all(config_dir.join("akm")).unwrap();
+        std::fs::write(config_dir.join("akm/config.toml"), toml).unwrap();
+    }
+    cargo_bin_cmd!("akm")
+        .args(["skills", "shared"])
+        .env("XDG_CONFIG_HOME", &config_dir)
+        .env("XDG_DATA_HOME", tmp.path().join("data"))
+        .env("XDG_CACHE_HOME", tmp.path().join("cache"))
+        .env("HOME", tmp.path())
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn piped_shared_prints_the_list_and_exits() {
+    let tmp = TempDir::new().unwrap();
+    let output = run_shared_cli(
+        &tmp,
+        Some("[shared]\nacme = \"git@github.com:acme/skills.git\"\n"),
+    );
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Shared registries:"));
+    assert!(stdout.contains("acme"));
+    assert!(stdout.contains("git@github.com:acme/skills.git"));
+}
+
+#[test]
+fn piped_shared_with_no_registries_prints_the_hint() {
+    let tmp = TempDir::new().unwrap();
+    let output = run_shared_cli(&tmp, None);
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("No shared registries configured."));
+    assert!(stdout.contains("akm config shared.<name> <url>"));
 }

@@ -217,6 +217,47 @@ pub fn refresh_all(paths: &Paths, config: &Config) -> Vec<(String, RefreshOutcom
         .collect()
 }
 
+/// Delete cached checkouts of shared registries that config no longer names.
+///
+/// The scriptable removal path (`akm config shared.<name> ""`) drops the config
+/// entry but cannot touch the cache — [`crate::config::ConfigKey::set`] has only
+/// a `&mut Config`, no `Paths`. Sync reconciles the two: any subdirectory under
+/// [`Paths::shared_root`] whose name is not a live, non-empty entry in
+/// `config.shared` is an orphaned checkout, safe to delete because the whole
+/// tree is reconstructible from its remote.
+///
+/// Best-effort and idempotent: a failed delete or an absent root is a no-op, and
+/// a second sweep finds nothing. Returns the names it removed, sorted, for the
+/// sync report.
+pub fn sweep_orphans(paths: &Paths, config: &Config) -> Vec<String> {
+    let live: std::collections::HashSet<&str> = config
+        .shared
+        .iter()
+        .filter(|(_, url)| !url.is_empty())
+        .map(|(name, _)| name.as_str())
+        .collect();
+
+    // A missing root is the normal empty case — nothing was ever cloned.
+    let entries = match std::fs::read_dir(paths.shared_root()) {
+        Ok(entries) => entries,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut swept = Vec::new();
+    for entry in entries.flatten() {
+        if !entry.path().is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !live.contains(name.as_str()) {
+            std::fs::remove_dir_all(entry.path()).ok();
+            swept.push(name);
+        }
+    }
+    swept.sort();
+    swept
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -278,5 +319,50 @@ mod tests {
     fn a_checkout_without_skills_is_not_a_registry() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(catalogue(tmp.path()).is_err());
+    }
+
+    fn paths_under(root: &Path) -> Paths {
+        Paths::from_roots(
+            &root.join("data"),
+            &root.join("config"),
+            &root.join("cache"),
+            &root.join("home"),
+        )
+    }
+
+    #[test]
+    fn sweep_orphans_deletes_only_unconfigured_checkouts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = paths_under(tmp.path());
+
+        // Three checkouts sit in the cache...
+        for name in ["keep", "gone", "also-gone"] {
+            std::fs::create_dir_all(paths.shared_dir(name)).unwrap();
+        }
+
+        // ...but only one is a live entry. `also-gone` is configured with an
+        // empty URL, which counts as removed — same as `refresh_all`.
+        let mut config = Config::default();
+        config
+            .shared
+            .insert("keep".into(), "git@example.com:keep.git".into());
+        config.shared.insert("also-gone".into(), String::new());
+
+        let swept = sweep_orphans(&paths, &config);
+
+        assert_eq!(swept, vec!["also-gone".to_string(), "gone".to_string()]);
+        assert!(paths.shared_dir("keep").is_dir());
+        assert!(!paths.shared_dir("gone").exists());
+        assert!(!paths.shared_dir("also-gone").exists());
+
+        // Idempotent — a second sweep finds nothing.
+        assert!(sweep_orphans(&paths, &config).is_empty());
+    }
+
+    #[test]
+    fn sweep_orphans_is_a_noop_when_nothing_was_ever_cloned() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = paths_under(tmp.path());
+        assert!(sweep_orphans(&paths, &Config::default()).is_empty());
     }
 }

@@ -43,6 +43,8 @@ pub struct SyncReport {
     pub drift: DriftReport,
     /// One entry per configured shared registry: name, outcome, skill count.
     pub shared: Vec<(String, shared::RefreshOutcome, usize)>,
+    /// Names of cached checkouts swept because config no longer names them.
+    pub swept: Vec<String>,
 }
 
 /// Outcome of a single registry update attempt.
@@ -102,6 +104,7 @@ pub fn execute(
             tool_dir_count: tool_dirs.count(),
             drift: DriftReport::default(),
             shared,
+            swept: Vec::new(),
         });
     }
 
@@ -143,6 +146,7 @@ pub fn execute(
         tool_dir_count: tool_dirs.count(),
         drift: registry.drift()?,
         shared,
+        swept: Vec::new(),
     })
 }
 
@@ -235,7 +239,7 @@ pub fn print_report(report: &SyncReport, quiet: bool) {
         report.symlink_count, report.tool_dir_count
     );
 
-    print_shared(&report.shared);
+    print_shared(&report.shared, &report.swept);
     print_drift(&report.drift);
 }
 
@@ -243,8 +247,8 @@ pub fn print_report(report: &SyncReport, quiet: bool) {
 ///
 /// Informational only — nothing here is mounted, so an unreachable registry is
 /// a warning about browsing, not about this session's skills.
-fn print_shared(shared: &[(String, shared::RefreshOutcome, usize)]) {
-    if shared.is_empty() {
+fn print_shared(shared: &[(String, shared::RefreshOutcome, usize)], swept: &[String]) {
+    if shared.is_empty() && swept.is_empty() {
         return;
     }
 
@@ -257,6 +261,10 @@ fn print_shared(shared: &[(String, shared::RefreshOutcome, usize)]) {
             }
             _ => println!("  {name}: {outcome} ({count} skills)"),
         }
+    }
+    // A cache vanishing silently is a debugging trap, so name what was swept.
+    for name in swept {
+        println!("  {name}: removed (no longer configured)");
     }
 }
 
@@ -303,7 +311,11 @@ pub fn run_cli(paths: &Paths, quiet: bool) -> Result<()> {
     );
 
     let shared = shared::refresh_all(paths, &config);
-    let report = execute(paths, &registry, &tool_dirs, shared)?;
+    let mut report = execute(paths, &registry, &tool_dirs, shared)?;
+    // Reconcile the cache against config: drop checkouts of registries that were
+    // removed with `akm config shared.<name> ""`, which cannot touch the cache
+    // itself. Sync is the only place with both the config and the paths.
+    report.swept = shared::sweep_orphans(paths, &config);
     print_report(&report, quiet);
 
     Ok(())

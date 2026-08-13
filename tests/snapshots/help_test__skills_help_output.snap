@@ -13,6 +13,7 @@ Commands:
   list     Browse the library, or a shared registry
   search   Search library by keyword
   status   Full status overview
+  shared   Manage shared registries interactively
   clean    Remove stale specs
   promote  Import local skill into cold storage
   import   Import a skill from a GitHub URL or a shared registry

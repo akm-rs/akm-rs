@@ -198,6 +198,16 @@ enum SkillsCommands {
         #[arg(long)]
         plain: bool,
     },
+    /// Manage shared registries interactively
+    ///
+    /// On a terminal this opens an add/remove menu. Piped, redirected, or with
+    /// --plain, it prints the configured registries and exits. Scriptable writes
+    /// stay on `akm config shared.<name> <url>`.
+    Shared {
+        /// List the registries and exit, without the menu
+        #[arg(long)]
+        plain: bool,
+    },
     /// Remove stale specs
     Clean {
         /// Clean project directories
@@ -459,6 +469,9 @@ fn main() -> ExitCode {
                 }
                 Some(SkillsCommands::Status { plain }) => {
                     commands::skills::status::run(&paths, &tool_dirs, plain)
+                }
+                Some(SkillsCommands::Shared { plain }) => {
+                    commands::skills::shared_menu::run(&paths, plain)
                 }
                 Some(SkillsCommands::Clean { project, dry_run }) => {
                     commands::skills::clean::run(&paths, &tool_dirs, project, dry_run)

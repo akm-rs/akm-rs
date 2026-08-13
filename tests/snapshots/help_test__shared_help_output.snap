@@ -1,0 +1,19 @@
+---
+source: tests/help_test.rs
+expression: "String::from_utf8_lossy(&output.stdout).to_string()"
+---
+Manage shared registries interactively
+
+On a terminal this opens an add/remove menu. Piped, redirected, or with --plain, it prints the configured registries and exits. Scriptable writes stay on `akm config shared.<name> <url>`.
+
+Usage: akm skills shared [OPTIONS]
+
+Options:
+      --plain
+          List the registries and exit, without the menu
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
