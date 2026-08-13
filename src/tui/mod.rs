@@ -5,6 +5,7 @@
 //! the event loop for any view.
 
 pub mod app;
+pub mod artifacts;
 pub mod detail;
 pub mod edit;
 pub mod event;

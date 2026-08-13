@@ -2,6 +2,7 @@
 //!
 //! Currently only `sync` — the artifacts domain is intentionally simple.
 
+pub mod explorer;
 pub mod sync;
 
 use clap::Subcommand;

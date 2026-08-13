@@ -89,10 +89,13 @@ enum Commands {
         #[command(subcommand)]
         command: Option<SkillsCommands>,
     },
-    /// Artifact sync
+    /// Browse artifacts, or sync (defaults to the explorer with no subcommand)
     Artifacts {
         #[command(subcommand)]
-        command: commands::artifacts::ArtifactsCommands,
+        command: Option<commands::artifacts::ArtifactsCommands>,
+        /// Print the artifacts tree as plain text instead of the explorer
+        #[arg(long)]
+        plain: bool,
     },
     /// Global instruction management
     Instructions {
@@ -584,12 +587,13 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Some(Commands::Artifacts { command }) => {
+        Some(Commands::Artifacts { command, plain }) => {
             let config = akm::config::Config::load(&paths).unwrap_or_default();
             match command {
-                commands::artifacts::ArtifactsCommands::Sync => {
+                Some(commands::artifacts::ArtifactsCommands::Sync) => {
                     commands::artifacts::sync::run(&config, &paths)
                 }
+                None => commands::artifacts::explorer::run(&paths, &config, plain),
             }
         }
         Some(Commands::Instructions { command }) => match command {

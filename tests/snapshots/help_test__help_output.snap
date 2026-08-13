@@ -12,7 +12,7 @@ Commands:
   sync          Sync all enabled features (skills, artifacts, instructions)
   update        Check for a new release and self-update the akm binary
   skills        Skills management (defaults to `status` when no subcommand is given)
-  artifacts     Artifact sync
+  artifacts     Browse artifacts, or sync (defaults to the explorer with no subcommand)
   instructions  Global instruction management
   completions   Generate shell completion script
   disable       Turn off shell integration so harnesses run vanilla (reversible)
