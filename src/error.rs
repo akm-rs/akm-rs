@@ -81,6 +81,10 @@ pub enum Error {
     #[error("Cannot locate a directory with skills/ or agents/ in {path}")]
     NoSpecDirs { path: PathBuf },
 
+    /// A shared registry checkout held no importable skills.
+    #[error("No skills found in {path}\nExpected a skills/ directory, or subdirectories each containing a SKILL.md.")]
+    NoSharedSkills { path: PathBuf },
+
     /// Manifest error — not in a git repo.
     #[error("Cannot manage project manifest: not in a git repository")]
     ManifestNoProject,
