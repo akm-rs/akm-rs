@@ -112,3 +112,11 @@ Pre-1.0 tags (`alpha`, `rc`) ship as normal GitHub releases, not prereleases.
 There is no stable release yet, so the newest rc must resolve as "Latest" for
 `akm update` and the installer to find it. This is deliberate — do not "fix"
 it. Revisit when 1.0.0 final ships.
+
+When cutting a release, sync the documentation website
+(`~/repos/akm-web`, live at akm.raphaelsimon.fr) to the new feature surface —
+CLI commands, config keys, and the `docs/changelog.md` mirror of this
+`CHANGELOG.md`. The feature source of truth is this repo (README, `--help`,
+`docs/`), so run that sync from here and edit akm-web through its path. The
+website is a separate repo with its own PR + live-preview flow; do not commit
+to its `main` directly.

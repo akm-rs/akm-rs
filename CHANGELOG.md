@@ -1,4 +1,4 @@
-# Unreleased
+# 1.0.0-rc6
 
 - Add `akm uninstall` — removes the binary, ~/.bashrc integration block,
   global spec symlinks, config, caches, and machine-local metadata
