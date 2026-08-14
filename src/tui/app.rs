@@ -4,15 +4,16 @@
 //! when the TUI starts and passed to each view. Views read from `App`
 //! and may mutate it (e.g., toggling core flag updates the library).
 
-use crate::commands::skills::{delete, import, rename, shared};
+use crate::commands::skills::{delete, import, rename, revert, shared};
 use crate::error::{Error, Result};
 use crate::git::Git;
-use crate::library::drift::DriftReport;
+use crate::library::drift::{DriftReport, DriftState};
 use crate::library::manifest::Manifest;
 use crate::library::spec::{Spec, SpecType};
 use crate::library::tool_dirs::ToolDirs;
 use crate::library::Library;
 use crate::paths::Paths;
+use crate::registry::Registry;
 use std::collections::{BTreeSet, HashSet};
 use std::path::PathBuf;
 
@@ -87,6 +88,19 @@ pub enum DeleteOutcome {
     /// The spec was deleted.
     Deleted,
     /// The spec to delete was not found.
+    NotFound,
+}
+
+/// Result of reverting a spec to its last synced state from the TUI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RevertOutcome {
+    /// Local edits were discarded; the spec now matches the registry.
+    Reverted,
+    /// The spec had no local changes, so there was nothing to revert.
+    NothingToRevert,
+    /// The library is not a registry checkout — `akm skills sync` first.
+    NotACheckout,
+    /// The spec to revert was not found.
     NotFound,
 }
 
@@ -382,6 +396,60 @@ impl App {
             message: format!("feat: import skill '{id}' from '{remote}'"),
         });
         Ok(())
+    }
+
+    /// Queue a drifted spec to be published once the TUI exits.
+    ///
+    /// Publishing pushes to a remote and reads a `y/N` from stdin, neither of
+    /// which can happen inside the raw-mode TUI — so, exactly like rename and
+    /// delete, the intent is recorded and offered on the restored terminal via
+    /// [`crate::tui::list`]'s exit handler.
+    ///
+    /// Only specs the remote has not already seen are queued; returns the drift
+    /// state that was queued, or `None` when there was nothing to publish.
+    pub fn queue_publish(&mut self, id: &str) -> Option<DriftState> {
+        let state = self.drift.state_of(id);
+        if !state.has_local_changes() {
+            return None;
+        }
+        let spec = self.library.get(id)?;
+        let spec_type = spec.spec_type;
+        self.pending_publish.push(PendingPublish {
+            summary: format!("Publish {spec_type} '{id}'"),
+            pathspecs: spec.pathspecs(),
+            message: format!("feat: publish {spec_type} '{id}'"),
+        });
+        Some(state)
+    }
+
+    /// Discard a spec's local edits back to the last synced state, eagerly.
+    ///
+    /// The revert to `HEAD` is a local git operation — no network — so unlike
+    /// publishing it can run inside the TUI, mirroring [`Self::delete_spec`]:
+    /// deferred edits are flushed first so the reload afterwards keeps them, the
+    /// files are restored on disk, the derived index and symlinks are rebuilt,
+    /// and drift is recomputed so the marker clears on screen. Reverting to the
+    /// *remote* ("take theirs") touches the network and stays a CLI-only affair.
+    pub fn revert_spec(&mut self, id: &str) -> Result<RevertOutcome> {
+        let Some(spec) = self.library.get(id) else {
+            return Ok(RevertOutcome::NotFound);
+        };
+        if !self.drift.state_of(id).has_local_changes() {
+            return Ok(RevertOutcome::NothingToRevert);
+        }
+        let pathspecs = spec.pathspecs();
+
+        self.flush_deferred()?;
+
+        let registry = Registry::new(String::new(), self.paths.library_dir());
+        if !registry.is_cloned() {
+            return Ok(RevertOutcome::NotACheckout);
+        }
+        registry.revert_to_head(&pathspecs)?;
+        revert::rebuild_after_revert(&self.paths, &self.tool_dirs)?;
+
+        self.reload_library()?;
+        Ok(RevertOutcome::Reverted)
     }
 
     /// Persist any deferred edits (core toggles, metadata, manifest) and clear

@@ -143,6 +143,13 @@ another project's manifest keeps its old (or now-deleted) id there until that
 project is updated. In the `list` TUI, `R` renames the selected spec and `D`
 deletes it; the publish offer appears after you quit the TUI.
 
+The `Sync` column's drift markers are actionable from the same view: on a spec
+that shows `*` (or `!`), `p` queues it to publish — offered on exit like a
+rename or delete — and `u` discards your local edits back to the synced version
+right away, clearing the marker. Both are no-ops on a spec that already matches
+the registry. Taking the *registry's* version instead ("theirs") stays on the
+CLI as `akm skills revert <id> --remote`, since that one reaches the network.
+
 When one or more shared registries are configured, the `list` TUI grows a tab
 bar — `Library` first, then one read-only tab per registry, switched with
 `Tab`/`Shift+Tab`. A shared tab is browse-and-import: `r` fetches it (a
@@ -249,8 +256,14 @@ otherwise on the next `akm skills sync`, which sweeps any checkout config no
 longer names. A registry that cannot be reached is reported, and browsing falls
 back to the copy on disk.
 
-Only directories holding a `SKILL.md` with a `name` and a `description` are
-importable; anything else is named and skipped. An id you already have is a
+A shared registry can be laid out either way: skills under a `skills/`
+directory, or — the dead-simple form a team throws together — one directory per
+skill at the repo root with nothing enclosing them. AKM detects which: a
+`skills/` directory, when present, wins; otherwise it scans the root for
+skill directories directly. Either way, only directories holding a `SKILL.md`
+with a `name` and a `description` are importable; anything else is skipped —
+named when it sits under `skills/` and looks like a broken skill, quietly
+ignored when it is just repo plumbing at the root. An id you already have is a
 conflict, and interactively you choose per skill:
 
 ```

@@ -49,7 +49,7 @@ use crate::library::spec::SpecType;
 use crate::library::tool_dirs::ToolDirs;
 use crate::library::Library;
 use crate::paths::Paths;
-use crate::tui::app::{AddResult, App, DeleteOutcome, RemoveResult, RenameOutcome};
+use crate::tui::app::{AddResult, App, DeleteOutcome, RemoveResult, RenameOutcome, RevertOutcome};
 use crate::tui::detail;
 use crate::tui::edit as tui_edit;
 use crate::tui::event::{self, Event};
@@ -81,6 +81,8 @@ enum Mode {
     Rename,
     /// Awaiting `y`/`n` to confirm deleting the spec.
     ConfirmDelete,
+    /// Awaiting `y`/`n` to confirm reverting the spec to its synced state.
+    ConfirmRevert,
 }
 
 /// Which tab the list view is showing.
@@ -410,6 +412,7 @@ fn handle_list_key(key: KeyEvent, app: &mut App, view: &mut ListView) -> Result<
         }
         Mode::Rename => handle_rename_key(key, app, view),
         Mode::ConfirmDelete => handle_confirm_delete_key(key, app, view),
+        Mode::ConfirmRevert => handle_confirm_revert_key(key, app, view),
     }
 }
 
@@ -525,6 +528,30 @@ fn handle_normal_key(key: KeyEvent, app: &mut App, view: &mut ListView) -> Resul
             if let Some(id) = view.selected_id() {
                 view.pending_id = Some(id.to_string());
                 view.mode = Mode::ConfirmDelete;
+            }
+        }
+
+        KeyCode::Char('p') => {
+            if let Some(id) = view.selected_id() {
+                let id = id.to_string();
+                view.status_message = Some(match app.queue_publish(&id) {
+                    Some(_) => format!("Queued for publish on exit: {id}"),
+                    None => format!("Nothing to publish: {id} matches the registry"),
+                });
+            }
+        }
+        KeyCode::Char('u') => {
+            if let Some(id) = view.selected_id() {
+                let id = id.to_string();
+                // Only a spec with local changes has anything to revert; asking
+                // to confirm otherwise would be a confusing no-op.
+                if app.drift.state_of(&id).has_local_changes() {
+                    view.pending_id = Some(id);
+                    view.mode = Mode::ConfirmRevert;
+                } else {
+                    view.status_message =
+                        Some(format!("Nothing to revert: {id} matches the registry"));
+                }
             }
         }
 
@@ -730,6 +757,32 @@ fn handle_confirm_delete_key(
     Ok(EventOutcome::Continue)
 }
 
+/// Handle the `y`/`n` confirmation before reverting a spec to its synced state.
+fn handle_confirm_revert_key(
+    key: KeyEvent,
+    app: &mut App,
+    view: &mut ListView,
+) -> Result<EventOutcome> {
+    let id = view.pending_id.clone();
+    view.mode = Mode::Normal;
+    view.pending_id = None;
+
+    if let (KeyCode::Char('y') | KeyCode::Char('Y'), Some(id)) = (key.code, id) {
+        view.status_message = Some(match app.revert_spec(&id)? {
+            RevertOutcome::Reverted => format!("Reverted '{id}' to the synced version"),
+            RevertOutcome::NothingToRevert => {
+                format!("Nothing to revert: {id} matches the registry")
+            }
+            RevertOutcome::NotACheckout => {
+                "The library is not a registry checkout — run 'akm skills sync' first".to_string()
+            }
+            RevertOutcome::NotFound => format!("Spec not found: {id}"),
+        });
+    }
+
+    Ok(EventOutcome::Continue)
+}
+
 /// Handle a key event in search mode, where characters are query text.
 ///
 /// `Enter` and `Esc` both return to [`Mode::Normal`] keeping the query, so the
@@ -901,6 +954,14 @@ fn render_prompt_bar(frame: &mut Frame, area: Rect, view: &ListView) {
             )]);
             frame.render_widget(Paragraph::new(line), area);
         }
+        Mode::ConfirmRevert => {
+            let target = view.pending_id.as_deref().unwrap_or("");
+            let line = Line::from(vec![Span::styled(
+                format!(" Discard local changes to '{target}' and take the synced version? [y/N]"),
+                theme::WARNING,
+            )]);
+            frame.render_widget(Paragraph::new(line), area);
+        }
         Mode::Normal | Mode::Search => {
             render_search_bar(frame, area, view.mode, &view.search_query)
         }
@@ -928,7 +989,7 @@ fn render_search_bar(frame: &mut Frame, area: Rect, mode: Mode, query: &str) {
             Span::styled("  [filtered]", theme::DIM),
         ]),
         // The modal modes render their own prompt via `render_prompt_bar`.
-        (Mode::Rename, _) | (Mode::ConfirmDelete, _) => Line::from(""),
+        (Mode::Rename, _) | (Mode::ConfirmDelete, _) | (Mode::ConfirmRevert, _) => Line::from(""),
     };
     let para = Paragraph::new(text).style(theme::SEARCH_BAR);
     frame.render_widget(para, area);
@@ -1007,6 +1068,8 @@ fn render_help_bar(frame: &mut Frame, area: Rect, mode: Mode, show_drift_legend:
             ("r", " remove  "),
             ("R", " rename  "),
             ("D", " delete  "),
+            ("p", " publish  "),
+            ("u", " revert  "),
             ("/", " search  "),
             ("Esc", " clear filter  "),
             ("q", " quit"),
@@ -1024,6 +1087,7 @@ fn render_help_bar(frame: &mut Frame, area: Rect, mode: Mode, show_drift_legend:
             ("Esc", " cancel"),
         ],
         Mode::ConfirmDelete => &[("y", " delete  "), ("n/Esc", " cancel")],
+        Mode::ConfirmRevert => &[("y", " revert  "), ("n/Esc", " cancel")],
     };
     let help_text = Line::from(
         pairs
@@ -1197,6 +1261,31 @@ mod tests {
         assert_eq!(view.mode, Mode::Normal);
         assert!(app.library.get("git-commit").is_some());
         assert!(app.pending_publish.is_empty());
+    }
+
+    // A test_app has no registry, so every spec reads as clean. That is exactly
+    // the case where the drift verbs must stay inert rather than confuse — the
+    // drifted paths are covered in tests/tui_drift_actions_test.rs.
+
+    #[test]
+    fn publish_on_a_clean_spec_queues_nothing() {
+        let (mut app, _tmp) = test_app_on_disk();
+        let mut view = normal_view(&mut app);
+        handle_list_key(ch('p'), &mut app, &mut view).unwrap();
+        assert_eq!(view.mode, Mode::Normal);
+        assert!(app.pending_publish.is_empty());
+        assert!(view.status_message.as_deref().unwrap().contains("Nothing"));
+    }
+
+    #[test]
+    fn revert_on_a_clean_spec_does_not_prompt() {
+        let (mut app, _tmp) = test_app_on_disk();
+        let mut view = normal_view(&mut app);
+        handle_list_key(ch('u'), &mut app, &mut view).unwrap();
+        // No confirmation opens for a spec with nothing to discard.
+        assert_eq!(view.mode, Mode::Normal);
+        assert!(view.pending_id.is_none());
+        assert!(view.status_message.as_deref().unwrap().contains("Nothing"));
     }
 
     /// A view already filtered to "git" and back in normal mode.
