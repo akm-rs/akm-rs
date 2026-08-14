@@ -53,7 +53,8 @@ enum Commands {
     },
     /// View, get, or set configuration values
     ///
-    /// With no arguments, prints all config values. With KEY, prints that
+    /// With no arguments, opens the settings panel on a terminal (or prints all
+    /// config values with --plain / when not a terminal). With KEY, prints that
     /// value. With KEY and VALUE, sets it.
     ///
     /// Keys:

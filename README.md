@@ -143,6 +143,15 @@ another project's manifest keeps its old (or now-deleted) id there until that
 project is updated. In the `list` TUI, `R` renames the selected spec and `D`
 deletes it; the publish offer appears after you quit the TUI.
 
+When one or more shared registries are configured, the `list` TUI grows a tab
+bar — `Library` first, then one read-only tab per registry, switched with
+`Tab`/`Shift+Tab`. A shared tab is browse-and-import: `r` fetches it (a
+synchronous clone-or-pull), `Enter` previews a candidate's `SKILL.md`, and `i`
+imports the selected skill into your library, marking those you already have.
+The imports are offered for publishing after you quit. With no shared registry
+configured there is no tab bar. The CLI paths (`akm skills list acme`,
+`akm skills import acme tdd`) are unchanged.
+
 Publishing a rename or delete lands on top of the registry the same way an
 edit does: if the remote moved on since your last sync, AKM fast-forwards onto
 it first and then commits your change, so the push is never rejected. If another
@@ -291,8 +300,16 @@ storage — retry with `akm skills publish <id>`.
 ### Artifacts
 
 ```bash
+akm artifacts                    # browse the artifacts tree (two-pane explorer)
+akm artifacts --plain            # print the tree as plain text (agent/scripting)
 akm artifacts sync               # bidirectional git sync
 ```
+
+With no subcommand on a terminal, `akm artifacts` opens a two-pane explorer:
+a lazily-expanding tree on the left, a live plain-text preview on the right.
+`Enter` on a file opens it in `$EDITOR` and returns; dirs expand with `→`/`Enter`
+and collapse with `←`. Non-interactive or `--plain` prints the box-drawing tree
+instead — dirs first, newest date-prefixed file on top, `.git` hidden.
 
 ### Instructions
 
@@ -315,10 +332,17 @@ time the new file is needed; the old file is left where it is.
 ### Configuration
 
 ```bash
-akm config                       # print all config
+akm config                       # settings panel on a terminal (--plain to dump)
 akm config skills.enabled        # get a single value
 akm config artifacts.auto-push false  # set a value
 ```
+
+With no arguments on a terminal, `akm config` opens a settings panel: a single
+scrolling list grouped by section (personal registry, artifacts, features,
+shared registries) where checkboxes toggle and text fields edit in place, every
+change saved immediately. `v` on a shared registry checks it is reachable; `a`
+adds one. Non-interactive or `akm config --plain` dumps the full config as
+`key = value` lines — the scriptable read path, a superset of the panel.
 
 ### Self-Update
 
