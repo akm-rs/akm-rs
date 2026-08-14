@@ -31,11 +31,23 @@
 //! - `Enter` or `Esc` → back to normal mode, keeping the filter
 //! - `↑`/`↓` → navigate
 //! - `Ctrl+C` → exit immediately
+//!
+//! ## Shared-registry tabs
+//!
+//! When one or more shared registries are configured (`[shared]` in config), a
+//! tab bar appears: `Library` first, then one read-only tab per registry.
+//! `Tab`/`Shift+Tab` switch. A shared tab is browse-and-import only — it
+//! fetches (`r`, a synchronous clone-or-pull), previews a candidate's
+//! `SKILL.md` (`Enter`), and imports the selected skill into the library (`i`),
+//! queuing a publish offer for TUI exit. With no shared registry configured
+//! there is no tab bar and the view is exactly the library list above.
 
+use crate::commands::skills::shared;
 use crate::config::Config;
 use crate::error::Result;
 use crate::library::spec::SpecType;
 use crate::library::tool_dirs::ToolDirs;
+use crate::library::Library;
 use crate::paths::Paths;
 use crate::tui::app::{AddResult, App, DeleteOutcome, RemoveResult, RenameOutcome};
 use crate::tui::detail;
@@ -48,8 +60,11 @@ use crate::tui::{self, EventOutcome, Term, ViewSwitch};
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState};
+use ratatui::widgets::{
+    Block, Borders, Cell, List, ListItem, ListState, Paragraph, Row, Table, TableState, Tabs,
+};
 use ratatui::Frame;
+use std::collections::BTreeMap;
 
 /// Input mode for the list view.
 ///
@@ -66,6 +81,38 @@ enum Mode {
     Rename,
     /// Awaiting `y`/`n` to confirm deleting the spec.
     ConfirmDelete,
+}
+
+/// Which tab the list view is showing.
+///
+/// The library tab is always present and always first. A `Shared` tab exists
+/// for each configured shared registry; with none configured there is only the
+/// library tab and no tab bar renders — the view is byte-identical to before.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Tab {
+    /// The personal library — the original list view.
+    Library,
+    /// A read-only shared registry, carrying its configured name.
+    Shared(String),
+}
+
+/// Per-registry state for a shared tab.
+///
+/// A shared registry is not touched until its tab is opened and `r` pressed, so
+/// this starts empty. `have` marks the candidates already present in the
+/// library, computed against `App::library` on each fetch and after each import.
+#[derive(Default)]
+struct SharedTabState {
+    /// Has a fetch (clone-or-pull + catalogue) run this session?
+    fetched: bool,
+    /// Importable skill ids from the last catalogue (empty until fetched).
+    candidate_ids: Vec<String>,
+    /// Candidate ids already in the personal library → shown as "✓ have".
+    have: std::collections::HashSet<String>,
+    /// Cursor within `candidate_ids`.
+    selected: usize,
+    /// Inline status line: "Fetching…", a fetch summary, or an error.
+    status: Option<String>,
 }
 
 /// State for the list view.
@@ -88,16 +135,38 @@ struct ListView {
     pending_id: Option<String>,
     /// Text field for the new id while renaming.
     rename_input: TextInput,
+    /// Config snapshot — its `shared` map drives the tabs and fetch/import.
+    config: Config,
+    /// Tabs, always led by [`Tab::Library`]; one [`Tab::Shared`] per registry.
+    tabs: Vec<Tab>,
+    /// Index into `tabs` of the active tab.
+    active_tab: usize,
+    /// Per-registry state, keyed by registry name.
+    shared: BTreeMap<String, SharedTabState>,
+    /// Set after a fetch/import so the loop forces a full repaint, wiping any
+    /// git/rebuild output that leaked onto the alternate screen.
+    needs_repaint: bool,
+    /// A candidate preview the loop should open inline: (title, content).
+    pending_preview: Option<(String, String)>,
 }
 
 impl ListView {
     fn new(
+        config: Config,
         tag_filter: Option<String>,
         type_filter: Option<SpecType>,
         initial_query: Option<String>,
     ) -> Self {
         let mut state = TableState::default();
         state.select(Some(0));
+        let tabs = build_tabs(&config);
+        let shared = tabs
+            .iter()
+            .filter_map(|t| match t {
+                Tab::Shared(name) => Some((name.clone(), SharedTabState::default())),
+                Tab::Library => None,
+            })
+            .collect();
         Self {
             // Both `skills list` and `skills search <query>` open in normal
             // mode: a query passed on the command line is already committed.
@@ -110,6 +179,39 @@ impl ListView {
             status_message: None,
             pending_id: None,
             rename_input: TextInput::default(),
+            config,
+            tabs,
+            active_tab: 0,
+            shared,
+            needs_repaint: false,
+            pending_preview: None,
+        }
+    }
+
+    /// True unless the active tab is a shared registry.
+    fn is_library_tab(&self) -> bool {
+        !matches!(self.tabs.get(self.active_tab), Some(Tab::Shared(_)))
+    }
+
+    /// Name of the active shared registry, if the active tab is one.
+    fn current_shared_name(&self) -> Option<&str> {
+        match self.tabs.get(self.active_tab) {
+            Some(Tab::Shared(name)) => Some(name.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Move to the next tab, wrapping.
+    fn next_tab(&mut self) {
+        if !self.tabs.is_empty() {
+            self.active_tab = (self.active_tab + 1) % self.tabs.len();
+        }
+    }
+
+    /// Move to the previous tab, wrapping.
+    fn prev_tab(&mut self) {
+        if !self.tabs.is_empty() {
+            self.active_tab = (self.active_tab + self.tabs.len() - 1) % self.tabs.len();
         }
     }
 
@@ -162,6 +264,29 @@ impl ListView {
     }
 }
 
+/// Build the tab list from config: the library tab, then one per configured
+/// shared registry (BTreeMap order), skipping entries with an empty URL — an
+/// empty URL is how the scriptable path marks a registry as removed.
+fn build_tabs(config: &Config) -> Vec<Tab> {
+    let mut tabs = vec![Tab::Library];
+    for (name, url) in &config.shared {
+        if !url.is_empty() {
+            tabs.push(Tab::Shared(name.clone()));
+        }
+    }
+    tabs
+}
+
+/// Recompute which fetched candidates already exist in the library.
+fn mark_have(state: &mut SharedTabState, library: &Library) {
+    state.have = state
+        .candidate_ids
+        .iter()
+        .filter(|id| library.get(id).is_some())
+        .cloned()
+        .collect();
+}
+
 /// Entry point for the interactive list view.
 ///
 /// Called by `commands::skills::list::run()` and `commands::skills::search::run()`.
@@ -180,7 +305,9 @@ pub fn run(
     tool_dirs: &ToolDirs,
 ) -> Result<()> {
     let mut app = App::new(paths.clone(), tool_dirs.clone())?;
+    let config = Config::load(paths).unwrap_or_default();
     let mut view = ListView::new(
+        config,
         tag.map(|s| s.to_string()),
         type_filter,
         initial_query.map(|s| s.to_string()),
@@ -246,6 +373,21 @@ fn run_list_loop(terminal: &mut Term, app: &mut App, view: &mut ListView) -> Res
             Event::Tick => {}
             Event::Resize(_, _) => {}
         }
+
+        // A shared-tab Enter queued a candidate preview; open it inline.
+        if let Some((title, content)) = view.pending_preview.take() {
+            detail::run_inline_content(terminal, &title, &content)?;
+            view.needs_repaint = true;
+        }
+
+        // A fetch or import may have leaked git/rebuild output onto the
+        // alternate screen; wipe it before the next frame.
+        if view.needs_repaint {
+            terminal.clear().map_err(|e| crate::error::Error::Tui {
+                message: format!("Failed to repaint after a shared-tab action: {e}"),
+            })?;
+            view.needs_repaint = false;
+        }
     }
 }
 
@@ -276,6 +418,27 @@ fn handle_list_key(key: KeyEvent, app: &mut App, view: &mut ListView) -> Result<
 /// Keys with no binding are ignored — they never fall through to the search
 /// query. `/` is the only way into [`Mode::Search`].
 fn handle_normal_key(key: KeyEvent, app: &mut App, view: &mut ListView) -> Result<EventOutcome> {
+    // Tab switching works from either tab kind. Only bound when tabs exist
+    // beyond the library, so a plain library keeps Tab/Shift-Tab free.
+    if view.tabs.len() > 1 {
+        match key.code {
+            KeyCode::Tab => {
+                view.next_tab();
+                return Ok(EventOutcome::Continue);
+            }
+            KeyCode::BackTab => {
+                view.prev_tab();
+                return Ok(EventOutcome::Continue);
+            }
+            _ => {}
+        }
+    }
+
+    // Shared registry tabs have their own, read-only verb set.
+    if !view.is_library_tab() {
+        return handle_shared_key(key, app, view);
+    }
+
     if event::is_escape(&key) {
         // Esc clears the filter but never quits — only `q` and Ctrl+C do.
         view.search_query.clear();
@@ -369,6 +532,131 @@ fn handle_normal_key(key: KeyEvent, app: &mut App, view: &mut ListView) -> Resul
     }
 
     Ok(EventOutcome::Continue)
+}
+
+/// Handle a key event on a shared-registry tab.
+///
+/// A shared tab is read-only: it fetches (`r`), imports (`i`), previews
+/// (`Enter`), navigates, and quits. None of the library-mutating verbs
+/// (`c`/`e`/`a`/`R`/`D`) apply. Fetch and import block synchronously — the same
+/// freeze `git pull` shows, and the one the ADR accepts over an async runtime.
+fn handle_shared_key(key: KeyEvent, app: &mut App, view: &mut ListView) -> Result<EventOutcome> {
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => shared_select_prev(view),
+        KeyCode::Down | KeyCode::Char('j') => shared_select_next(view),
+        KeyCode::Char('q') => return Ok(EventOutcome::Exit),
+        KeyCode::Char('r') => shared_fetch(app, view)?,
+        KeyCode::Char('i') => shared_import(app, view)?,
+        KeyCode::Enter => shared_preview(app, view)?,
+        _ => {}
+    }
+    Ok(EventOutcome::Continue)
+}
+
+/// Move the shared-tab cursor up.
+fn shared_select_prev(view: &mut ListView) {
+    if let Some(name) = view.current_shared_name().map(str::to_string) {
+        if let Some(state) = view.shared.get_mut(&name) {
+            state.selected = state.selected.saturating_sub(1);
+        }
+    }
+}
+
+/// Move the shared-tab cursor down, clamped to the last candidate.
+fn shared_select_next(view: &mut ListView) {
+    if let Some(name) = view.current_shared_name().map(str::to_string) {
+        if let Some(state) = view.shared.get_mut(&name) {
+            let max = state.candidate_ids.len().saturating_sub(1);
+            if state.selected < max {
+                state.selected += 1;
+            }
+        }
+    }
+}
+
+/// Fetch (clone-or-pull) the active registry and catalogue it. Synchronous.
+fn shared_fetch(app: &mut App, view: &mut ListView) -> Result<()> {
+    let Some(name) = view.current_shared_name().map(str::to_string) else {
+        return Ok(());
+    };
+    let registry = shared::open(&app.paths, &view.config, &name)?;
+    let outcome = shared::refresh(&registry);
+
+    let status = match shared::catalogue(registry.dir()) {
+        Ok(cat) => {
+            let ids: Vec<String> = cat.skills.iter().map(|c| c.id.clone()).collect();
+            let summary = format!("{outcome} — {} skill(s)", ids.len());
+            if let Some(state) = view.shared.get_mut(&name) {
+                state.candidate_ids = ids;
+                state.selected = 0;
+                state.fetched = true;
+                mark_have(state, &app.library);
+            }
+            summary
+        }
+        // A registry that has never cloned has nothing to list; report why.
+        Err(_) if !registry.is_cloned() => format!("{outcome}"),
+        Err(e) => format!("{e}").replace('\n', " "),
+    };
+    if let Some(state) = view.shared.get_mut(&name) {
+        state.status = Some(status);
+    }
+    view.needs_repaint = true;
+    Ok(())
+}
+
+/// Import the selected candidate into the library, queuing an exit-time publish.
+fn shared_import(app: &mut App, view: &mut ListView) -> Result<()> {
+    let Some(name) = view.current_shared_name().map(str::to_string) else {
+        return Ok(());
+    };
+    let Some((id, already)) = view.shared.get(&name).and_then(|s| {
+        s.candidate_ids
+            .get(s.selected)
+            .map(|id| (id.clone(), s.have.contains(id)))
+    }) else {
+        return Ok(());
+    };
+    if already {
+        if let Some(state) = view.shared.get_mut(&name) {
+            state.status = Some(format!("'{id}' already in library"));
+        }
+        return Ok(());
+    }
+
+    let registry = shared::open(&app.paths, &view.config, &name)?;
+    let catalogue = shared::catalogue(registry.dir())?;
+    if let Some(candidate) = catalogue.get(&id) {
+        app.import_shared_candidate(candidate, &name, registry.url())?;
+        if let Some(state) = view.shared.get_mut(&name) {
+            state.have.insert(id.clone());
+            state.status = Some(format!("imported '{id}'"));
+        }
+        view.needs_repaint = true;
+    }
+    Ok(())
+}
+
+/// Queue an inline preview of the selected candidate's `SKILL.md`.
+fn shared_preview(app: &mut App, view: &mut ListView) -> Result<()> {
+    let Some(name) = view.current_shared_name().map(str::to_string) else {
+        return Ok(());
+    };
+    let Some(id) = view
+        .shared
+        .get(&name)
+        .and_then(|s| s.candidate_ids.get(s.selected).cloned())
+    else {
+        return Ok(());
+    };
+    let registry = shared::open(&app.paths, &view.config, &name)?;
+    let catalogue = shared::catalogue(registry.dir())?;
+    if let Some(candidate) = catalogue.get(&id) {
+        let content = std::fs::read_to_string(candidate.dir.join("SKILL.md"))
+            .unwrap_or_else(|e| format!("‹cannot read: {e}›"));
+        view.pending_preview = Some((id, content));
+    }
+    Ok(())
 }
 
 /// Handle a key event while typing the new id for a rename.
@@ -465,26 +753,132 @@ fn handle_search_key(key: KeyEvent, view: &mut ListView) {
 }
 
 /// Render the list view.
+///
+/// A tab bar is drawn only when at least one shared registry is configured; with
+/// none, the layout below is exactly the original single-view list.
 fn render_list(frame: &mut Frame, app: &App, view: &mut ListView) {
+    let body = if view.tabs.len() > 1 {
+        let parts = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Min(0)])
+            .split(frame.area());
+        render_tab_bar(frame, parts[0], view);
+        parts[1]
+    } else {
+        frame.area()
+    };
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // search bar
-            Constraint::Min(5),    // table
+            Constraint::Length(1), // search bar / shared title
+            Constraint::Min(5),    // table / candidate list
             Constraint::Length(1), // status message
             Constraint::Length(2), // help bar
         ])
-        .split(frame.area());
+        .split(body);
 
-    render_prompt_bar(frame, chunks[0], view);
-    render_table(frame, chunks[1], app, view);
+    if view.is_library_tab() {
+        render_prompt_bar(frame, chunks[0], view);
+        render_table(frame, chunks[1], app, view);
 
-    if let Some(ref msg) = view.status_message {
-        let status = Paragraph::new(msg.as_str()).style(theme::SUCCESS);
-        frame.render_widget(status, chunks[2]);
+        if let Some(ref msg) = view.status_message {
+            let status = Paragraph::new(msg.as_str()).style(theme::SUCCESS);
+            frame.render_widget(status, chunks[2]);
+        }
+
+        render_help_bar(frame, chunks[3], view.mode, !app.drift.is_clean());
+    } else {
+        render_shared_tab(frame, &chunks, view);
+    }
+}
+
+/// Render the tab bar, highlighting the active tab.
+fn render_tab_bar(frame: &mut Frame, area: Rect, view: &ListView) {
+    let titles: Vec<Line> = view
+        .tabs
+        .iter()
+        .map(|tab| match tab {
+            Tab::Library => Line::from(" Library "),
+            Tab::Shared(name) => Line::from(format!(" {name} ")),
+        })
+        .collect();
+    let tabs = Tabs::new(titles)
+        .select(view.active_tab)
+        .style(theme::DIM)
+        .highlight_style(theme::SELECTED);
+    frame.render_widget(tabs, area);
+}
+
+/// Render a shared-registry tab: its candidate list (or a not-fetched hint),
+/// status line, and read-only legend.
+fn render_shared_tab(frame: &mut Frame, chunks: &[Rect], view: &ListView) {
+    let Some(name) = view.current_shared_name() else {
+        return;
+    };
+    let Some(state) = view.shared.get(name) else {
+        return;
+    };
+
+    let title = Line::from(vec![
+        Span::styled(" 📦 ", theme::DIM),
+        Span::styled(format!("{name} "), theme::HEADER),
+        Span::styled("(shared registry)", theme::DIM),
+    ]);
+    frame.render_widget(Paragraph::new(title), chunks[0]);
+
+    if !state.fetched {
+        let hint = Paragraph::new("Not fetched yet — press [r] to fetch").style(theme::DIM);
+        frame.render_widget(hint, chunks[1]);
+    } else if state.candidate_ids.is_empty() {
+        let empty = Paragraph::new("No importable skills in this registry.").style(theme::DIM);
+        frame.render_widget(empty, chunks[1]);
+    } else {
+        let items: Vec<ListItem> = state
+            .candidate_ids
+            .iter()
+            .map(|id| {
+                let marker = if state.have.contains(id) {
+                    "✓ have  "
+                } else {
+                    "        "
+                };
+                ListItem::new(Line::from(vec![
+                    Span::styled(marker, theme::SUCCESS),
+                    Span::raw(id.as_str()),
+                ]))
+            })
+            .collect();
+        let list = List::new(items).highlight_style(theme::SELECTED);
+        let mut list_state = ListState::default();
+        list_state.select(Some(state.selected));
+        frame.render_stateful_widget(list, chunks[1], &mut list_state);
     }
 
-    render_help_bar(frame, chunks[3], view.mode, !app.drift.is_clean());
+    if let Some(ref msg) = state.status {
+        frame.render_widget(Paragraph::new(msg.as_str()).style(theme::DIM), chunks[2]);
+    }
+
+    let pairs: &[(&str, &str)] = &[
+        (" i", " import  "),
+        ("r", " fetch  "),
+        ("Enter", " preview  "),
+        ("↑↓/jk", " navigate  "),
+        ("Tab", " next tab  "),
+        ("q", " quit"),
+    ];
+    let help = Line::from(
+        pairs
+            .iter()
+            .flat_map(|(key, label)| {
+                [
+                    Span::styled(*key, theme::HEADER),
+                    Span::styled(*label, theme::HELP_BAR),
+                ]
+            })
+            .collect::<Vec<_>>(),
+    );
+    frame.render_widget(Paragraph::new(help), chunks[3]);
 }
 
 /// Render the top bar: the search field, or the rename/confirm-delete prompt.
@@ -738,7 +1132,7 @@ mod tests {
 
     /// A normal-mode view over `app`, cursor on the first row.
     fn normal_view(app: &mut App) -> ListView {
-        let mut view = ListView::new(None, None, None);
+        let mut view = ListView::new(Config::default(), None, None, None);
         view.update_visible(app);
         view
     }
@@ -807,7 +1201,7 @@ mod tests {
 
     /// A view already filtered to "git" and back in normal mode.
     fn filtered_view(app: &mut App) -> ListView {
-        let mut view = ListView::new(None, None, None);
+        let mut view = ListView::new(Config::default(), None, None, None);
         view.update_visible(app);
         handle_list_key(ch('/'), app, &mut view).unwrap();
         type_chars(app, &mut view, "git");
@@ -818,14 +1212,14 @@ mod tests {
 
     #[test]
     fn opens_in_normal_mode() {
-        let view = ListView::new(None, None, None);
+        let view = ListView::new(Config::default(), None, None, None);
         assert_eq!(view.mode, Mode::Normal);
         assert!(view.search_query.is_empty());
     }
 
     #[test]
     fn cli_query_opens_in_normal_mode() {
-        let view = ListView::new(None, None, Some("tdd".to_string()));
+        let view = ListView::new(Config::default(), None, None, Some("tdd".to_string()));
         assert_eq!(view.mode, Mode::Normal);
         assert_eq!(view.search_query, "tdd");
     }
@@ -833,7 +1227,7 @@ mod tests {
     #[test]
     fn slash_enters_search_mode() {
         let (mut app, _tmp) = test_app();
-        let mut view = ListView::new(None, None, None);
+        let mut view = ListView::new(Config::default(), None, None, None);
         handle_list_key(ch('/'), &mut app, &mut view).unwrap();
         assert_eq!(view.mode, Mode::Search);
         // The `/` itself is not part of the query.
@@ -843,7 +1237,7 @@ mod tests {
     #[test]
     fn search_mode_types_chars_into_query() {
         let (mut app, _tmp) = test_app();
-        let mut view = ListView::new(None, None, None);
+        let mut view = ListView::new(Config::default(), None, None, None);
         handle_list_key(ch('/'), &mut app, &mut view).unwrap();
         type_chars(&mut app, &mut view, "git");
         assert_eq!(view.search_query, "git");
@@ -853,7 +1247,7 @@ mod tests {
     #[test]
     fn search_mode_treats_action_keys_as_text() {
         let (mut app, _tmp) = test_app();
-        let mut view = ListView::new(None, None, None);
+        let mut view = ListView::new(Config::default(), None, None, None);
         handle_list_key(ch('/'), &mut app, &mut view).unwrap();
         // Every key bound to an action in normal mode is plain text here.
         type_chars(&mut app, &mut view, "arceqjk/");
@@ -875,7 +1269,7 @@ mod tests {
     #[test]
     fn enter_leaves_search_mode_keeping_the_filter() {
         let (mut app, _tmp) = test_app();
-        let mut view = ListView::new(None, None, None);
+        let mut view = ListView::new(Config::default(), None, None, None);
         handle_list_key(ch('/'), &mut app, &mut view).unwrap();
         type_chars(&mut app, &mut view, "git");
         let outcome = handle_list_key(key(KeyCode::Enter), &mut app, &mut view).unwrap();
@@ -937,7 +1331,7 @@ mod tests {
     #[test]
     fn search_mode_backspace_pops_a_char() {
         let (mut app, _tmp) = test_app();
-        let mut view = ListView::new(None, None, None);
+        let mut view = ListView::new(Config::default(), None, None, None);
         handle_list_key(ch('/'), &mut app, &mut view).unwrap();
         type_chars(&mut app, &mut view, "git");
         handle_list_key(key(KeyCode::Backspace), &mut app, &mut view).unwrap();
@@ -957,7 +1351,7 @@ mod tests {
     #[test]
     fn ctrl_c_exits_from_search_mode() {
         let (mut app, _tmp) = test_app();
-        let mut view = ListView::new(None, None, None);
+        let mut view = ListView::new(Config::default(), None, None, None);
         handle_list_key(ch('/'), &mut app, &mut view).unwrap();
         let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
         assert_eq!(
@@ -993,12 +1387,120 @@ mod tests {
     #[test]
     fn arrows_navigate_in_search_mode() {
         let (mut app, _tmp) = test_app();
-        let mut view = ListView::new(None, None, None);
+        let mut view = ListView::new(Config::default(), None, None, None);
         handle_list_key(ch('/'), &mut app, &mut view).unwrap();
         type_chars(&mut app, &mut view, "git");
         assert_eq!(view.selected_id(), Some("git-commit"));
         handle_list_key(key(KeyCode::Down), &mut app, &mut view).unwrap();
         assert_eq!(view.selected_id(), Some("git-worktrees"));
         assert_eq!(view.search_query, "git");
+    }
+
+    /// A config naming two shared registries (plus one removed via empty URL).
+    fn config_with_shared() -> Config {
+        let mut config = Config::default();
+        config
+            .shared
+            .insert("team".into(), "git@example.com:team.git".into());
+        config
+            .shared
+            .insert("acme".into(), "git@example.com:acme.git".into());
+        // Empty URL = removed; it must not become a tab.
+        config.shared.insert("gone".into(), String::new());
+        config
+    }
+
+    #[test]
+    fn tabs_lead_with_library_then_sorted_shared_registries() {
+        let tabs = build_tabs(&config_with_shared());
+        assert_eq!(
+            tabs,
+            vec![
+                Tab::Library,
+                Tab::Shared("acme".into()),
+                Tab::Shared("team".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn no_shared_registries_means_a_single_library_tab() {
+        assert_eq!(build_tabs(&Config::default()), vec![Tab::Library]);
+    }
+
+    #[test]
+    fn tab_switching_wraps_both_ways() {
+        let mut view = ListView::new(config_with_shared(), None, None, None);
+        assert!(view.is_library_tab());
+
+        view.next_tab();
+        assert_eq!(view.current_shared_name(), Some("acme"));
+        view.next_tab();
+        assert_eq!(view.current_shared_name(), Some("team"));
+        view.next_tab(); // wraps back to library
+        assert!(view.is_library_tab());
+
+        view.prev_tab(); // wraps to the last shared tab
+        assert_eq!(view.current_shared_name(), Some("team"));
+    }
+
+    #[test]
+    fn tab_key_switches_only_when_shared_registries_exist() {
+        // With shared registries, Tab moves off the library tab.
+        let (mut app, _tmp) = test_app();
+        let mut view = ListView::new(config_with_shared(), None, None, None);
+        handle_list_key(key(KeyCode::Tab), &mut app, &mut view).unwrap();
+        assert_eq!(view.current_shared_name(), Some("acme"));
+
+        // With none, Tab stays free (no tab bar, library-only) and is ignored.
+        let mut plain = ListView::new(Config::default(), None, None, None);
+        handle_list_key(key(KeyCode::Tab), &mut app, &mut plain).unwrap();
+        assert!(plain.is_library_tab());
+    }
+
+    #[test]
+    fn mark_have_flags_candidates_already_in_the_library() {
+        let (app, _tmp) = test_app();
+        let mut state = SharedTabState {
+            candidate_ids: vec!["git-commit".into(), "brand-new".into()],
+            ..Default::default()
+        };
+        mark_have(&mut state, &app.library);
+        assert!(state.have.contains("git-commit"));
+        assert!(!state.have.contains("brand-new"));
+    }
+
+    #[test]
+    fn shared_navigation_clamps_within_the_candidate_list() {
+        let (mut app, _tmp) = test_app();
+        let mut view = ListView::new(config_with_shared(), None, None, None);
+        view.next_tab(); // acme
+        if let Some(state) = view.shared.get_mut("acme") {
+            state.fetched = true;
+            state.candidate_ids = vec!["a".into(), "b".into()];
+        }
+
+        // Down past the end clamps at the last row.
+        handle_list_key(ch('j'), &mut app, &mut view).unwrap();
+        handle_list_key(ch('j'), &mut app, &mut view).unwrap();
+        assert_eq!(view.shared["acme"].selected, 1);
+        // Up past the top clamps at zero.
+        handle_list_key(ch('k'), &mut app, &mut view).unwrap();
+        handle_list_key(ch('k'), &mut app, &mut view).unwrap();
+        assert_eq!(view.shared["acme"].selected, 0);
+    }
+
+    #[test]
+    fn library_verbs_are_inert_on_a_shared_tab() {
+        let (mut app, _tmp) = test_app();
+        let mut view = ListView::new(config_with_shared(), None, None, None);
+        view.update_visible(&app);
+        view.next_tab(); // acme — a shared tab
+
+        // 'c' would toggle core on the library tab; here it must do nothing.
+        handle_list_key(ch('c'), &mut app, &mut view).unwrap();
+        assert!(!app.library_dirty);
+        assert!(app.library.get("git-commit").is_some());
+        assert!(!app.library.get("git-commit").unwrap().core);
     }
 }

@@ -33,11 +33,20 @@ struct DetailView {
 /// `q`, `Esc`, or `Backspace` to go back.
 pub fn run_inline(terminal: &mut Term, app: &App, spec_id: &str) -> Result<()> {
     let content = app.read_spec_content(spec_id)?;
+    run_inline_content(terminal, spec_id, &content)
+}
+
+/// Run the detail view over arbitrary title + content, inline.
+///
+/// The content-only seam behind [`run_inline`]: it powers the shared-registry
+/// tab's candidate preview, whose markdown lives in the cache checkout rather
+/// than in [`App::read_spec_content`]'s library.
+pub fn run_inline_content(terminal: &mut Term, title: &str, content: &str) -> Result<()> {
     let total_lines = content.lines().count().min(u16::MAX as usize) as u16;
 
     let mut view = DetailView {
-        spec_id: spec_id.to_string(),
-        content,
+        spec_id: title.to_string(),
+        content: content.to_string(),
         scroll: 0,
         total_lines,
     };

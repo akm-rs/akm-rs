@@ -4,7 +4,7 @@
 //! when the TUI starts and passed to each view. Views read from `App`
 //! and may mutate it (e.g., toggling core flag updates the library).
 
-use crate::commands::skills::{delete, rename};
+use crate::commands::skills::{delete, import, rename, shared};
 use crate::error::{Error, Result};
 use crate::git::Git;
 use crate::library::drift::DriftReport;
@@ -358,6 +358,30 @@ impl App {
             message: format!("chore: remove {spec_type} '{id}'"),
         });
         Ok(DeleteOutcome::Deleted)
+    }
+
+    /// Import one shared-registry skill into the library, eagerly, from the TUI.
+    ///
+    /// Mirrors [`Self::rename_spec`]: deferred edits are flushed first so the
+    /// reload afterwards does not drop them, the copy is applied on disk, and the
+    /// change is queued for a publish offer once the terminal is restored.
+    pub fn import_shared_candidate(
+        &mut self,
+        candidate: &shared::Candidate,
+        remote: &str,
+        url: &str,
+    ) -> Result<()> {
+        self.flush_deferred()?;
+        let pathspecs =
+            import::import_candidate(&self.paths, &self.tool_dirs, candidate, remote, url)?;
+        self.reload_library()?;
+        let id = &candidate.id;
+        self.pending_publish.push(PendingPublish {
+            summary: format!("Imported skill '{id}' from '{remote}'"),
+            pathspecs,
+            message: format!("feat: import skill '{id}' from '{remote}'"),
+        });
+        Ok(())
     }
 
     /// Persist any deferred edits (core toggles, metadata, manifest) and clear

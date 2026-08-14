@@ -185,6 +185,26 @@ pub fn run_remote(
     Ok(())
 }
 
+/// Copy one shared-registry skill into the library, non-interactively.
+///
+/// The TUI import path: no id-clash prompt (callers only offer skills not
+/// already present), no `publish::offer` (deferred to a `pending_publish`
+/// entry). Returns the pathspecs of what changed, for the exit-time publish
+/// offer.
+pub(crate) fn import_candidate(
+    paths: &Paths,
+    tool_dirs: &ToolDirs,
+    candidate: &shared::Candidate,
+    remote: &str,
+    url: &str,
+) -> Result<Vec<String>> {
+    let library_dir = paths.library_dir();
+    let meta = source_meta(&candidate.meta, remote, url);
+    install(&library_dir, &candidate.id, &candidate.dir, meta)?;
+    rebuild(paths, tool_dirs, &library_dir)?;
+    Ok(crate::library::spec::SpecType::Skill.pathspecs(&candidate.id))
+}
+
 /// Run `akm skills import <remote> --all` — every valid skill in a registry.
 pub fn run_all_remote(
     paths: &Paths,
@@ -573,5 +593,62 @@ fn rebuild(paths: &Paths, tool_dirs: &ToolDirs, library_dir: &Path) -> Result<()
 fn report_skipped(skipped: &[shared::Skipped]) {
     for entry in skipped {
         println!("  skipped {}: {}", entry.id, entry.reason);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write(path: &Path, content: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, content).unwrap();
+    }
+
+    fn paths_under(root: &Path) -> Paths {
+        Paths::from_roots(
+            &root.join("data"),
+            &root.join("config"),
+            &root.join("cache"),
+            &root.join("home"),
+        )
+    }
+
+    #[test]
+    fn import_candidate_copies_the_skill_and_returns_its_pathspecs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = paths_under(tmp.path());
+        let tool_dirs = ToolDirs::builtin(&tmp.path().join("home"));
+
+        // A shared checkout holding one importable skill.
+        let checkout = tmp.path().join("checkout");
+        write(
+            &checkout.join("skills/tdd/SKILL.md"),
+            "---\nname: tdd\ndescription: test-first\n---\nbody\n",
+        );
+        let catalogue = shared::catalogue(&checkout).unwrap();
+        let candidate = catalogue.get("tdd").unwrap();
+
+        let pathspecs = import_candidate(
+            &paths,
+            &tool_dirs,
+            candidate,
+            "acme",
+            "git@example.com:acme.git",
+        )
+        .unwrap();
+
+        // The skill now lives in the personal library...
+        let dest = paths.library_dir().join("skills/tdd");
+        assert!(dest.join("SKILL.md").is_file());
+        // ...its sidecar records where it came from, core stripped...
+        let meta = SpecMeta::load_from(&dest.join("akm.json")).unwrap();
+        assert_eq!(
+            meta.source.as_deref(),
+            Some("acme (git@example.com:acme.git)")
+        );
+        assert!(!meta.core);
+        // ...and the returned pathspecs cover the skill directory.
+        assert_eq!(pathspecs, vec!["skills/tdd".to_string()]);
     }
 }
