@@ -53,7 +53,8 @@ enum Commands {
     },
     /// View, get, or set configuration values
     ///
-    /// With no arguments, prints all config values. With KEY, prints that
+    /// With no arguments, opens the settings panel on a terminal (or prints all
+    /// config values with --plain / when not a terminal). With KEY, prints that
     /// value. With KEY and VALUE, sets it.
     ///
     /// Keys:
@@ -73,6 +74,9 @@ enum Commands {
         key: Option<String>,
         /// New value to set
         value: Option<String>,
+        /// With no key: print config as plain text instead of the settings panel
+        #[arg(long)]
+        plain: bool,
     },
     /// Sync all enabled features (skills, artifacts, instructions)
     Sync,
@@ -89,10 +93,13 @@ enum Commands {
         #[command(subcommand)]
         command: Option<SkillsCommands>,
     },
-    /// Artifact sync
+    /// Browse artifacts, or sync (defaults to the explorer with no subcommand)
     Artifacts {
         #[command(subcommand)]
-        command: commands::artifacts::ArtifactsCommands,
+        command: Option<commands::artifacts::ArtifactsCommands>,
+        /// Print the artifacts tree as plain text instead of the explorer
+        #[arg(long)]
+        plain: bool,
     },
     /// Global instruction management
     Instructions {
@@ -195,16 +202,6 @@ enum SkillsCommands {
     /// Full status overview
     Status {
         /// Plain output (no TUI)
-        #[arg(long)]
-        plain: bool,
-    },
-    /// Manage shared registries interactively
-    ///
-    /// On a terminal this opens an add/remove menu. Piped, redirected, or with
-    /// --plain, it prints the configured registries and exits. Scriptable writes
-    /// stay on `akm config shared.<name> <url>`.
-    Shared {
-        /// List the registries and exit, without the menu
         #[arg(long)]
         plain: bool,
     },
@@ -407,7 +404,9 @@ fn main() -> ExitCode {
                     source: e,
                 })
         }
-        Some(Commands::Config { key, value }) => commands::config::run(&paths, key, value),
+        Some(Commands::Config { key, value, plain }) => {
+            commands::config::run(&paths, key, value, plain)
+        }
         Some(Commands::Setup {
             skills,
             artifacts,
@@ -469,9 +468,6 @@ fn main() -> ExitCode {
                 }
                 Some(SkillsCommands::Status { plain }) => {
                     commands::skills::status::run(&paths, &tool_dirs, plain)
-                }
-                Some(SkillsCommands::Shared { plain }) => {
-                    commands::skills::shared_menu::run(&paths, plain)
                 }
                 Some(SkillsCommands::Clean { project, dry_run }) => {
                     commands::skills::clean::run(&paths, &tool_dirs, project, dry_run)
@@ -584,12 +580,13 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Some(Commands::Artifacts { command }) => {
+        Some(Commands::Artifacts { command, plain }) => {
             let config = akm::config::Config::load(&paths).unwrap_or_default();
             match command {
-                commands::artifacts::ArtifactsCommands::Sync => {
+                Some(commands::artifacts::ArtifactsCommands::Sync) => {
                     commands::artifacts::sync::run(&config, &paths)
                 }
+                None => commands::artifacts::explorer::run(&paths, &config, plain),
             }
         }
         Some(Commands::Instructions { command }) => match command {

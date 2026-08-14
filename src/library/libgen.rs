@@ -132,6 +132,23 @@ pub(crate) fn resolve_meta(
     meta_from_frontmatter(id, md_file)
 }
 
+/// Resolve a skill's metadata from its own directory, wherever that sits.
+///
+/// Unlike [`resolve_meta`], which takes a library root plus an id and assumes
+/// the skill lives under `skills/`, this takes the skill's directory directly.
+/// That lets it serve skills found at a shared registry's root as well as under
+/// `skills/`. Skills only — the sidecar is always `akm.json` beside `SKILL.md`.
+pub(crate) fn resolve_skill_meta(spec_dir: &Path, id: &str) -> SpecMeta {
+    let sidecar = spec_dir.join("akm.json");
+    if sidecar.is_file() {
+        match SpecMeta::load_from(&sidecar) {
+            Ok(meta) => return meta,
+            Err(e) => eprintln!("Warning: {e}"),
+        }
+    }
+    meta_from_frontmatter(id, &spec_dir.join("SKILL.md"))
+}
+
 /// Derive starter metadata from a spec's markdown, tolerating a bad file.
 fn meta_from_frontmatter(id: &str, md_file: &Path) -> SpecMeta {
     let fm = match Frontmatter::parse_file(md_file) {

@@ -6,17 +6,22 @@ use crate::paths::Paths;
 
 /// Run the `akm config` command.
 ///
-/// - No args → print all config
+/// - No args on a TTY → the interactive settings panel; otherwise (or `--plain`)
+///   print all config
 /// - One arg → get the value of a key
 /// - Two args → set key=value, validate, and write
-pub fn run(paths: &Paths, key: Option<String>, value: Option<String>) -> Result<()> {
+pub fn run(paths: &Paths, key: Option<String>, value: Option<String>, plain: bool) -> Result<()> {
     let mut config = Config::load(paths)?;
 
     match (key, value) {
-        // No args: print all
+        // No args: settings panel on a TTY, plain dump otherwise.
         (None, _) => {
-            print_all(paths, &config);
-            Ok(())
+            if crate::commands::skills::list::should_use_tui(plain) {
+                crate::tui::settings::run(paths, config)
+            } else {
+                print_all(paths, &config);
+                Ok(())
+            }
         }
         // Get mode
         (Some(key_str), None) => {

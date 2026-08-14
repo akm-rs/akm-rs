@@ -143,6 +143,22 @@ another project's manifest keeps its old (or now-deleted) id there until that
 project is updated. In the `list` TUI, `R` renames the selected spec and `D`
 deletes it; the publish offer appears after you quit the TUI.
 
+The `Sync` column's drift markers are actionable from the same view: on a spec
+that shows `*` (or `!`), `p` queues it to publish — offered on exit like a
+rename or delete — and `u` discards your local edits back to the synced version
+right away, clearing the marker. Both are no-ops on a spec that already matches
+the registry. Taking the *registry's* version instead ("theirs") stays on the
+CLI as `akm skills revert <id> --remote`, since that one reaches the network.
+
+When one or more shared registries are configured, the `list` TUI grows a tab
+bar — `Library` first, then one read-only tab per registry, switched with
+`Tab`/`Shift+Tab`. A shared tab is browse-and-import: `r` fetches it (a
+synchronous clone-or-pull), `Enter` previews a candidate's `SKILL.md`, and `i`
+imports the selected skill into your library, marking those you already have.
+The imports are offered for publishing after you quit. With no shared registry
+configured there is no tab bar. The CLI paths (`akm skills list acme`,
+`akm skills import acme tdd`) are unchanged.
+
 Publishing a rename or delete lands on top of the registry the same way an
 edit does: if the remote moved on since your last sync, AKM fast-forwards onto
 it first and then commits your change, so the push is never rejected. If another
@@ -219,8 +235,7 @@ library: nothing in it is ever mounted into a tool directory. You browse it,
 take what you want, and the copy becomes an ordinary skill of your own.
 
 ```bash
-akm skills shared                # add/remove them from an interactive menu
-akm skills shared --plain         # or just list them (also the default when piped)
+akm config                       # add / remove / verify them in the settings panel
 
 akm config shared.acme git@github.com:acme/skills.git   # add one, scriptably
 akm config shared.acme ""                                # remove it, scriptably
@@ -230,17 +245,25 @@ akm skills import acme tdd        # take one
 akm skills import acme --all      # take everything usable
 ```
 
-`akm skills shared` is the friendly front-end; `akm config shared.<name>` is the
-scriptable one. Both write the same config, so use whichever suits.
+The settings panel — `akm config` with no arguments on a terminal — is the
+friendly front-end; `akm config shared.<name>` is the scriptable one. Both write
+the same config, so use whichever suits.
 
 Checkouts live in `$XDG_CACHE_HOME/akm/shared/<name>` and are refreshed by
 `akm skills sync` and by any of the commands above. Removing a registry deletes
-its checkout too — interactively at once, and otherwise on the next
-`akm skills sync`, which sweeps any checkout config no longer names. A registry
-that cannot be reached is reported, and browsing falls back to the copy on disk.
+its checkout too — at once when you remove it in the settings panel, and
+otherwise on the next `akm skills sync`, which sweeps any checkout config no
+longer names. A registry that cannot be reached is reported, and browsing falls
+back to the copy on disk.
 
-Only directories holding a `SKILL.md` with a `name` and a `description` are
-importable; anything else is named and skipped. An id you already have is a
+A shared registry can be laid out either way: skills under a `skills/`
+directory, or — the dead-simple form a team throws together — one directory per
+skill at the repo root with nothing enclosing them. AKM detects which: a
+`skills/` directory, when present, wins; otherwise it scans the root for
+skill directories directly. Either way, only directories holding a `SKILL.md`
+with a `name` and a `description` are importable; anything else is skipped —
+named when it sits under `skills/` and looks like a broken skill, quietly
+ignored when it is just repo plumbing at the root. An id you already have is a
 conflict, and interactively you choose per skill:
 
 ```
@@ -290,8 +313,16 @@ storage — retry with `akm skills publish <id>`.
 ### Artifacts
 
 ```bash
+akm artifacts                    # browse the artifacts tree (two-pane explorer)
+akm artifacts --plain            # print the tree as plain text (agent/scripting)
 akm artifacts sync               # bidirectional git sync
 ```
+
+With no subcommand on a terminal, `akm artifacts` opens a two-pane explorer:
+a lazily-expanding tree on the left, a live plain-text preview on the right.
+`Enter` on a file opens it in `$EDITOR` and returns; dirs expand with `→`/`Enter`
+and collapse with `←`. Non-interactive or `--plain` prints the box-drawing tree
+instead — dirs first, newest date-prefixed file on top, `.git` hidden.
 
 ### Instructions
 
@@ -314,10 +345,17 @@ time the new file is needed; the old file is left where it is.
 ### Configuration
 
 ```bash
-akm config                       # print all config
+akm config                       # settings panel on a terminal (--plain to dump)
 akm config skills.enabled        # get a single value
 akm config artifacts.auto-push false  # set a value
 ```
+
+With no arguments on a terminal, `akm config` opens a settings panel: a single
+scrolling list grouped by section (personal registry, artifacts, features,
+shared registries) where checkboxes toggle and text fields edit in place, every
+change saved immediately. `v` on a shared registry checks it is reachable; `a`
+adds one. Non-interactive or `akm config --plain` dumps the full config as
+`key = value` lines — the scriptable read path, a superset of the panel.
 
 ### Self-Update
 

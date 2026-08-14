@@ -17,7 +17,7 @@
 use crate::config::Config;
 use crate::error::{Error, IoContext, Result};
 use crate::library::libgen;
-use crate::library::spec::{SpecMeta, SpecType};
+use crate::library::spec::SpecMeta;
 use crate::paths::Paths;
 use crate::registry::{Registry, SyncOutcome};
 use std::path::{Path, PathBuf};
@@ -139,25 +139,63 @@ pub fn refresh_for_use(registry: &Registry) -> Result<RefreshOutcome> {
     Ok(outcome)
 }
 
+/// Locate the directory that holds a checkout's skill directories, and report
+/// whether the layout is the canonical `skills/` one.
+///
+/// Two layouts are accepted. A canonical registry keeps its skills under a
+/// `skills/` directory. A dead-simple shared repo — the kind a team throws
+/// together, one directory per skill and nothing else — keeps them at the root.
+/// A present `skills/` always wins: it is an explicit declaration of layout, so
+/// a repo that has one is never scanned flat.
+///
+/// Returns `(container, canonical)`. `canonical` is true only for the `skills/`
+/// layout, where every child directory is *expected* to be a skill and a
+/// missing `SKILL.md` is worth reporting. In the flat layout a child without a
+/// `SKILL.md` is just some other directory (`docs/`, `.github/`), not a broken
+/// skill.
+fn skills_container(dir: &Path) -> Option<(PathBuf, bool)> {
+    let canonical = dir.join("skills");
+    if canonical.is_dir() {
+        return Some((canonical, true));
+    }
+    if has_skill_child(dir) {
+        return Some((dir.to_path_buf(), false));
+    }
+    None
+}
+
+/// True if `dir` directly contains a subdirectory holding a `SKILL.md`.
+fn has_skill_child(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    entries.flatten().any(|entry| {
+        let path = entry.path();
+        path.is_dir() && path.join("SKILL.md").is_file()
+    })
+}
+
 /// Scan a checkout for importable skills.
 ///
 /// Validity is deliberately strict and reported rather than silent: a shared
 /// registry is written by someone else, and a directory that looks like a skill
-/// but has no `SKILL.md`, or frontmatter missing the two fields every harness
-/// needs, would otherwise be imported as something that never activates.
+/// but has frontmatter missing the two fields every harness needs would
+/// otherwise be imported as something that never activates.
+///
+/// The one place reporting bends is a directory with no `SKILL.md` at all. Under
+/// `skills/` that is a broken skill and is reported. In a flat repo — where the
+/// scan runs over the repo root — it is just plumbing (`.git/`, `docs/`) and is
+/// ignored, along with anything hidden.
 ///
 /// Skills only — same as `import` and `promote`, which have never handled
 /// agents either.
 pub fn catalogue(dir: &Path) -> Result<Catalogue> {
-    let skills_dir = dir.join("skills");
-    if !skills_dir.is_dir() {
-        return Err(Error::NoSpecDirs {
-            path: dir.to_path_buf(),
-        });
-    }
+    let (container, canonical) = skills_container(dir).ok_or_else(|| Error::NoSharedSkills {
+        path: dir.to_path_buf(),
+    })?;
 
-    let mut entries: Vec<_> = std::fs::read_dir(&skills_dir)
-        .io_context(format!("Reading skills directory {}", skills_dir.display()))?
+    let mut entries: Vec<_> = std::fs::read_dir(&container)
+        .io_context(format!("Reading skills directory {}", container.display()))?
         .filter_map(|entry| entry.ok())
         .filter(|entry| entry.path().is_dir())
         .collect();
@@ -167,15 +205,24 @@ pub fn catalogue(dir: &Path) -> Result<Catalogue> {
     let mut skipped = Vec::new();
 
     for entry in entries {
-        let id = entry.file_name().to_string_lossy().to_string();
+        let name = entry.file_name();
+        let id = name.to_string_lossy().to_string();
+
+        // Flat layout scans the repo root, so skip its plumbing.
+        if !canonical && id.starts_with('.') {
+            continue;
+        }
+
         let spec_dir = entry.path();
         let md_file = spec_dir.join("SKILL.md");
 
         if !md_file.is_file() {
-            skipped.push(Skipped {
-                id,
-                reason: "no SKILL.md".into(),
-            });
+            if canonical {
+                skipped.push(Skipped {
+                    id,
+                    reason: "no SKILL.md".into(),
+                });
+            }
             continue;
         }
 
@@ -183,7 +230,7 @@ pub fn catalogue(dir: &Path) -> Result<Catalogue> {
             .and_then(|fm| fm.require_name_and_description(&md_file))
         {
             Ok(()) => skills.push(Candidate {
-                meta: libgen::resolve_meta(dir, &id, SpecType::Skill, &md_file),
+                meta: libgen::resolve_skill_meta(&spec_dir, &id),
                 id,
                 dir: spec_dir,
             }),
@@ -319,6 +366,88 @@ mod tests {
     fn a_checkout_without_skills_is_not_a_registry() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(catalogue(tmp.path()).is_err());
+    }
+
+    #[test]
+    fn catalogue_scans_a_flat_repo_of_skill_directories() {
+        // The dead-simple layout: one directory per skill at the repo root, no
+        // enclosing skills/ folder.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        write(
+            &root.join("tdd/SKILL.md"),
+            "---\nname: tdd\ndescription: test-driven development\n---\nbody\n",
+        );
+        write(
+            &root.join("caveman/SKILL.md"),
+            "---\nname: caveman\ndescription: terse mode\n---\nbody\n",
+        );
+        // Plumbing and non-skill directories are ignored, not reported.
+        write(&root.join("README.md"), "a shared library\n");
+        write(&root.join("docs/guide.md"), "notes\n");
+        write(&root.join(".git/config"), "[core]\n");
+
+        let catalogue = catalogue(root).unwrap();
+
+        let ids: Vec<&str> = catalogue.skills.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, vec!["caveman", "tdd"]);
+        assert!(
+            catalogue.skipped.is_empty(),
+            "flat layout must not report non-skill dirs: {:?}",
+            catalogue.skipped.iter().map(|s| &s.id).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn catalogue_reports_a_broken_skill_even_in_a_flat_repo() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        write(
+            &root.join("good/SKILL.md"),
+            "---\nname: good\ndescription: fine\n---\nbody\n",
+        );
+        // Has a SKILL.md, so it is a skill attempt — a bad one worth reporting.
+        write(
+            &root.join("broken/SKILL.md"),
+            "---\nname: broken\n---\nbody\n",
+        );
+
+        let catalogue = catalogue(root).unwrap();
+
+        assert_eq!(
+            catalogue.skills.iter().map(|c| &c.id).collect::<Vec<_>>(),
+            vec!["good"]
+        );
+        assert_eq!(
+            catalogue.skipped.iter().map(|s| &s.id).collect::<Vec<_>>(),
+            vec!["broken"]
+        );
+    }
+
+    #[test]
+    fn a_present_skills_dir_wins_over_flat_dirs() {
+        // A repo with a skills/ folder is canonical even if the root also holds
+        // stray skill-shaped directories: skills/ declares the layout.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        write(
+            &root.join("skills/inside/SKILL.md"),
+            "---\nname: inside\ndescription: under skills/\n---\nbody\n",
+        );
+        write(
+            &root.join("outside/SKILL.md"),
+            "---\nname: outside\ndescription: at the root\n---\nbody\n",
+        );
+
+        let catalogue = catalogue(root).unwrap();
+
+        assert_eq!(
+            catalogue.skills.iter().map(|c| &c.id).collect::<Vec<_>>(),
+            vec!["inside"]
+        );
     }
 
     fn paths_under(root: &Path) -> Paths {

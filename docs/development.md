@@ -85,8 +85,8 @@ diff should be reviewed before committing.
 
 Tests that build a fixture library must write to `<data>/akm/library/…`. The
 git-backed suites (`git`, `drift`, `skills_sync`, `skills_publish`,
-`skills_drift_commands`, `instructions`) each carry their own small repo
-fixture; integration test files cannot share a module without a `mod common`,
+`skills_drift_commands`, `tui_drift_actions`, `instructions`) each carry their
+own small repo fixture; integration test files cannot share a module without a `mod common`,
 and the duplication is cheaper than adding one.
 
 `tests/shell_test.rs` drives `akm-init.sh` for real: it stubs `akm` and the

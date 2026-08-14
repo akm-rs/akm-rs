@@ -1,0 +1,11 @@
+---
+source: tests/artifacts_test.rs
+expression: "String::from_utf8_lossy(&output.stdout)"
+---
+arts/
+├── plans/
+│   ├── 2026-08-13-a.md
+│   └── 2026-08-01-b.md
+├── research/
+│   └── eval.md
+└── 2026-08-05-note.md

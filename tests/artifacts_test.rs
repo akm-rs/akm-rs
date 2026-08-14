@@ -6,6 +6,7 @@ use akm::artifacts::{ArtifactRepo, CommitPushOutcome, SyncOutcome};
 use akm::config::Config;
 use akm::git::Git;
 use akm::paths::Paths;
+use assert_cmd::cargo::cargo_bin_cmd;
 use std::path::Path;
 use std::process::Command;
 use tempfile::TempDir;
@@ -87,6 +88,41 @@ fn add_and_commit(repo: &Path, filename: &str, content: &str, message: &str) {
         ])
         .status()
         .expect("git commit");
+}
+
+#[test]
+fn artifacts_plain_prints_the_tree() {
+    let tmp = TempDir::new().unwrap();
+    let arts = tmp.path().join("arts");
+
+    // A known tree: two subdirs, a top-level note, and a .git that must be
+    // hidden. Files render newest date-prefix first; dirs come first, alpha.
+    std::fs::create_dir_all(arts.join(".git")).unwrap();
+    std::fs::create_dir_all(arts.join("plans")).unwrap();
+    std::fs::create_dir_all(arts.join("research")).unwrap();
+    std::fs::write(arts.join("plans/2026-08-13-a.md"), "x").unwrap();
+    std::fs::write(arts.join("plans/2026-08-01-b.md"), "x").unwrap();
+    std::fs::write(arts.join("research/eval.md"), "x").unwrap();
+    std::fs::write(arts.join("2026-08-05-note.md"), "x").unwrap();
+
+    let config_dir = tmp.path().join("config").join("akm");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::write(
+        config_dir.join("config.toml"),
+        format!("[artifacts]\ndir = {:?}\n", arts.display().to_string()),
+    )
+    .unwrap();
+
+    let output = cargo_bin_cmd!("akm")
+        .args(["artifacts", "--plain"])
+        .env("XDG_CONFIG_HOME", tmp.path().join("config"))
+        .env("XDG_DATA_HOME", tmp.path().join("data"))
+        .env("XDG_CACHE_HOME", tmp.path().join("cache"))
+        .env("HOME", tmp.path())
+        .output()
+        .unwrap();
+
+    insta::assert_snapshot!(String::from_utf8_lossy(&output.stdout));
 }
 
 #[test]

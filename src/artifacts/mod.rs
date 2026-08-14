@@ -14,7 +14,7 @@ use crate::config::Config;
 use crate::error::{Error, IoContext, Result};
 use crate::git::Git;
 use crate::paths::Paths;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Outcome of an artifacts sync operation, used for display messages.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -241,9 +241,134 @@ fn local_timestamp() -> String {
     )
 }
 
+/// One entry in an artifacts directory listing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Entry {
+    /// File or directory name (no path).
+    pub name: String,
+    /// Absolute path.
+    pub path: PathBuf,
+    /// True for a real directory. A symlink is always a leaf (`false`), even
+    /// if it points at a directory — we never follow, to avoid cycles.
+    pub is_dir: bool,
+    /// True if the entry is a symlink (rendered as a leaf).
+    pub is_symlink: bool,
+}
+
+/// List one directory level, applying the artifacts ordering rules.
+///
+/// Directories first (alphabetical), then files in reverse order so the
+/// date-prefixed (`YYYY-MM-DD-…`) newest lands on top — the "what did the LLM
+/// just write" verb. `.git` is hidden (the artifacts dir is a git repo).
+/// Symlinks are leaves, never followed.
+pub fn scan_dir(dir: &Path) -> Result<Vec<Entry>> {
+    let mut dirs = Vec::new();
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(dir).io_context(format!("Reading {}", dir.display()))? {
+        let entry = entry.io_context("Reading directory entry")?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name == ".git" {
+            continue;
+        }
+        let ft = entry.file_type().io_context(format!("Stat {name}"))?;
+        let is_symlink = ft.is_symlink();
+        let is_dir = ft.is_dir() && !is_symlink;
+        let e = Entry {
+            name,
+            path: entry.path(),
+            is_dir,
+            is_symlink,
+        };
+        if is_dir {
+            dirs.push(e)
+        } else {
+            files.push(e)
+        }
+    }
+    dirs.sort_by(|a, b| a.name.cmp(&b.name));
+    files.sort_by(|a, b| b.name.cmp(&a.name)); // reverse → newest date-prefix first
+    dirs.extend(files);
+    Ok(dirs)
+}
+
+/// Render a full recursive tree from `root` as box-drawing text.
+///
+/// Pure enough to snapshot: it reads the filesystem but its output is a
+/// deterministic function of the tree shape. Used by `akm artifacts --plain`.
+pub fn render_tree(root: &Path) -> Result<String> {
+    let mut out = String::new();
+    let name = root
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "artifacts".to_string());
+    out.push_str(&format!("{name}/\n"));
+    render_children(root, "", &mut out)?;
+    Ok(out)
+}
+
+fn render_children(dir: &Path, prefix: &str, out: &mut String) -> Result<()> {
+    let entries = scan_dir(dir)?;
+    let n = entries.len();
+    for (i, e) in entries.iter().enumerate() {
+        let last = i + 1 == n;
+        let connector = if last { "└── " } else { "├── " };
+        let suffix = if e.is_dir { "/" } else { "" };
+        out.push_str(&format!("{prefix}{connector}{}{suffix}\n", e.name));
+        if e.is_dir {
+            let child_prefix = format!("{prefix}{}", if last { "    " } else { "│   " });
+            render_children(&e.path, &child_prefix, out)?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scan_orders_dirs_first_then_files_newest_first_and_hides_git() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join(".git")).unwrap();
+        std::fs::create_dir_all(root.join("research")).unwrap();
+        std::fs::create_dir_all(root.join("plans")).unwrap();
+        std::fs::write(root.join("2026-08-01-old.md"), "x").unwrap();
+        std::fs::write(root.join("2026-08-13-new.md"), "x").unwrap();
+
+        let entries = scan_dir(root).unwrap();
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        // dirs alpha first, then files reverse-alpha (newest date-prefix first), .git hidden
+        assert_eq!(
+            names,
+            vec![
+                "plans",
+                "research",
+                "2026-08-13-new.md",
+                "2026-08-01-old.md"
+            ]
+        );
+        assert!(entries[0].is_dir);
+        assert!(!entries[2].is_dir);
+    }
+
+    #[test]
+    fn render_tree_draws_box_connectors() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("akm-rs");
+        std::fs::create_dir_all(root.join("plans")).unwrap();
+        std::fs::write(root.join("plans/2026-08-13-a.md"), "x").unwrap();
+        std::fs::write(root.join("plans/2026-08-01-b.md"), "x").unwrap();
+
+        let out = render_tree(&root).unwrap();
+        assert_eq!(
+            out,
+            "akm-rs/\n\
+             └── plans/\n\
+             \x20   ├── 2026-08-13-a.md\n\
+             \x20   └── 2026-08-01-b.md\n"
+        );
+    }
 
     #[test]
     fn test_sync_outcome_variants() {

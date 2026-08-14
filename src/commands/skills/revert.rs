@@ -67,8 +67,21 @@ pub fn run(
 
     println!("Reverted '{id}' to {target}.");
 
-    // The spec's metadata may have moved with it, so rebuild the index and the
-    // symlinks that follow from `core`.
+    let count = rebuild_after_revert(paths, tool_dirs)?;
+    println!("{count} core symlinks rebuilt");
+
+    Ok(())
+}
+
+/// Rebuild the derived index, local overrides and core symlinks after a spec's
+/// files were changed on disk by a revert. Returns the number of core symlinks
+/// rebuilt.
+///
+/// A revert can move a spec's metadata with it — including its `core` flag — so
+/// the index must be regenerated from disk rather than trusted, and the
+/// symlinks that follow from `core` rebuilt. Shared with the list TUI's revert
+/// verb, which needs the same rebuild without any of the surrounding prose.
+pub(crate) fn rebuild_after_revert(paths: &Paths, tool_dirs: &ToolDirs) -> Result<usize> {
     let library_dir = paths.library_dir();
     libgen::generate(&library_dir, &paths.library_json())?;
 
@@ -79,10 +92,7 @@ pub fn run(
     }
     library.save_to(&paths.library_json())?;
 
-    let count = symlinks::rebuild_core(&library.core_specs(), &library_dir, tool_dirs.dirs())?;
-    println!("{count} core symlinks rebuilt");
-
-    Ok(())
+    symlinks::rebuild_core(&library.core_specs(), &library_dir, tool_dirs.dirs())
 }
 
 /// Ask before discarding work. Non-interactive callers must pass `--force`.

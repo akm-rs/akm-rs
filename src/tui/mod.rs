@@ -1,15 +1,17 @@
 //! TUI framework for AKM.
 //!
 //! Provides terminal setup/teardown with crossterm, a panic handler that
-//! restores the terminal, and the shared `run_app` function that drives
-//! the event loop for any view.
+//! restores the terminal, and shared event/draw helpers. Each view owns its
+//! own event loop (see [`list`], [`artifacts`], [`settings`]).
 
 pub mod app;
+pub mod artifacts;
 pub mod detail;
 pub mod edit;
 pub mod event;
 pub mod input;
 pub mod list;
+pub mod settings;
 pub mod status;
 pub mod theme;
 
@@ -21,6 +23,8 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io::{self, Stdout};
 use std::panic;
+use std::path::Path;
+use std::process::Command;
 
 /// Type alias for our terminal backend.
 pub type Term = Terminal<CrosstermBackend<Stdout>>;
@@ -109,6 +113,44 @@ where
 {
     terminal.draw(f).map_err(|e| Error::Tui {
         message: format!("Render failed: {e}"),
+    })?;
+    Ok(())
+}
+
+/// Suspend the TUI, open `path` in the user's editor, then resume.
+///
+/// Leaves the alternate screen and raw mode so the editor owns the real
+/// terminal, spawns it as a child inheriting stdio, waits, then re-enters and
+/// forces a full redraw. Editor resolution and spawn mirror
+/// [`crate::commands::skills::edit`] exactly (the whole string is the program
+/// name).
+///
+/// Operates on the *existing* `terminal` — it must not call [`init_terminal`],
+/// which would build a second `Term` and re-install the panic hook.
+///
+/// The child-process dance is the one seam the house style does not snapshot;
+/// keep it thin. A missing editor or spawn failure is returned, not panicked —
+/// the caller stays in the TUI and shows it inline.
+pub fn edit_file_in_terminal(terminal: &mut Term, path: &Path) -> Result<()> {
+    restore_terminal(); // leave alt-screen + disable raw mode
+
+    let editor = crate::editor::resolve_editor();
+    let spawn = Command::new(&editor).arg(path).status();
+
+    // Re-enter regardless of how the editor fared, so a failed spawn never
+    // strands the user outside the TUI.
+    enable_raw_mode().map_err(|e| Error::Tui {
+        message: format!("Failed to re-enable raw mode after editor: {e}"),
+    })?;
+    execute!(io::stdout(), EnterAlternateScreen).map_err(|e| Error::Tui {
+        message: format!("Failed to re-enter alternate screen after editor: {e}"),
+    })?;
+    terminal.clear().map_err(|e| Error::Tui {
+        message: format!("Failed to redraw after editor: {e}"),
+    })?;
+
+    spawn.map_err(|e| Error::Tui {
+        message: format!("Failed to launch editor '{editor}': {e}"),
     })?;
     Ok(())
 }
