@@ -321,8 +321,10 @@ akm artifacts sync               # bidirectional git sync
 With no subcommand on a terminal, `akm artifacts` opens a two-pane explorer:
 a lazily-expanding tree on the left, a live plain-text preview on the right.
 `Enter` on a file opens it in `$EDITOR` and returns; dirs expand with `→`/`Enter`
-and collapse with `←`. Non-interactive or `--plain` prints the box-drawing tree
-instead — dirs first, newest date-prefixed file on top, `.git` hidden.
+and collapse with `←`. `y` copies the selected entry's absolute path to the
+clipboard (via OSC 52) so you can paste it straight into an agent. Non-interactive
+or `--plain` prints the box-drawing tree instead — dirs first, newest
+date-prefixed file on top, `.git` hidden.
 
 ### Instructions
 

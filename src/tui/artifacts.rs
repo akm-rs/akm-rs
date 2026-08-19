@@ -3,9 +3,11 @@
 //!
 //! Left pane: a lazily-expanding directory tree. Right pane: a live plain-text
 //! preview of the selected file. `Enter`/`o` on a file drops to `$EDITOR` and
-//! comes back (see [`crate::tui::edit_file_in_terminal`]). There are no git
-//! side effects here — committing is owned by session exit / `akm artifacts
-//! sync`.
+//! comes back (see [`crate::tui::edit_file_in_terminal`]). `y` copies the
+//! selected entry's absolute path to the clipboard (see
+//! [`crate::tui::copy_to_clipboard`]) so it can be pasted straight into an
+//! agent. There are no git side effects here — committing is owned by session
+//! exit / `akm artifacts sync`.
 //!
 //! Structure mirrors [`crate::tui::list`]: a pure state machine
 //! ([`Explorer`] and its methods) that is unit-tested with synthetic key
@@ -22,6 +24,7 @@ use crate::tui::{self, Term};
 
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
@@ -43,8 +46,9 @@ struct Explorer {
     rows: Vec<TreeNode>,
     /// Index of the highlighted row.
     selected: usize,
-    /// Inline status (e.g. an editor spawn failure), cleared on the next key.
-    status: Option<String>,
+    /// Inline status (e.g. a copy confirmation or an editor spawn failure),
+    /// with the style to render it in. Cleared on the next key.
+    status: Option<(String, Style)>,
 }
 
 /// What a handled key asks the loop to do. Pure — no terminal, so the state
@@ -57,6 +61,8 @@ enum Action {
     Exit,
     /// Suspend and open this file in `$EDITOR`.
     OpenFile(PathBuf),
+    /// Copy this absolute path to the clipboard (OSC 52, owned by the loop).
+    CopyPath(PathBuf),
 }
 
 impl Explorer {
@@ -221,8 +227,15 @@ fn run_explorer_loop(terminal: &mut Term, explorer: &mut Explorer) -> Result<()>
                 Action::Exit => return Ok(()),
                 Action::OpenFile(path) => {
                     if let Err(e) = tui::edit_file_in_terminal(terminal, &path) {
-                        explorer.status = Some(e.to_string());
+                        explorer.status = Some((e.to_string(), theme::ERROR));
                     }
+                }
+                Action::CopyPath(path) => {
+                    let shown = path.display().to_string();
+                    explorer.status = Some(match tui::copy_to_clipboard(&shown) {
+                        Ok(()) => (format!("copied {shown}"), theme::SUCCESS),
+                        Err(e) => (e.to_string(), theme::ERROR),
+                    });
                 }
             },
             Event::Tick => {}
@@ -254,7 +267,7 @@ fn handle_key(key: KeyEvent, explorer: &mut Explorer) -> Result<Action> {
                 .unwrap_or(false);
             if expandable {
                 if let Err(e) = explorer.expand(idx) {
-                    explorer.status = Some(e.to_string());
+                    explorer.status = Some((e.to_string(), theme::ERROR));
                 }
             }
         }
@@ -282,11 +295,19 @@ fn handle_key(key: KeyEvent, explorer: &mut Explorer) -> Result<Action> {
                     if expanded {
                         explorer.collapse(idx);
                     } else if let Err(e) = explorer.expand(idx) {
-                        explorer.status = Some(e.to_string());
+                        explorer.status = Some((e.to_string(), theme::ERROR));
                     }
                 } else {
                     return Ok(Action::OpenFile(path));
                 }
+            }
+        }
+
+        // Copy the selected entry's absolute path to the clipboard. Works on a
+        // file or a directory — either is a valid thing to hand an agent.
+        KeyCode::Char('y') => {
+            if let Some(node) = explorer.selected_node() {
+                return Ok(Action::CopyPath(node.entry.path.clone()));
             }
         }
 
@@ -338,8 +359,8 @@ fn render(frame: &mut Frame, explorer: &Explorer) {
     render_tree_pane(frame, panes[0], explorer);
     render_preview_pane(frame, panes[1], explorer);
 
-    if let Some(ref msg) = explorer.status {
-        frame.render_widget(Paragraph::new(msg.as_str()).style(theme::ERROR), chunks[1]);
+    if let Some((ref msg, style)) = explorer.status {
+        frame.render_widget(Paragraph::new(msg.as_str()).style(style), chunks[1]);
     }
     render_legend(frame, chunks[2]);
 }
@@ -406,6 +427,7 @@ fn render_legend(frame: &mut Frame, area: Rect) {
         ("→", " expand  "),
         ("←", " collapse/up  "),
         ("Enter/o", " open  "),
+        ("y", " copy path  "),
         ("g", " top  "),
         ("q", " quit"),
     ];
@@ -529,6 +551,27 @@ mod tests {
     /// Absolute path of `rel` under the explorer root, for asserting OpenFile.
     fn root_join(ex: &Explorer, rel: &str) -> PathBuf {
         ex.root.join(rel)
+    }
+
+    #[test]
+    fn y_asks_the_loop_to_copy_the_selected_path() {
+        let (_tmp, root) = temp_tree();
+        let mut ex = Explorer::new(root).unwrap();
+        ex.expand(1).unwrap(); // reveal note.md at idx 3
+        ex.selected = 3;
+
+        let action = handle_key(key(KeyCode::Char('y')), &mut ex).unwrap();
+        assert_eq!(action, Action::CopyPath(root_join(&ex, "proj/note.md")));
+    }
+
+    #[test]
+    fn y_copies_a_directory_path_too() {
+        let (_tmp, root) = temp_tree();
+        let mut ex = Explorer::new(root).unwrap();
+        ex.selected = 1; // proj/ (a directory)
+
+        let action = handle_key(key(KeyCode::Char('y')), &mut ex).unwrap();
+        assert_eq!(action, Action::CopyPath(root_join(&ex, "proj")));
     }
 
     #[test]
