@@ -1,6 +1,6 @@
 //! Status dashboard — interactive version of `akm skills status`.
 //!
-//! Displays the same sections as the plain output (core, session, manifest,
+//! Displays the same sections as the plain output (manifest, core, session,
 //! cold) but in a scrollable TUI with navigation and actions.
 //!
 //! Key bindings match the list view's normal mode, minus `/` — the dashboard
@@ -99,58 +99,8 @@ impl StatusView {
         }
         rows.push(StatusRow::Blank);
 
-        // Section 2: Core specs
-        rows.push(StatusRow::Header(
-            "Core specs (globally symlinked):".to_string(),
-        ));
-        let core_specs = app.library.core_specs();
-        let core_ids: HashSet<&str> = core_specs.iter().map(|s| s.id.as_str()).collect();
-        if core_specs.is_empty() {
-            rows.push(StatusRow::Empty("  (none)".to_string()));
-        } else {
-            for spec in &core_specs {
-                let idx = rows.len();
-                selectable_indices.push(idx);
-                rows.push(StatusRow::Spec {
-                    id: spec.id.clone(),
-                    spec_type: spec.spec_type,
-                    section: StatusSection::Core,
-                    note: None,
-                    drift: app.drift.state_of(&spec.id),
-                });
-            }
-        }
-        rows.push(StatusRow::Blank);
-
-        // Section 3: Session specs (if AKM_SESSION active)
-        let session_dir = env::var("AKM_SESSION").ok().map(PathBuf::from);
-        if let Some(ref staging) = session_dir {
-            if staging.is_dir() {
-                rows.push(StatusRow::Header(
-                    "Session specs (staging dir):".to_string(),
-                ));
-                let session_specs =
-                    crate::commands::skills::status::scan_session_dir(staging, &app.tool_dirs);
-                if session_specs.is_empty() {
-                    rows.push(StatusRow::Empty("  (none loaded)".to_string()));
-                } else {
-                    for (id, spec_type) in &session_specs {
-                        let idx = rows.len();
-                        selectable_indices.push(idx);
-                        rows.push(StatusRow::Spec {
-                            id: id.clone(),
-                            spec_type: *spec_type,
-                            section: StatusSection::Session,
-                            note: None,
-                            drift: app.drift.state_of(id),
-                        });
-                    }
-                }
-                rows.push(StatusRow::Blank);
-            }
-        }
-
-        // Section 4: Manifest specs
+        // Section 2: Manifest specs — this project's declared specs, shown
+        // first as the most relevant to the project the user is standing in.
         if app.project_root.is_some() {
             if let Some(manifest) = &app.manifest {
                 rows.push(StatusRow::Header(
@@ -195,6 +145,57 @@ impl StatusView {
 
                 if !has_entries {
                     rows.push(StatusRow::Empty("  (empty manifest)".to_string()));
+                }
+                rows.push(StatusRow::Blank);
+            }
+        }
+
+        // Section 3: Core specs
+        rows.push(StatusRow::Header(
+            "Core specs (globally symlinked):".to_string(),
+        ));
+        let core_specs = app.library.core_specs();
+        let core_ids: HashSet<&str> = core_specs.iter().map(|s| s.id.as_str()).collect();
+        if core_specs.is_empty() {
+            rows.push(StatusRow::Empty("  (none)".to_string()));
+        } else {
+            for spec in &core_specs {
+                let idx = rows.len();
+                selectable_indices.push(idx);
+                rows.push(StatusRow::Spec {
+                    id: spec.id.clone(),
+                    spec_type: spec.spec_type,
+                    section: StatusSection::Core,
+                    note: None,
+                    drift: app.drift.state_of(&spec.id),
+                });
+            }
+        }
+        rows.push(StatusRow::Blank);
+
+        // Section 4: Session specs (if AKM_SESSION active)
+        let session_dir = env::var("AKM_SESSION").ok().map(PathBuf::from);
+        if let Some(ref staging) = session_dir {
+            if staging.is_dir() {
+                rows.push(StatusRow::Header(
+                    "Session specs (staging dir):".to_string(),
+                ));
+                let session_specs =
+                    crate::commands::skills::status::scan_session_dir(staging, &app.tool_dirs);
+                if session_specs.is_empty() {
+                    rows.push(StatusRow::Empty("  (none loaded)".to_string()));
+                } else {
+                    for (id, spec_type) in &session_specs {
+                        let idx = rows.len();
+                        selectable_indices.push(idx);
+                        rows.push(StatusRow::Spec {
+                            id: id.clone(),
+                            spec_type: *spec_type,
+                            section: StatusSection::Session,
+                            note: None,
+                            drift: app.drift.state_of(id),
+                        });
+                    }
                 }
                 rows.push(StatusRow::Blank);
             }

@@ -52,40 +52,9 @@ fn run_plain(paths: &Paths, tool_dirs: &ToolDirs) -> Result<()> {
     }
     println!();
 
-    // Section 2: Core specs
-    println!("Core specs (globally symlinked):");
-    let core_specs = library.core_specs();
-    let core_ids: HashSet<&str> = core_specs.iter().map(|s| s.id.as_str()).collect();
-
-    for spec in &core_specs {
-        let type_label = format!("{:<6}", spec.spec_type);
-        let marker = drift.state_of(&spec.id).marker();
-        println!("  ✓ {type_label}  {marker} {}", spec.id);
-    }
-    println!();
-
-    // Section 3: Session specs (if AKM_SESSION is active)
-    let session_dir = env::var("AKM_SESSION").ok().map(PathBuf::from);
-    if let Some(ref staging) = session_dir {
-        if staging.is_dir() {
-            println!("Session specs (staging dir):");
-            let session_specs = scan_session_dir(staging, tool_dirs);
-            if session_specs.is_empty() {
-                println!("  (none loaded)");
-            } else {
-                for (id, spec_type) in &session_specs {
-                    let type_label = format!("{:<6}", spec_type);
-                    let marker = drift.state_of(id).marker();
-                    println!("  ✓ {type_label}  {marker} {id}");
-                }
-            }
-            println!();
-        }
-    }
-
-    // Section 4: Manifest specs
+    // Section 2: Manifest specs — this project's declared specs, shown first
+    // as the most relevant to the project the user is standing in.
     let mut manifest_ids: HashSet<String> = HashSet::new();
-
     if let Some(ref root) = project_root {
         let manifest_path = Manifest::path(root);
         if manifest_path.exists() {
@@ -122,6 +91,37 @@ fn run_plain(paths: &Paths, tool_dirs: &ToolDirs) -> Result<()> {
                 }
                 println!();
             }
+        }
+    }
+
+    // Section 3: Core specs
+    println!("Core specs (globally symlinked):");
+    let core_specs = library.core_specs();
+    let core_ids: HashSet<&str> = core_specs.iter().map(|s| s.id.as_str()).collect();
+
+    for spec in &core_specs {
+        let type_label = format!("{:<6}", spec.spec_type);
+        let marker = drift.state_of(&spec.id).marker();
+        println!("  ✓ {type_label}  {marker} {}", spec.id);
+    }
+    println!();
+
+    // Section 4: Session specs (if AKM_SESSION is active)
+    let session_dir = env::var("AKM_SESSION").ok().map(PathBuf::from);
+    if let Some(ref staging) = session_dir {
+        if staging.is_dir() {
+            println!("Session specs (staging dir):");
+            let session_specs = scan_session_dir(staging, tool_dirs);
+            if session_specs.is_empty() {
+                println!("  (none loaded)");
+            } else {
+                for (id, spec_type) in &session_specs {
+                    let type_label = format!("{:<6}", spec_type);
+                    let marker = drift.state_of(id).marker();
+                    println!("  ✓ {type_label}  {marker} {id}");
+                }
+            }
+            println!();
         }
     }
 
