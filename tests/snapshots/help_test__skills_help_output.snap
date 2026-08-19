@@ -2,7 +2,7 @@
 source: tests/help_test.rs
 expression: "String::from_utf8_lossy(&output.stdout).to_string()"
 ---
-Skills management (defaults to `status` when no subcommand is given)
+Skills management (defaults to `list` when no subcommand is given)
 
 Usage: akm skills [COMMAND]
 

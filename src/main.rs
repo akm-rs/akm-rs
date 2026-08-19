@@ -88,7 +88,7 @@ enum Commands {
     /// process embeds the old template, so it cannot refresh the script itself.
     #[command(hide = true, name = "shell-install")]
     ShellInstall,
-    /// Skills management (defaults to `status` when no subcommand is given)
+    /// Skills management (defaults to `list` when no subcommand is given)
     Skills {
         #[command(subcommand)]
         command: Option<SkillsCommands>,
@@ -575,8 +575,10 @@ fn main() -> ExitCode {
                     project_root,
                 }) => commands::skills::session_setup::run(&paths, &staging_dir, &project_root),
                 None => {
-                    // Default: `akm skills` with no subcommand → show status
-                    commands::skills::status::run(&paths, &tool_dirs, false)
+                    // Default: `akm skills` with no subcommand → browse the
+                    // library. The bare noun reads as `akm skills list`; the
+                    // richer status dashboard is an explicit `akm skills status`.
+                    commands::skills::list::run(&paths, None, None, false, &tool_dirs)
                 }
             }
         }
