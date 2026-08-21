@@ -322,7 +322,9 @@ With no subcommand on a terminal, `akm artifacts` opens a two-pane explorer:
 a lazily-expanding tree on the left, a live plain-text preview on the right.
 `Enter` on a file opens it in `$EDITOR` and returns; dirs expand with `→`/`Enter`
 and collapse with `←`. `y` copies the selected entry's absolute path to the
-clipboard (via OSC 52) so you can paste it straight into an agent. Non-interactive
+clipboard — via a platform tool when one is present (`clip.exe` on WSL,
+`pbcopy`/`wl-copy`/`xclip`), falling back to OSC 52 over bare SSH — so you can
+paste it straight into an agent. Non-interactive
 or `--plain` prints the box-drawing tree instead — dirs first, newest
 date-prefixed file on top, `.git` hidden.
 

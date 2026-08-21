@@ -155,21 +155,93 @@ pub fn edit_file_in_terminal(terminal: &mut Term, path: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Copy `text` to the terminal's clipboard via the OSC 52 escape sequence.
+/// Copy `text` to the system clipboard.
 ///
-/// OSC 52 is the one dependency-free way to reach the system clipboard: no
-/// `pbcopy`/`xclip`/`wl-copy` shell-out (a runtime dependency AKM does not
-/// take) and no clipboard crate. It rides the same stdout the TUI already
-/// owns and works over SSH.
+/// Two mechanisms, tried in order, because no single one covers the field:
 ///
-/// The catch is that support is the terminal's to give: most modern emulators
-/// honour it (some need it enabled — e.g. tmux's `set-clipboard on`), and the
-/// rest silently drop the sequence. There is no reply to confirm receipt, so
-/// callers should also surface the copied text (the artifacts explorer prints
-/// it to the status line) as a mouse-selectable fallback.
+/// 1. **A platform clipboard tool**, if one is on `PATH`: `clip.exe` (WSL →
+///    the Windows clipboard), `pbcopy` (macOS), `wl-copy` (Wayland), `xclip`
+///    /`xsel` (X11). This lands in the real OS clipboard regardless of any
+///    terminal or tmux quirk, so a Windows-Terminal paste or Notepad `Ctrl+V`
+///    just works. These are optional soft dependencies — absent, we fall
+///    through, so the release artifact stays a single self-contained binary.
+/// 2. **The OSC 52 escape sequence**, for the tool-less case (typically SSH
+///    into a bare box). It rides the stdout the TUI already owns. Support is
+///    the terminal's to give — most modern emulators honour it, the rest drop
+///    it silently. Inside tmux the sequence is DCS-wrapped for passthrough
+///    (needs `allow-passthrough on`); note that `set-clipboard external`
+///    (tmux's default) otherwise diverts OSC 52 into tmux's own buffer and
+///    never forwards it to the host clipboard, which is why the tool path is
+///    preferred on the common WSL+tmux stack.
+///
+/// OSC 52 gives no receipt, so callers should also surface the copied text
+/// (the artifacts explorer prints it to the status line) as a mouse-selectable
+/// last resort.
 pub fn copy_to_clipboard(text: &str) -> Result<()> {
-    // ESC ] 52 ; c ; <base64> BEL — `c` selects the clipboard buffer.
-    let seq = format!("\x1b]52;c;{}\x07", base64_encode(text.as_bytes()));
+    if copy_via_tool(text) {
+        return Ok(());
+    }
+    copy_via_osc52(text)
+}
+
+/// Clipboard tools to try, in preference order for the current platform.
+///
+/// Each entry is spawned in turn; one missing from `PATH` fails to spawn and we
+/// move on. `clip.exe` is listed even off Windows because it is the WSL path to
+/// the *Windows* clipboard — the one a native Windows app reads.
+fn clipboard_commands() -> Vec<(&'static str, &'static [&'static str])> {
+    let mut cmds: Vec<(&'static str, &'static [&'static str])> = Vec::new();
+    if cfg!(target_os = "macos") {
+        cmds.push(("pbcopy", &[]));
+    }
+    // WSL: reaches the Windows clipboard that Windows Terminal / Notepad read.
+    cmds.push(("clip.exe", &[]));
+    if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        cmds.push(("wl-copy", &[]));
+    }
+    cmds.push(("xclip", &["-selection", "clipboard"]));
+    cmds.push(("xsel", &["--clipboard", "--input"]));
+    cmds
+}
+
+/// Try each candidate tool until one accepts the text. Returns whether a tool
+/// succeeded; on `false` the caller falls back to OSC 52.
+fn copy_via_tool(text: &str) -> bool {
+    clipboard_commands()
+        .into_iter()
+        .any(|(cmd, args)| run_clipboard_tool(cmd, args, text))
+}
+
+/// Spawn one clipboard tool, feed `text` on stdin, and report success.
+///
+/// A spawn error (tool not installed) or a non-zero exit both count as failure
+/// so the next candidate is tried.
+fn run_clipboard_tool(cmd: &str, args: &[&str], text: &str) -> bool {
+    use std::process::Stdio;
+    let mut child = match Command::new(cmd)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(_) => return false,
+    };
+    // Write then drop stdin so the tool sees EOF before we wait on it.
+    if let Some(mut stdin) = child.stdin.take() {
+        if stdin.write_all(text.as_bytes()).is_err() {
+            let _ = child.wait();
+            return false;
+        }
+    }
+    matches!(child.wait(), Ok(status) if status.success())
+}
+
+/// Write the OSC 52 sequence for `text` to stdout, DCS-wrapping it for tmux
+/// passthrough when running under tmux.
+fn copy_via_osc52(text: &str) -> Result<()> {
+    let seq = osc52_sequence(text, std::env::var_os("TMUX").is_some());
     let mut stdout = io::stdout();
     stdout.write_all(seq.as_bytes()).map_err(|e| Error::Tui {
         message: format!("Failed to write to clipboard: {e}"),
@@ -178,6 +250,21 @@ pub fn copy_to_clipboard(text: &str) -> Result<()> {
         message: format!("Failed to flush clipboard write: {e}"),
     })?;
     Ok(())
+}
+
+/// Build the OSC 52 clipboard-set sequence for `text`.
+///
+/// Bare form is `ESC ] 52 ; c ; <base64> BEL` (`c` = the clipboard buffer).
+/// Under tmux it is wrapped in a DCS passthrough — `ESC P tmux ; <payload> ESC
+/// \` with every inner `ESC` doubled — so tmux forwards it to the host terminal
+/// instead of consuming it (requires `allow-passthrough on`).
+fn osc52_sequence(text: &str, in_tmux: bool) -> String {
+    let osc = format!("\x1b]52;c;{}\x07", base64_encode(text.as_bytes()));
+    if in_tmux {
+        format!("\x1bPtmux;{}\x1b\\", osc.replace('\x1b', "\x1b\x1b"))
+    } else {
+        osc
+    }
 }
 
 /// Standard base64 (RFC 4648) encoder, `=`-padded.
@@ -210,7 +297,22 @@ fn base64_encode(input: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::base64_encode;
+    use super::{base64_encode, osc52_sequence};
+
+    #[test]
+    fn osc52_bare_outside_tmux() {
+        // ESC ] 52 ; c ; <base64> BEL, nothing wrapped.
+        assert_eq!(osc52_sequence("foo", false), "\x1b]52;c;Zm9v\x07");
+    }
+
+    #[test]
+    fn osc52_dcs_wrapped_inside_tmux() {
+        // DCS passthrough: ESC P tmux ; <payload, inner ESC doubled> ESC \
+        assert_eq!(
+            osc52_sequence("foo", true),
+            "\x1bPtmux;\x1b\x1b]52;c;Zm9v\x07\x1b\\"
+        );
+    }
 
     #[test]
     fn base64_matches_known_vectors() {
