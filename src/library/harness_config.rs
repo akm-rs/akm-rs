@@ -128,6 +128,28 @@ pub fn builtin_for(command: &str) -> Option<HarnessConfigDef> {
         .find(|d| d.command == command)
 }
 
+/// Heuristic: does this file content look like it carries a secret?
+///
+/// Deliberately simple — a warning backstop, not a scanner. False positives are
+/// acceptable (the user confirms); the hard `exclude` list is the real guard.
+pub fn looks_like_secret(content: &str) -> bool {
+    const MARKERS: &[&str] = &[
+        "-----BEGIN",
+        "PRIVATE KEY",
+        "sk-",
+        "ghp_",
+        "gho_",
+        "github_pat_",
+        "xoxb-",
+        "xoxp-",
+        "AKIA",
+        "\"access_token\"",
+        "\"refresh_token\"",
+        "\"api_key\"",
+    ];
+    MARKERS.iter().any(|m| content.contains(m))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,5 +186,13 @@ mod tests {
         assert!(pi.classify("sessions/2026/x.json") == FileClass::Excluded);
         assert!(pi.classify("theme.json") == FileClass::Allowed);
         assert!(pi.classify("random-note.md") == FileClass::Unrecognized);
+    }
+
+    #[test]
+    fn secret_scan_flags_obvious_credentials() {
+        assert!(looks_like_secret("-----BEGIN OPENSSH PRIVATE KEY-----\nabc"));
+        assert!(looks_like_secret("token = \"ghp_0123456789abcdefABCDEF0123456789abcd\""));
+        assert!(looks_like_secret("key: sk-ant-api03-XXXXXXXXXXXXXXXXXXXX"));
+        assert!(!looks_like_secret("{ \"theme\": \"gold\", \"fontSize\": 14 }"));
     }
 }
