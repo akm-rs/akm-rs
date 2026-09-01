@@ -14,6 +14,7 @@ Commands:
   skills        Skills management (defaults to `list` when no subcommand is given)
   artifacts     Browse artifacts, or sync (defaults to the explorer with no subcommand)
   instructions  Global instruction management
+  harness       Sync harness configs (themes, settings) across machines
   completions   Generate shell completion script
   disable       Turn off shell integration so harnesses run vanilla (reversible)
   enable        Re-enable shell integration after `akm disable`

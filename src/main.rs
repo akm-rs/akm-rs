@@ -106,6 +106,15 @@ enum Commands {
         #[command(subcommand)]
         command: InstructionsCommands,
     },
+    /// Sync harness configs (themes, settings) across machines
+    ///
+    /// Captures curated, allowlisted files from a harness's config directory
+    /// into your personal registry and applies them on your other machines.
+    /// Secrets and session state are never captured.
+    Harness {
+        #[command(subcommand)]
+        command: HarnessCommands,
+    },
     /// Generate shell completion script
     ///
     /// Outputs a completion registration script for the specified shell.
@@ -351,6 +360,26 @@ enum InstructionsCommands {
     Edit,
     /// Publish global instructions to personal registry
     Publish,
+}
+
+/// Harness config-sync subcommands.
+#[derive(Subcommand, Debug)]
+enum HarnessCommands {
+    /// Capture live harness config into the personal registry
+    Push {
+        /// Limit to one harness (pi, claude, opencode); default: all
+        harness: Option<String>,
+    },
+    /// Apply registry harness config to this machine
+    Pull {
+        /// Limit to one harness (pi, claude, opencode); default: all
+        harness: Option<String>,
+        /// Overwrite local config even if it has unpushed changes
+        #[arg(long)]
+        force: bool,
+    },
+    /// Show per-harness config drift vs the registry
+    Status,
 }
 
 fn main() -> ExitCode {
@@ -601,6 +630,20 @@ fn main() -> ExitCode {
             InstructionsCommands::Publish => {
                 let config = akm::config::Config::load(&paths).unwrap_or_default();
                 commands::instructions::publish::run(&paths, &config)
+            }
+        },
+        Some(Commands::Harness { command }) => match command {
+            HarnessCommands::Push { harness } => {
+                let config = akm::config::Config::load(&paths).unwrap_or_default();
+                commands::harness::push::run(&paths, &config, harness.as_deref())
+            }
+            HarnessCommands::Pull { harness, force } => {
+                let config = akm::config::Config::load(&paths).unwrap_or_default();
+                commands::harness::pull::run(&paths, &config, harness.as_deref(), force)
+            }
+            HarnessCommands::Status => {
+                let config = akm::config::Config::load(&paths).unwrap_or_default();
+                commands::harness::status::run(&paths, &config)
             }
         },
         Some(Commands::Completions { shell }) => commands::completions::run(&shell),
