@@ -282,6 +282,69 @@ pub fn apply_files(tree: &Path, live: &Path) -> Result<Vec<String>> {
     Ok(done)
 }
 
+/// A preview of what [`capture_files`] would change in the registry tree,
+/// relative to what the tree already holds. Paths are relative, sorted.
+#[derive(Debug, Clone, Default)]
+pub struct CapturePlan {
+    /// Not yet in the tree — would be added.
+    pub new: Vec<String>,
+    /// In the tree but with different content — would be overwritten.
+    pub changed: Vec<String>,
+    /// Already match the tree — capture is a no-op for these.
+    pub unchanged: Vec<String>,
+    /// In the tree, no longer wanted — deletion would propagate.
+    pub removed: Vec<String>,
+}
+
+impl CapturePlan {
+    /// Whether a push would change the registry at all. `unchanged` does not
+    /// count — a plan of only unchanged files is nothing to push.
+    pub fn is_empty(&self) -> bool {
+        self.new.is_empty() && self.changed.is_empty() && self.removed.is_empty()
+    }
+}
+
+/// Compare what [`capture_files`]`(live, tree, include)` would write against
+/// what `tree` already holds, without touching either. Pure filesystem, so it
+/// backs `push --dry-run` and the pre-flight header of a real push.
+pub fn plan_capture(live: &Path, tree: &Path, include: &[String]) -> Result<CapturePlan> {
+    let wanted: std::collections::BTreeSet<&String> = include.iter().collect();
+    let mut plan = CapturePlan::default();
+
+    for rel in include {
+        let src = live.join(rel);
+        if !src.is_file() {
+            continue; // capture skips missing sources too
+        }
+        let dst = tree.join(rel);
+        if !dst.is_file() {
+            plan.new.push(rel.clone());
+            continue;
+        }
+        let incoming = std::fs::read(&src).io_context(format!("Reading {}", src.display()))?;
+        let existing = std::fs::read(&dst).io_context(format!("Reading {}", dst.display()))?;
+        if incoming == existing {
+            plan.unchanged.push(rel.clone());
+        } else {
+            plan.changed.push(rel.clone());
+        }
+    }
+
+    if tree.is_dir() {
+        for rel in walk_rel(tree)? {
+            if !wanted.contains(&rel) {
+                plan.removed.push(rel);
+            }
+        }
+    }
+
+    plan.new.sort();
+    plan.changed.sort();
+    plan.unchanged.sort();
+    plan.removed.sort();
+    Ok(plan)
+}
+
 /// Remove now-empty directories under `root` (but keep `root` itself).
 fn prune_empty_dirs(root: &Path) -> Result<()> {
     let mut dirs: Vec<PathBuf> = Vec::new();
@@ -427,5 +490,48 @@ mod tests {
         capture_files(&live, &tree, &["theme.json".to_string()]).unwrap();
         assert!(!tree.join("stale.json").exists()); // removed to mirror live
         assert!(tree.join("theme.json").exists());
+    }
+
+    #[test]
+    fn plan_capture_classifies_against_the_tree() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let live = tmp.path().join("live");
+        let tree = tmp.path().join("tree");
+        std::fs::create_dir_all(&live).unwrap();
+        std::fs::create_dir_all(&tree).unwrap();
+        std::fs::write(live.join("theme.json"), "new").unwrap(); // changed
+        std::fs::write(live.join("settings.json"), "same").unwrap(); // unchanged
+        std::fs::write(live.join("prompts.md"), "brand").unwrap(); // new
+        std::fs::write(tree.join("theme.json"), "old").unwrap();
+        std::fs::write(tree.join("settings.json"), "same").unwrap();
+        std::fs::write(tree.join("gone.json"), "x").unwrap(); // removed
+
+        let include = vec![
+            "theme.json".to_string(),
+            "settings.json".to_string(),
+            "prompts.md".to_string(),
+        ];
+        let plan = plan_capture(&live, &tree, &include).unwrap();
+
+        assert_eq!(plan.new, vec!["prompts.md".to_string()]);
+        assert_eq!(plan.changed, vec!["theme.json".to_string()]);
+        assert_eq!(plan.unchanged, vec!["settings.json".to_string()]);
+        assert_eq!(plan.removed, vec!["gone.json".to_string()]);
+        assert!(!plan.is_empty());
+    }
+
+    #[test]
+    fn plan_capture_is_empty_when_only_unchanged() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let live = tmp.path().join("live");
+        let tree = tmp.path().join("tree");
+        std::fs::create_dir_all(&live).unwrap();
+        std::fs::create_dir_all(&tree).unwrap();
+        std::fs::write(live.join("theme.json"), "gold").unwrap();
+        std::fs::write(tree.join("theme.json"), "gold").unwrap();
+
+        let plan = plan_capture(&live, &tree, &["theme.json".to_string()]).unwrap();
+        assert!(plan.is_empty()); // unchanged does not count as a change
+        assert_eq!(plan.unchanged, vec!["theme.json".to_string()]);
     }
 }
