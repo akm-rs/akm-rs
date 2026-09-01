@@ -86,6 +86,10 @@ pub struct Config {
     /// Update configuration (new in Rust version).
     #[serde(default)]
     pub update: UpdateConfig,
+
+    /// Per-harness config-sync opt-ins, keyed by command ("pi", "claude", ...).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub harness: BTreeMap<String, HarnessSettings>,
 }
 
 /// Personal registry configuration.
@@ -137,6 +141,14 @@ impl Default for ArtifactsConfig {
             auto_push: true,
         }
     }
+}
+
+/// Per-harness user opt-ins for config sync, keyed by CLI command.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HarnessSettings {
+    /// Extra allow patterns the user opted in via `akm harness push`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allow: Vec<String>,
 }
 
 /// Update-specific configuration.
@@ -197,6 +209,7 @@ impl Default for Config {
             skills: SkillsConfig::default(),
             artifacts: ArtifactsConfig::default(),
             update: UpdateConfig::default(),
+            harness: BTreeMap::new(),
         }
     }
 }
@@ -248,6 +261,7 @@ impl Config {
                 "skills",
                 "artifacts",
                 "update",
+                "harness",
             ];
             let known_registry: &[&str] = &["url"];
             // `community_registry` is obsolete but still tolerated silently so
@@ -376,6 +390,15 @@ impl Config {
                             ),
                         }
                     }
+                    if let Some(harness) = table.get("harness") {
+                        match harness.clone().try_into::<BTreeMap<String, HarnessSettings>>() {
+                            Ok(h) => config.harness = h,
+                            Err(e) => eprintln!(
+                                "Warning: invalid [harness] config in {}, ignoring it: {e}",
+                                config_file.display()
+                            ),
+                        }
+                    }
                 }
                 migrate_update_url(&mut config);
                 Ok(config)
@@ -453,6 +476,14 @@ impl Config {
             .map(String::as_str)
             .collect::<Vec<_>>()
             .join(", ")
+    }
+
+    /// The user's opt-in allow patterns for a harness command (empty if none).
+    pub fn harness_allow(&self, command: &str) -> Vec<String> {
+        self.harness
+            .get(command)
+            .map(|h| h.allow.clone())
+            .unwrap_or_default()
     }
 }
 
@@ -989,6 +1020,29 @@ auto_check = true
             !content.contains("api.github.com"),
             "Default update URL should not be serialized to config"
         );
+    }
+
+    #[test]
+    fn config_roundtrips_harness_allow() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let paths = crate::paths::Paths::from_roots(
+            &tmp.path().join("data"),
+            &tmp.path().join("config"),
+            &tmp.path().join("cache"),
+            tmp.path(),
+        );
+        let mut config = Config::default();
+        config
+            .harness
+            .entry("pi".into())
+            .or_default()
+            .allow
+            .push("gold.json".into());
+        config.save(&paths).unwrap();
+
+        let loaded = Config::load(&paths).unwrap();
+        assert_eq!(loaded.harness_allow("pi"), vec!["gold.json".to_string()]);
+        assert!(loaded.harness_allow("claude").is_empty());
     }
 
     #[test]
