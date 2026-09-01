@@ -51,6 +51,29 @@ no-runtime-dependencies rule.
 tree must use `ToolDef::staging_dir()` / `ToolDirs::staging_names()` rather than
 the last component of `ToolDirs::dirs()`.
 
+## Config sync (`akm harness`)
+
+`akm harness push|pull` syncs a harness's **config** files (not skills) across
+machines. They ride the personal registry under a `harnesses/<command>/` tree —
+the same clone, `DriftReport` and ours-wins publish flow as skills, with a
+`harnesses` category on `DriftReport` collapsing all of one harness's files to a
+single drift entry. It is pure filesystem plus `Registry`: `src/library/
+harness_config.rs` captures/applies files, and `src/commands/harness/` hands the
+`harnesses/<command>` pathspec to `Registry` — it never runs `Git` directly.
+
+Which files travel is decided by `builtin_harness_configs()` in
+`src/library/harness_config.rs`: a per-harness `allow` list (curated shareable
+files) and an `exclude` list (secrets/state that always win over `allow` — e.g.
+Pi's `auth.json`, `models-store.json`, `sessions/`). These live **in code**, not
+an on-disk data file, so the secret boundary can't be casually weakened; users
+extend only the `allow` side via `[harness.<command>]` in config. A
+`looks_like_secret` content scan warns-and-skips as a backstop for opted-in
+files.
+
+This is deliberately **not** wired into `akm-init.sh` or session setup — it is
+explicit `push`/`pull`, with no session coupling. Adding a harness is one
+`HarnessConfigDef` entry; no mechanism changes.
+
 ## Pi
 
 Pi CLI surface as of `0.82.1` (`@earendil-works/pi-coding-agent`); docs at

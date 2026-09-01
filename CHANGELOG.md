@@ -1,3 +1,17 @@
+# Unreleased
+
+- Add `akm harness push|pull|status` — sync harness **config** (Pi's theme,
+  Claude Code's `settings.json`, OpenCode's config) across machines through the
+  personal registry, under a new `harnesses/` tree, riding the same clone,
+  drift and ours-wins publish flow as skills and instructions. Capture is
+  allowlist-driven: only curated files travel, secrets and session state
+  (`auth.json`, `.credentials.json`, session dirs, logs) are on a hard exclude
+  list that always wins, and a content scan warns and skips anything that still
+  looks like a credential. On a terminal, `push` offers to opt in unrecognized
+  files, remembered per harness in `[harness.<command>]`. `pull` only adds or
+  overwrites (never deletes machine-local files) and refuses to clobber unpushed
+  local edits without `--force`. Explicit push/pull only — no session coupling.
+
 # 1.0.0
 
 First stable release.

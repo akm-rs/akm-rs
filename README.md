@@ -346,6 +346,33 @@ name: `~/.claude/CLAUDE.md`, `~/.copilot/copilot-instructions.md`,
 A pre-rc4 `~/.akm/global-instructions.md` is carried into the registry the first
 time the new file is needed; the old file is left where it is.
 
+### Harness config
+
+```bash
+akm harness status               # per-harness config drift vs the registry
+akm harness push                 # capture this machine's config into the registry
+akm harness pull                 # apply the registry's config to this machine
+akm harness push pi              # limit to one harness (pi, claude, opencode)
+akm harness pull pi --force      # overwrite local config that has unpushed edits
+```
+
+Beyond skills and instructions, `akm harness` syncs a curated set of harness
+**config** files — Pi's theme, Claude Code's `settings.json`, OpenCode's config —
+across your machines, riding the same personal registry (under `harnesses/`) and
+the same ours-wins reconciliation. It is explicit: nothing is captured or applied
+without a `push`/`pull`.
+
+Only allowlisted files travel. Secrets and machine-local state — `auth.json`,
+`.credentials.json`, session directories, logs — are on a hard exclude list that
+always wins and are **never** captured, and a content scan warns and skips any
+remaining file that looks like it holds a credential. On a terminal, `push`
+offers to opt in any unrecognized file; the choice is remembered per harness in
+`[harness.<command>]` in your config. `pull` only ever adds or overwrites — it
+never deletes a machine-local file — and refuses to clobber local edits you have
+not pushed unless you pass `--force`.
+
+Supported harnesses: **Pi**, **Claude Code**, **OpenCode**.
+
 ### Configuration
 
 ```bash
