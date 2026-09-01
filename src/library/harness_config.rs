@@ -209,6 +209,89 @@ pub fn classify_dir(
     Ok(scan)
 }
 
+/// Copy the given relative paths from `live` into the registry `tree`, and
+/// remove any file already in `tree` that is not in `include` (so deletions
+/// travel). Returns the sorted list of paths now present in the tree.
+pub fn capture_files(live: &Path, tree: &Path, include: &[String]) -> Result<Vec<String>> {
+    let wanted: std::collections::BTreeSet<&String> = include.iter().collect();
+
+    // 1. Remove tree files no longer wanted.
+    if tree.is_dir() {
+        for rel in walk_rel(tree)? {
+            if !wanted.contains(&rel) {
+                let path = tree.join(&rel);
+                std::fs::remove_file(&path)
+                    .io_context(format!("Removing {}", path.display()))?;
+            }
+        }
+        prune_empty_dirs(tree)?;
+    }
+
+    // 2. Copy wanted files in.
+    let mut done = Vec::new();
+    for rel in include {
+        let src = live.join(rel);
+        if !src.is_file() {
+            continue;
+        }
+        let dst = tree.join(rel);
+        if let Some(parent) = dst.parent() {
+            std::fs::create_dir_all(parent)
+                .io_context(format!("Creating {}", parent.display()))?;
+        }
+        std::fs::copy(&src, &dst)
+            .io_context(format!("Copying {} -> {}", src.display(), dst.display()))?;
+        done.push(rel.clone());
+    }
+    done.sort();
+    Ok(done)
+}
+
+/// Copy every file in `tree` over the live dir (add/overwrite only). Never
+/// deletes live files. Returns the sorted list applied.
+pub fn apply_files(tree: &Path, live: &Path) -> Result<Vec<String>> {
+    if !tree.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut done = Vec::new();
+    for rel in walk_rel(tree)? {
+        let src = tree.join(&rel);
+        let dst = live.join(&rel);
+        if let Some(parent) = dst.parent() {
+            std::fs::create_dir_all(parent)
+                .io_context(format!("Creating {}", parent.display()))?;
+        }
+        std::fs::copy(&src, &dst)
+            .io_context(format!("Copying {} -> {}", src.display(), dst.display()))?;
+        done.push(rel);
+    }
+    done.sort();
+    Ok(done)
+}
+
+/// Remove now-empty directories under `root` (but keep `root` itself).
+fn prune_empty_dirs(root: &Path) -> Result<()> {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(cur) = stack.pop() {
+        for entry in std::fs::read_dir(&cur).io_context(format!("Reading {}", cur.display()))? {
+            let entry = entry.io_context(format!("Reading entry in {}", cur.display()))?;
+            if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                let p = entry.path();
+                dirs.push(p.clone());
+                stack.push(p);
+            }
+        }
+    }
+    // Deepest first.
+    dirs.sort_by_key(|p| std::cmp::Reverse(p.components().count()));
+    for d in dirs {
+        // Ignore "directory not empty"; only prune the ones that are empty.
+        let _ = std::fs::remove_dir(&d);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -272,5 +355,46 @@ mod tests {
         assert_eq!(scan.unrecognized, vec!["notes.md".to_string()]);
         // auth.json and sessions/ are excluded and not surfaced
         assert!(!scan.excluded.is_empty());
+    }
+
+    #[test]
+    fn capture_then_apply_round_trips() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let live = tmp.path().join("live");
+        let tree = tmp.path().join("registry/harnesses/pi");
+        std::fs::create_dir_all(&live).unwrap();
+        std::fs::write(live.join("theme.json"), "gold").unwrap();
+        std::fs::write(live.join("auth.json"), "SECRET").unwrap();
+
+        // capture: only theme.json lands in the tree; auth.json never does
+        let captured = capture_files(&live, &tree, &["theme.json".to_string()]).unwrap();
+        assert_eq!(captured, vec!["theme.json".to_string()]);
+        assert_eq!(std::fs::read_to_string(tree.join("theme.json")).unwrap(), "gold");
+        assert!(!tree.join("auth.json").exists());
+
+        // apply into a fresh live dir
+        let live2 = tmp.path().join("live2");
+        std::fs::create_dir_all(&live2).unwrap();
+        std::fs::write(live2.join("machine-local.json"), "keep me").unwrap();
+        let applied = apply_files(&tree, &live2).unwrap();
+        assert_eq!(applied, vec!["theme.json".to_string()]);
+        assert_eq!(std::fs::read_to_string(live2.join("theme.json")).unwrap(), "gold");
+        // apply never deletes machine-local files
+        assert!(live2.join("machine-local.json").exists());
+    }
+
+    #[test]
+    fn capture_propagates_deletions() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let live = tmp.path().join("live");
+        let tree = tmp.path().join("tree");
+        std::fs::create_dir_all(&live).unwrap();
+        std::fs::create_dir_all(&tree).unwrap();
+        std::fs::write(tree.join("stale.json"), "old").unwrap(); // in tree, not live
+        std::fs::write(live.join("theme.json"), "new").unwrap();
+
+        capture_files(&live, &tree, &["theme.json".to_string()]).unwrap();
+        assert!(!tree.join("stale.json").exists()); // removed to mirror live
+        assert!(tree.join("theme.json").exists());
     }
 }
