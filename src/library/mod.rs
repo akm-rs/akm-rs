@@ -6,6 +6,7 @@
 
 pub mod drift;
 pub mod frontmatter;
+pub mod harness_config;
 pub mod libgen;
 pub mod local;
 pub mod manifest;
