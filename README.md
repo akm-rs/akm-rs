@@ -350,9 +350,11 @@ time the new file is needed; the old file is left where it is.
 
 ```bash
 akm harness status               # per-harness config drift vs the registry
+akm harness push --dry-run       # preview what a push would capture — changes nothing
 akm harness push                 # capture this machine's config into the registry
 akm harness pull                 # apply the registry's config to this machine
 akm harness push pi              # limit to one harness (pi, claude, opencode)
+akm harness push pi -n -v        # detailed preview: every file, per bucket
 akm harness pull pi --force      # overwrite local config that has unpushed edits
 ```
 
@@ -370,6 +372,20 @@ offers to opt in any unrecognized file; the choice is remembered per harness in
 `[harness.<command>]` in your config. `pull` only ever adds or overwrites — it
 never deletes a machine-local file — and refuses to clobber local edits you have
 not pushed unless you pass `--force`.
+
+`push --dry-run` (`-n`) previews the plan and stops without changing anything; a
+real `push` prints the same plan first, then acts. The plan shows, per harness,
+what would change **against the registry** — `+` new, `~` changed, `-` removed
+(a file deleted locally stops being synced) — with unchanged files, the excluded
+secrets, and unrecognized opt-in candidates summarised. `-v` lists every file by
+name instead of the compact summary. Example:
+
+```text
+pi  ~/.pi/agent → registry (harnesses/pi)   [clean push]
+  ~ theme.json   + prompts/review.md   - config.json
+  4 unchanged · 3 excluded (auth.json, sessions/, +1) · 2 unrecognized
+  ⚠ prompts/review.md looks like a secret — would be skipped
+```
 
 Supported harnesses: **Pi**, **Claude Code**, **OpenCode**.
 

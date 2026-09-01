@@ -11,6 +11,10 @@
   files, remembered per harness in `[harness.<command>]`. `pull` only adds or
   overwrites (never deletes machine-local files) and refuses to clobber unpushed
   local edits without `--force`. Explicit push/pull only — no session coupling.
+  `push --dry-run` (`-n`) previews the capture plan — `+` new, `~` changed, `-`
+  removed against the registry, plus excluded secrets and unrecognized opt-in
+  candidates — and changes nothing; a real push prints the same plan first.
+  `-v` expands it to a per-file listing.
 
 # 1.0.0
 
