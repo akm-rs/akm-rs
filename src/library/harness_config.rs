@@ -102,7 +102,13 @@ pub fn builtin_harness_configs() -> Vec<HarnessConfigDef> {
     vec![
         HarnessConfigDef {
             command: "pi".into(),
-            allow: pats(&["theme.json", "settings.json", "config.json", "prompts/", "APPEND_SYSTEM.md"]),
+            allow: pats(&[
+                "theme.json",
+                "settings.json",
+                "config.json",
+                "prompts/",
+                "APPEND_SYSTEM.md",
+            ]),
             exclude: pats(&["auth.json", "sessions/", "models-store.json", "*.log"]),
         },
         HarnessConfigDef {
@@ -110,7 +116,12 @@ pub fn builtin_harness_configs() -> Vec<HarnessConfigDef> {
             // Only settings.json for v1 — the safe, well-understood file.
             allow: pats(&["settings.json"]),
             exclude: pats(&[
-                ".credentials.json", "projects/", "todos/", "statsig/", "history.jsonl", "*.log",
+                ".credentials.json",
+                "projects/",
+                "todos/",
+                "statsig/",
+                "history.jsonl",
+                "*.log",
             ]),
         },
         HarnessConfigDef {
@@ -164,8 +175,7 @@ fn walk_rel(dir: &Path) -> Result<Vec<String>> {
     let mut out = Vec::new();
     let mut stack = vec![dir.to_path_buf()];
     while let Some(cur) = stack.pop() {
-        let entries =
-            std::fs::read_dir(&cur).io_context(format!("Reading {}", cur.display()))?;
+        let entries = std::fs::read_dir(&cur).io_context(format!("Reading {}", cur.display()))?;
         for entry in entries {
             let entry = entry.io_context(format!("Reading entry in {}", cur.display()))?;
             let path = entry.path();
@@ -220,8 +230,7 @@ pub fn capture_files(live: &Path, tree: &Path, include: &[String]) -> Result<Vec
         for rel in walk_rel(tree)? {
             if !wanted.contains(&rel) {
                 let path = tree.join(&rel);
-                std::fs::remove_file(&path)
-                    .io_context(format!("Removing {}", path.display()))?;
+                std::fs::remove_file(&path).io_context(format!("Removing {}", path.display()))?;
             }
         }
         prune_empty_dirs(tree)?;
@@ -236,11 +245,13 @@ pub fn capture_files(live: &Path, tree: &Path, include: &[String]) -> Result<Vec
         }
         let dst = tree.join(rel);
         if let Some(parent) = dst.parent() {
-            std::fs::create_dir_all(parent)
-                .io_context(format!("Creating {}", parent.display()))?;
+            std::fs::create_dir_all(parent).io_context(format!("Creating {}", parent.display()))?;
         }
-        std::fs::copy(&src, &dst)
-            .io_context(format!("Copying {} -> {}", src.display(), dst.display()))?;
+        std::fs::copy(&src, &dst).io_context(format!(
+            "Copying {} -> {}",
+            src.display(),
+            dst.display()
+        ))?;
         done.push(rel.clone());
     }
     done.sort();
@@ -258,11 +269,13 @@ pub fn apply_files(tree: &Path, live: &Path) -> Result<Vec<String>> {
         let src = tree.join(&rel);
         let dst = live.join(&rel);
         if let Some(parent) = dst.parent() {
-            std::fs::create_dir_all(parent)
-                .io_context(format!("Creating {}", parent.display()))?;
+            std::fs::create_dir_all(parent).io_context(format!("Creating {}", parent.display()))?;
         }
-        std::fs::copy(&src, &dst)
-            .io_context(format!("Copying {} -> {}", src.display(), dst.display()))?;
+        std::fs::copy(&src, &dst).io_context(format!(
+            "Copying {} -> {}",
+            src.display(),
+            dst.display()
+        ))?;
         done.push(rel);
     }
     done.sort();
@@ -298,9 +311,15 @@ mod tests {
 
     #[test]
     fn pattern_parse_and_match() {
-        assert_eq!(Pattern::parse("prompts/"), Pattern::Prefix("prompts/".into()));
+        assert_eq!(
+            Pattern::parse("prompts/"),
+            Pattern::Prefix("prompts/".into())
+        );
         assert_eq!(Pattern::parse("*.json"), Pattern::Suffix(".json".into()));
-        assert_eq!(Pattern::parse("theme.json"), Pattern::Exact("theme.json".into()));
+        assert_eq!(
+            Pattern::parse("theme.json"),
+            Pattern::Exact("theme.json".into())
+        );
 
         assert!(Pattern::parse("prompts/").matches("prompts/a/b.md"));
         assert!(!Pattern::parse("prompts/").matches("prompt.md"));
@@ -332,10 +351,16 @@ mod tests {
 
     #[test]
     fn secret_scan_flags_obvious_credentials() {
-        assert!(looks_like_secret("-----BEGIN OPENSSH PRIVATE KEY-----\nabc"));
-        assert!(looks_like_secret("token = \"ghp_0123456789abcdefABCDEF0123456789abcd\""));
+        assert!(looks_like_secret(
+            "-----BEGIN OPENSSH PRIVATE KEY-----\nabc"
+        ));
+        assert!(looks_like_secret(
+            "token = \"ghp_0123456789abcdefABCDEF0123456789abcd\""
+        ));
         assert!(looks_like_secret("key: sk-ant-api03-XXXXXXXXXXXXXXXXXXXX"));
-        assert!(!looks_like_secret("{ \"theme\": \"gold\", \"fontSize\": 14 }"));
+        assert!(!looks_like_secret(
+            "{ \"theme\": \"gold\", \"fontSize\": 14 }"
+        ));
     }
 
     #[test]
@@ -369,7 +394,10 @@ mod tests {
         // capture: only theme.json lands in the tree; auth.json never does
         let captured = capture_files(&live, &tree, &["theme.json".to_string()]).unwrap();
         assert_eq!(captured, vec!["theme.json".to_string()]);
-        assert_eq!(std::fs::read_to_string(tree.join("theme.json")).unwrap(), "gold");
+        assert_eq!(
+            std::fs::read_to_string(tree.join("theme.json")).unwrap(),
+            "gold"
+        );
         assert!(!tree.join("auth.json").exists());
 
         // apply into a fresh live dir
@@ -378,7 +406,10 @@ mod tests {
         std::fs::write(live2.join("machine-local.json"), "keep me").unwrap();
         let applied = apply_files(&tree, &live2).unwrap();
         assert_eq!(applied, vec!["theme.json".to_string()]);
-        assert_eq!(std::fs::read_to_string(live2.join("theme.json")).unwrap(), "gold");
+        assert_eq!(
+            std::fs::read_to_string(live2.join("theme.json")).unwrap(),
+            "gold"
+        );
         // apply never deletes machine-local files
         assert!(live2.join("machine-local.json").exists());
     }

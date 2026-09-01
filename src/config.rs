@@ -391,7 +391,10 @@ impl Config {
                         }
                     }
                     if let Some(harness) = table.get("harness") {
-                        match harness.clone().try_into::<BTreeMap<String, HarnessSettings>>() {
+                        match harness
+                            .clone()
+                            .try_into::<BTreeMap<String, HarnessSettings>>()
+                        {
                             Ok(h) => config.harness = h,
                             Err(e) => eprintln!(
                                 "Warning: invalid [harness] config in {}, ignoring it: {e}",

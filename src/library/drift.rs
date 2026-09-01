@@ -232,9 +232,7 @@ impl DriftReport {
 
     /// Whether the whole library — specs, instructions and harness configs — is level.
     pub fn is_clean(&self) -> bool {
-        self.specs.is_empty()
-            && self.instructions == DriftState::Clean
-            && self.harnesses.is_empty()
+        self.specs.is_empty() && self.instructions == DriftState::Clean && self.harnesses.is_empty()
     }
 }
 

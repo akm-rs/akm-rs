@@ -104,8 +104,10 @@ fn push_one(
     }
 
     registry.refresh()?;
-    match registry.publish_worktree(&[pathspec(cmd)], &format!("chore(harness): sync {cmd} config"))?
-    {
+    match registry.publish_worktree(
+        &[pathspec(cmd)],
+        &format!("chore(harness): sync {cmd} config"),
+    )? {
         PublishOutcome::NothingToDo => println!("{cmd}: already up to date with the registry"),
         PublishOutcome::Published => {
             println!("{cmd}: pushed {} file(s) to {url}", captured.len());
