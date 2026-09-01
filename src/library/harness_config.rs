@@ -43,6 +43,91 @@ impl Pattern {
     }
 }
 
+/// How a file under a harness dir is treated by capture.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileClass {
+    /// Matches the allowlist and no exclude — captured.
+    Allowed,
+    /// Matches a secret/state exclude — never captured, never offered.
+    Excluded,
+    /// Matches neither — offered to the user as an opt-in.
+    Unrecognized,
+}
+
+/// Curated sync rules for one harness, keyed by CLI `command`.
+#[derive(Debug, Clone)]
+pub struct HarnessConfigDef {
+    /// CLI command (matches `ToolDef::command`): "pi", "claude", "opencode".
+    pub command: String,
+    /// Shareable file patterns (curated defaults; user opt-ins extend this).
+    pub allow: Vec<Pattern>,
+    /// Secret/state patterns that always win over `allow`.
+    pub exclude: Vec<Pattern>,
+}
+
+impl HarnessConfigDef {
+    /// Classify one relative path. Exclude always wins over allow.
+    pub fn classify(&self, rel: &str) -> FileClass {
+        if self.exclude.iter().any(|p| p.matches(rel)) {
+            FileClass::Excluded
+        } else if self.allow.iter().any(|p| p.matches(rel)) {
+            FileClass::Allowed
+        } else {
+            FileClass::Unrecognized
+        }
+    }
+
+    /// Classify with the user's extra allow patterns folded in (from config).
+    pub fn classify_with(&self, rel: &str, extra_allow: &[Pattern]) -> FileClass {
+        if self.exclude.iter().any(|p| p.matches(rel)) {
+            FileClass::Excluded
+        } else if self.allow.iter().chain(extra_allow).any(|p| p.matches(rel)) {
+            FileClass::Allowed
+        } else {
+            FileClass::Unrecognized
+        }
+    }
+}
+
+fn pats(items: &[&str]) -> Vec<Pattern> {
+    items.iter().map(|s| Pattern::parse(s)).collect()
+}
+
+/// Built-in per-harness sync rules. Order is Pi, Claude, OpenCode.
+///
+/// NOTE: `allow` lists are conservative first cuts; widen them (or let users
+/// opt in) as real configs are seen. `exclude` lists are the secret/state
+/// boundary and must stay strict.
+pub fn builtin_harness_configs() -> Vec<HarnessConfigDef> {
+    vec![
+        HarnessConfigDef {
+            command: "pi".into(),
+            allow: pats(&["theme.json", "settings.json", "config.json", "prompts/", "APPEND_SYSTEM.md"]),
+            exclude: pats(&["auth.json", "sessions/", "models-store.json", "*.log"]),
+        },
+        HarnessConfigDef {
+            command: "claude".into(),
+            // Only settings.json for v1 — the safe, well-understood file.
+            allow: pats(&["settings.json"]),
+            exclude: pats(&[
+                ".credentials.json", "projects/", "todos/", "statsig/", "history.jsonl", "*.log",
+            ]),
+        },
+        HarnessConfigDef {
+            command: "opencode".into(),
+            allow: pats(&["opencode.json", "config.json", "themes/"]),
+            exclude: pats(&["auth.json", "sessions/", "*.log"]),
+        },
+    ]
+}
+
+/// Look up the built-in def for a command.
+pub fn builtin_for(command: &str) -> Option<HarnessConfigDef> {
+    builtin_harness_configs()
+        .into_iter()
+        .find(|d| d.command == command)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -59,5 +144,25 @@ mod tests {
         assert!(!Pattern::parse("*.json").matches("theme.toml"));
         assert!(Pattern::parse("theme.json").matches("theme.json"));
         assert!(!Pattern::parse("theme.json").matches("themes/theme.json"));
+    }
+
+    #[test]
+    fn builtin_covers_pi_claude_opencode() {
+        let defs = builtin_harness_configs();
+        let commands: Vec<&str> = defs.iter().map(|d| d.command.as_str()).collect();
+        assert_eq!(commands, vec!["pi", "claude", "opencode"]);
+    }
+
+    #[test]
+    fn pi_excludes_auth_even_if_it_matched_allow() {
+        let pi = builtin_harness_configs()
+            .into_iter()
+            .find(|d| d.command == "pi")
+            .unwrap();
+        // exclude wins over allow
+        assert!(pi.classify("auth.json") == FileClass::Excluded);
+        assert!(pi.classify("sessions/2026/x.json") == FileClass::Excluded);
+        assert!(pi.classify("theme.json") == FileClass::Allowed);
+        assert!(pi.classify("random-note.md") == FileClass::Unrecognized);
     }
 }
