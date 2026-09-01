@@ -369,6 +369,12 @@ enum HarnessCommands {
     Push {
         /// Limit to one harness (pi, claude, opencode); default: all
         harness: Option<String>,
+        /// Preview what would be captured and stop — changes nothing
+        #[arg(long, short = 'n')]
+        dry_run: bool,
+        /// List every file per bucket instead of a compact summary
+        #[arg(long, short = 'v')]
+        verbose: bool,
     },
     /// Apply registry harness config to this machine
     Pull {
@@ -633,9 +639,13 @@ fn main() -> ExitCode {
             }
         },
         Some(Commands::Harness { command }) => match command {
-            HarnessCommands::Push { harness } => {
+            HarnessCommands::Push {
+                harness,
+                dry_run,
+                verbose,
+            } => {
                 let config = akm::config::Config::load(&paths).unwrap_or_default();
-                commands::harness::push::run(&paths, &config, harness.as_deref())
+                commands::harness::push::run(&paths, &config, harness.as_deref(), dry_run, verbose)
             }
             HarnessCommands::Pull { harness, force } => {
                 let config = akm::config::Config::load(&paths).unwrap_or_default();

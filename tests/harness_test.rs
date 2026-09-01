@@ -135,3 +135,43 @@ fn harness_push_pull_round_trip_excludes_secrets() {
         .success()
         .stdout(predicate::str::contains("pi").and(predicate::str::contains("clean")));
 }
+
+#[test]
+fn harness_push_dry_run_previews_but_changes_nothing() {
+    let tmp = TempDir::new().unwrap();
+    let origin = setup_origin(&tmp);
+
+    let home = tmp.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+    configure(&home, &origin);
+    akm(&home).args(["skills", "sync"]).assert().success();
+
+    let pi = home.join(".pi").join("agent");
+    fs::create_dir_all(&pi).unwrap();
+    fs::write(pi.join("theme.json"), "gold").unwrap();
+    fs::write(pi.join("auth.json"), "SECRET").unwrap();
+
+    // Dry run shows the plan (new theme, not "nothing to push") and does not
+    // touch the registry.
+    akm(&home)
+        .args(["harness", "push", "pi", "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("harnesses/pi"))
+        .stdout(predicate::str::contains("theme.json"))
+        .stdout(predicate::str::contains("nothing to push").not());
+
+    assert!(show_on_origin(&origin, "harnesses/pi/theme.json").is_none());
+
+    // The working tree is untouched too: a real push still sees theme.json as a
+    // fresh change and lands it.
+    akm(&home)
+        .args(["harness", "push", "pi"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("pushed"));
+    assert_eq!(
+        show_on_origin(&origin, "harnesses/pi/theme.json").as_deref(),
+        Some("gold")
+    );
+}
