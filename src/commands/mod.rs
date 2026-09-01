@@ -5,6 +5,7 @@ pub mod completions;
 pub mod config;
 pub mod disable;
 pub mod enable;
+pub mod harness;
 pub mod instructions;
 pub mod setup;
 pub mod skills;
