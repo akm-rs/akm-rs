@@ -75,6 +75,8 @@ impl std::fmt::Display for DriftState {
 enum Owner {
     Spec(String),
     Instructions,
+    /// A synced harness config file, carrying its harness command.
+    Harness(String),
     /// `library.json`, `.gitignore`, anything AKM does not track per-spec.
     Other,
 }
@@ -82,9 +84,17 @@ enum Owner {
 /// Path of the global instructions file within the registry tree.
 pub const INSTRUCTIONS_PATH: &str = "instructions/global.md";
 
+/// Registry sub-path holding synced harness configs.
+pub const HARNESSES_PREFIX: &str = "harnesses/";
+
 fn owner_of(path: &str) -> Owner {
     if path == INSTRUCTIONS_PATH {
         return Owner::Instructions;
+    }
+    if let Some(rest) = path.strip_prefix(HARNESSES_PREFIX) {
+        if let Some((command, _)) = rest.split_once('/') {
+            return Owner::Harness(command.to_string());
+        }
     }
     match SpecType::owner_of(path) {
         Some((_, id)) => Owner::Spec(id),
@@ -99,6 +109,8 @@ pub struct DriftReport {
     specs: BTreeMap<String, DriftState>,
     /// Drift of the global instructions file.
     instructions: DriftState,
+    /// Drift per harness command (only non-clean entries).
+    harnesses: BTreeMap<String, DriftState>,
 }
 
 impl DriftReport {
@@ -146,7 +158,7 @@ impl DriftReport {
                         specs.insert(id);
                     }
                     Owner::Instructions => *instructions = true,
-                    Owner::Other => {}
+                    Owner::Harness(_) | Owner::Other => {}
                 }
             }
         }
@@ -159,9 +171,28 @@ impl DriftReport {
             }
         }
 
+        let mut local_harness: BTreeSet<String> = BTreeSet::new();
+        let mut remote_harness: BTreeSet<String> = BTreeSet::new();
+        for (paths, set) in [(local, &mut local_harness), (remote, &mut remote_harness)] {
+            for path in paths {
+                if let Owner::Harness(cmd) = owner_of(path) {
+                    set.insert(cmd);
+                }
+            }
+        }
+        let mut harnesses = BTreeMap::new();
+        for cmd in local_harness.union(&remote_harness) {
+            let state =
+                DriftState::from_sides(local_harness.contains(cmd), remote_harness.contains(cmd));
+            if state != DriftState::Clean {
+                harnesses.insert(cmd.clone(), state);
+            }
+        }
+
         Self {
             specs,
             instructions: DriftState::from_sides(local_instructions, remote_instructions),
+            harnesses,
         }
     }
 
@@ -173,6 +204,16 @@ impl DriftReport {
     /// Drift state of the global instructions file.
     pub fn instructions(&self) -> DriftState {
         self.instructions
+    }
+
+    /// Drift state of one harness command's synced config.
+    pub fn harness(&self, command: &str) -> DriftState {
+        self.harnesses.get(command).copied().unwrap_or_default()
+    }
+
+    /// Every harness command whose config is not clean, in command order.
+    pub fn drifted_harnesses(&self) -> impl Iterator<Item = (&str, DriftState)> {
+        self.harnesses.iter().map(|(c, s)| (c.as_str(), *s))
     }
 
     /// Every spec that is not clean, in id order.
@@ -189,9 +230,11 @@ impl DriftReport {
             .collect()
     }
 
-    /// Whether the whole library — specs and instructions — is level.
+    /// Whether the whole library — specs, instructions and harness configs — is level.
     pub fn is_clean(&self) -> bool {
-        self.specs.is_empty() && self.instructions == DriftState::Clean
+        self.specs.is_empty()
+            && self.instructions == DriftState::Clean
+            && self.harnesses.is_empty()
     }
 }
 
@@ -289,5 +332,19 @@ mod tests {
         let report = DriftReport::from_paths(&paths(&[]), &paths(&[]));
         assert!(report.is_clean());
         assert_eq!(report.instructions(), DriftState::Clean);
+    }
+
+    #[test]
+    fn harness_paths_collapse_per_command() {
+        let report = DriftReport::from_paths(
+            &paths(&["harnesses/pi/theme.json", "harnesses/pi/settings.json"]),
+            &paths(&["harnesses/claude/settings.json"]),
+        );
+        assert_eq!(report.harness("pi"), DriftState::LocalNewer);
+        assert_eq!(report.harness("claude"), DriftState::RemoteNewer);
+        assert_eq!(report.harness("opencode"), DriftState::Clean);
+        assert!(!report.is_clean());
+        // harness drift is not spec drift
+        assert_eq!(report.drifted().count(), 0);
     }
 }
