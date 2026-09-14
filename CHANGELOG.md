@@ -1,4 +1,4 @@
-# Unreleased
+# 1.0.1
 
 - `akm skills import` accepts repository-root GitHub URLs —
   `https://github.com/owner/repo/tree/<ref>` with no path, for repos that are
