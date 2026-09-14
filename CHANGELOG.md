@@ -1,3 +1,10 @@
+# 1.0.1
+
+- `akm skills import` accepts repository-root GitHub URLs —
+  `https://github.com/owner/repo/tree/<ref>` with no path, for repos that are
+  themselves a single skill (SKILL.md at the root). The default skill ID is
+  the repo name; `blob/<ref>/SKILL.md` at the root works too.
+
 # 1.0.0
 
 First stable release.

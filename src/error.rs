@@ -217,12 +217,12 @@ pub enum Error {
     /// GitHub URL is not valid (missing path components, wrong format).
     /// Used by `akm skills import` to reject malformed URLs.
     #[error(
-        "Invalid GitHub URL: {url}\nExpected format: https://github.com/owner/repo/tree/ref/path"
+        "Invalid GitHub URL: {url}\nExpected format: https://github.com/owner/repo/tree/ref[/path]"
     )]
     ImportInvalidUrl { url: String },
 
     /// URL is not from github.com (v1 limitation).
-    #[error("URL is not from github.com: {url}\nOnly GitHub URLs are supported. Use https://github.com/owner/repo/tree/ref/path")]
+    #[error("URL is not from github.com: {url}\nOnly GitHub URLs are supported. Use https://github.com/owner/repo/tree/ref[/path]")]
     ImportNotGithub { url: String },
 
     /// GitHub API returned an error.

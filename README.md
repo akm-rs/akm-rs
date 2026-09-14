@@ -217,9 +217,12 @@ akm skills import https://github.com/user/repo/tree/main/skills/my-skill --id cu
 
 # Overwrite without confirmation
 akm skills import https://github.com/user/repo/tree/main/skills/my-skill --force
+
+# Import a repository that is itself the skill (SKILL.md at the root)
+akm skills import https://github.com/user/repo/tree/main
 ```
 
-Both `/tree/` (directory) and `/blob/` (file) GitHub URLs are supported. For private repos, set the `GITHUB_TOKEN` environment variable.
+Both `/tree/` (directory) and `/blob/` (file) GitHub URLs are supported. With no path after the ref the repository root is imported, and the default ID is the repo name. For private repos, set the `GITHUB_TOKEN` environment variable.
 
 `--all` takes every skill a URL offers instead of one:
 

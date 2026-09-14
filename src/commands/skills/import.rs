@@ -79,7 +79,14 @@ pub fn run(
     println!("Importing skill from GitHub...");
     println!("  repo:  {}/{}", parsed.owner, parsed.repo);
     println!("  ref:   {}", parsed.git_ref);
-    println!("  path:  {}", parsed.path);
+    println!(
+        "  path:  {}",
+        if parsed.path.is_empty() {
+            "(repo root)"
+        } else {
+            &parsed.path
+        }
+    );
     println!("  id:    {id}");
     println!();
 
@@ -251,9 +258,14 @@ pub fn run_all_url(
     let parsed = github::parse_github_url(url)?;
     let client = GitHubHttpClient::new();
 
+    let location = if parsed.path.is_empty() {
+        "repo root"
+    } else {
+        parsed.path.as_str()
+    };
     println!(
         "Scanning {}/{} at {}...",
-        parsed.owner, parsed.repo, parsed.path
+        parsed.owner, parsed.repo, location
     );
 
     let staged = tempfile::tempdir().io_context("Creating temporary directory for import")?;

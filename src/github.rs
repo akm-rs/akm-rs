@@ -1,6 +1,7 @@
 //! GitHub URL parsing and Contents API client.
 //!
 //! Provides URL parsing for `github.com/owner/repo/tree/ref/path` URLs
+//! (the path is optional — a repo can itself be the skill directory)
 //! and a client for the GitHub Contents API to recursively download
 //! directory contents.
 
@@ -17,6 +18,7 @@ pub struct ParsedGitHubUrl {
     /// Git ref (branch, tag, or commit SHA).
     pub git_ref: String,
     /// Path within the repository (relative, no leading slash).
+    /// Empty when the URL points at the repository root.
     pub path: String,
 }
 
@@ -26,24 +28,55 @@ impl ParsedGitHubUrl {
     /// Format: `https://api.github.com/repos/{owner}/{repo}/contents/{path}?ref={ref}`
     pub fn api_contents_url(&self) -> String {
         format!(
-            "https://api.github.com/repos/{}/{}/contents/{}?ref={}",
-            self.owner, self.repo, self.path, self.git_ref
+            "https://api.github.com/repos/{}/{}/contents{}?ref={}",
+            self.owner,
+            self.repo,
+            path_segment(&self.path),
+            self.git_ref
         )
     }
 
     /// Extract the default skill ID from the URL path.
     ///
-    /// Returns the last segment of the path (e.g., "my-skill" from "skills/my-skill").
+    /// Returns the last segment of the path (e.g., "my-skill" from
+    /// "skills/my-skill"), or the repo name when the URL is the repo root.
     pub fn default_skill_id(&self) -> &str {
-        self.path.rsplit('/').next().unwrap_or(&self.path)
+        if self.path.is_empty() {
+            &self.repo
+        } else {
+            self.path.rsplit('/').next().unwrap_or(&self.path)
+        }
     }
 
     /// Reconstruct the browsable GitHub URL (for storage in `source` field).
     pub fn browsable_url(&self) -> String {
         format!(
-            "https://github.com/{}/{}/tree/{}/{}",
-            self.owner, self.repo, self.git_ref, self.path
+            "https://github.com/{}/{}/tree/{}{}",
+            self.owner,
+            self.repo,
+            self.git_ref,
+            path_segment(&self.path)
         )
+    }
+}
+
+/// Contents-API path segment: empty at the repository root, "/a/b" elsewhere.
+fn path_segment(path: &str) -> String {
+    if path.is_empty() {
+        String::new()
+    } else {
+        format!("/{path}")
+    }
+}
+
+/// Join a parsed path with a listing subpath. Either side may be empty — the
+/// parsed path at the repo root, the subpath for the top-level listing.
+fn join_repo_path(path: &str, subpath: &str) -> String {
+    match (path.is_empty(), subpath.is_empty()) {
+        (true, true) => String::new(),
+        (true, false) => subpath.to_string(),
+        (false, true) => path.to_string(),
+        (false, false) => format!("{path}/{subpath}"),
     }
 }
 
@@ -66,8 +99,10 @@ pub struct GitHubEntry {
 
 /// Parse a GitHub URL into its components.
 ///
-/// Supports two formats:
+/// Supports three formats:
 /// - `https://github.com/owner/repo/tree/ref/path` (directory URL)
+/// - `https://github.com/owner/repo/tree/ref` (repository root — the whole
+///   repo is the skill directory)
 /// - `https://github.com/owner/repo/blob/ref/path/SKILL.md` (file URL -> parent dir)
 ///
 /// # Errors
@@ -121,36 +156,30 @@ pub fn parse_github_url(url: &str) -> Result<ParsedGitHubUrl> {
         });
     }
 
+    // No slash after the ref: the URL points at the repository root, so the
+    // whole repo at that ref is the skill directory.
     let (git_ref, path) = match ref_and_path.split_once('/') {
         Some((r, p)) => (r.to_string(), p.to_string()),
-        None => {
-            return Err(Error::ImportInvalidUrl {
-                url: url.to_string(),
-            });
-        }
+        None => (ref_and_path.to_string(), String::new()),
     };
 
-    if git_ref.is_empty() || path.is_empty() {
+    if git_ref.is_empty() {
         return Err(Error::ImportInvalidUrl {
             url: url.to_string(),
         });
     }
 
+    // A blob URL names a file; the skill is its parent directory. A file at
+    // the repository root (typically SKILL.md itself) means the root.
     let final_path = if kind == "blob" {
         if let Some(parent) = path.strip_suffix("/SKILL.md") {
             parent.to_string()
         } else if path == "SKILL.md" {
-            return Err(Error::ImportInvalidUrl {
-                url: url.to_string(),
-            });
+            String::new()
         } else {
             match path.rsplit_once('/') {
                 Some((parent, _)) => parent.to_string(),
-                None => {
-                    return Err(Error::ImportInvalidUrl {
-                        url: url.to_string(),
-                    });
-                }
+                None => String::new(),
             }
         }
     } else {
@@ -211,15 +240,14 @@ impl GitHubHttpClient {
 
 impl GitHubClient for GitHubHttpClient {
     fn list_contents(&self, parsed: &ParsedGitHubUrl, subpath: &str) -> Result<Vec<GitHubEntry>> {
-        let api_path = if subpath.is_empty() {
-            parsed.path.clone()
-        } else {
-            format!("{}/{}", parsed.path, subpath)
-        };
+        let api_path = join_repo_path(&parsed.path, subpath);
 
         let url = format!(
-            "https://api.github.com/repos/{}/{}/contents/{}?ref={}",
-            parsed.owner, parsed.repo, api_path, parsed.git_ref
+            "https://api.github.com/repos/{}/{}/contents{}?ref={}",
+            parsed.owner,
+            parsed.repo,
+            path_segment(&api_path),
+            parsed.git_ref
         );
 
         let mut request = self
@@ -472,8 +500,42 @@ mod tests {
     }
 
     #[test]
-    fn reject_ref_only_no_path() {
-        let err = parse_github_url("https://github.com/acme/repo/tree/main").unwrap_err();
+    fn parse_tree_url_repo_root() {
+        let parsed = parse_github_url("https://github.com/acme/repo/tree/main").unwrap();
+
+        assert_eq!(parsed.owner, "acme");
+        assert_eq!(parsed.repo, "repo");
+        assert_eq!(parsed.git_ref, "main");
+        assert_eq!(parsed.path, "");
+    }
+
+    #[test]
+    fn parse_tree_url_repo_root_trailing_slash() {
+        let parsed = parse_github_url("https://github.com/acme/repo/tree/main/").unwrap();
+
+        assert_eq!(parsed.git_ref, "main");
+        assert_eq!(parsed.path, "");
+    }
+
+    #[test]
+    fn parse_blob_url_root_skill_md() {
+        let parsed = parse_github_url("https://github.com/acme/repo/blob/main/SKILL.md").unwrap();
+
+        assert_eq!(parsed.git_ref, "main");
+        assert_eq!(parsed.path, "");
+    }
+
+    #[test]
+    fn parse_blob_url_root_other_file() {
+        let parsed = parse_github_url("https://github.com/acme/repo/blob/main/README.md").unwrap();
+
+        assert_eq!(parsed.git_ref, "main");
+        assert_eq!(parsed.path, "");
+    }
+
+    #[test]
+    fn reject_empty_ref() {
+        let err = parse_github_url("https://github.com/acme/repo/tree//skills/x").unwrap_err();
         assert!(matches!(err, Error::ImportInvalidUrl { .. }));
     }
 
@@ -490,6 +552,41 @@ mod tests {
         let parsed = parse_github_url("https://github.com/acme/repo/tree/main/my-skill").unwrap();
 
         assert_eq!(parsed.default_skill_id(), "my-skill");
+    }
+
+    #[test]
+    fn default_skill_id_repo_root() {
+        let parsed = parse_github_url("https://github.com/acme/one-skill/tree/main").unwrap();
+
+        assert_eq!(parsed.default_skill_id(), "one-skill");
+    }
+
+    #[test]
+    fn api_contents_url_repo_root() {
+        let parsed = parse_github_url("https://github.com/acme/repo/tree/main").unwrap();
+
+        assert_eq!(
+            parsed.api_contents_url(),
+            "https://api.github.com/repos/acme/repo/contents?ref=main"
+        );
+    }
+
+    #[test]
+    fn browsable_url_repo_root() {
+        let parsed = parse_github_url("https://github.com/acme/repo/tree/v1.0").unwrap();
+
+        assert_eq!(
+            parsed.browsable_url(),
+            "https://github.com/acme/repo/tree/v1.0"
+        );
+    }
+
+    #[test]
+    fn join_repo_path_combinations() {
+        assert_eq!(join_repo_path("", ""), "");
+        assert_eq!(join_repo_path("", "sub"), "sub");
+        assert_eq!(join_repo_path("skills/x", ""), "skills/x");
+        assert_eq!(join_repo_path("skills/x", "sub"), "skills/x/sub");
     }
 
     #[test]
@@ -645,6 +742,41 @@ mod tests {
 
         let parsed =
             parse_github_url("https://github.com/acme/repo/tree/main/skills/my-skill").unwrap();
+
+        let tmp = tempfile::tempdir().unwrap();
+        let files = download_directory(&client, &parsed, tmp.path()).unwrap();
+
+        assert_eq!(files.len(), 2);
+        assert!(files.contains(&"SKILL.md".to_string()));
+        assert!(files.contains(&"references/ref.md".to_string()));
+        assert!(tmp.path().join("SKILL.md").is_file());
+        assert!(tmp.path().join("references").join("ref.md").is_file());
+    }
+
+    #[test]
+    fn download_directory_from_repo_root() {
+        let mut client = MockGitHubClient::new();
+
+        // Root listing
+        client.add_listing(
+            "",
+            vec![
+                make_file_entry("SKILL.md", "https://example.com/SKILL.md"),
+                make_dir_entry("references"),
+            ],
+        );
+        client.add_listing(
+            "references",
+            vec![make_file_entry("ref.md", "https://example.com/ref.md")],
+        );
+        client.add_file(
+            "https://example.com/SKILL.md",
+            b"---\nname: Test\ndescription: A test\n---\nContent",
+        );
+        client.add_file("https://example.com/ref.md", b"# Reference");
+
+        // The whole repo is the skill: no path after the ref.
+        let parsed = parse_github_url("https://github.com/acme/one-skill/tree/main").unwrap();
 
         let tmp = tempfile::tempdir().unwrap();
         let files = download_directory(&client, &parsed, tmp.path()).unwrap();
