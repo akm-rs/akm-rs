@@ -16,6 +16,7 @@ use crate::error::{Error, IoContext, Result};
 use crate::library::libgen;
 use crate::library::local::LocalOverrides;
 use crate::library::manifest::Manifest;
+use crate::library::sidecar;
 use crate::library::spec::SpecType;
 use crate::library::symlinks;
 use crate::library::tool_dirs::ToolDirs;
@@ -50,7 +51,7 @@ pub fn run(
 
     // Drop it from the current project's manifest too. Manifests in other
     // repositories reference the deleted id and cannot be reached from here.
-    remove_from_current_manifest(id, spec_type, tool_dirs)?;
+    remove_from_current_manifest(paths, id, spec_type, tool_dirs)?;
 
     println!("Deleted {spec_type} '{id}' from the library");
 
@@ -111,7 +112,15 @@ fn remove_files(library_dir: &Path, spec_type: SpecType, id: &str) -> Result<()>
 }
 
 /// Drop the deleted id from the current project's manifest, if present.
-fn remove_from_current_manifest(id: &str, spec_type: SpecType, tool_dirs: &ToolDirs) -> Result<()> {
+///
+/// Also refreshes the project's Posit sidecar so a deleted skill's tree mount
+/// is removed there too.
+fn remove_from_current_manifest(
+    paths: &Paths,
+    id: &str,
+    spec_type: SpecType,
+    tool_dirs: &ToolDirs,
+) -> Result<()> {
     let Ok(project_root) = crate::git::Git::toplevel(None) else {
         return Ok(());
     };
@@ -122,6 +131,12 @@ fn remove_from_current_manifest(id: &str, spec_type: SpecType, tool_dirs: &ToolD
     let mut manifest = Manifest::load(&project_root)?;
     if manifest.remove(id, Some(spec_type)) {
         manifest.save()?;
+        sidecar::refresh(
+            &project_root,
+            &manifest,
+            &paths.library_dir(),
+            tool_dirs.tools(),
+        )?;
 
         if let Some(staging) = env::var("AKM_SESSION").ok().map(PathBuf::from) {
             if staging.is_dir() {

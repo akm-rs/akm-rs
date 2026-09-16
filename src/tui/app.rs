@@ -9,6 +9,7 @@ use crate::error::{Error, Result};
 use crate::git::Git;
 use crate::library::drift::{DriftReport, DriftState};
 use crate::library::manifest::Manifest;
+use crate::library::sidecar;
 use crate::library::spec::{Spec, SpecType};
 use crate::library::tool_dirs::ToolDirs;
 use crate::library::Library;
@@ -474,11 +475,21 @@ impl App {
     /// This is the single point where mutations are persisted. `library.json`
     /// is derived and regenerated here rather than written from memory, so
     /// each edit is routed to the file that actually owns it: metadata to the
-    /// spec's sidecar, core toggles to `local.json`.
+    /// spec's sidecar, core toggles to `local.json`. Also refreshes the
+    /// project's Posit sidecar so a manifest change made in the TUI is
+    /// reflected there too.
     pub fn save_if_dirty(&self) -> Result<()> {
         if self.manifest_dirty {
             if let Some(manifest) = &self.manifest {
                 manifest.save()?;
+                if let Some(root) = &self.project_root {
+                    sidecar::refresh(
+                        root,
+                        manifest,
+                        &self.paths.library_dir(),
+                        self.tool_dirs.tools(),
+                    )?;
+                }
             }
         }
 
@@ -744,5 +755,55 @@ mod tests {
 
         let result = app.read_spec_content("does-not-exist");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn tui_remove_from_manifest_refreshes_sidecar_on_save() {
+        let tmp = tempfile::tempdir().unwrap();
+        let paths = Paths::from_roots(tmp.path(), tmp.path(), tmp.path(), tmp.path());
+        let library = test_library();
+        library.save(&paths).unwrap();
+
+        // `sidecar::refresh` mounts from the on-disk skill dir, not just the
+        // index, so it needs a real one for "git-commit".
+        let skill_dir = paths.library_dir().join("skills").join("git-commit");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: Git Commit\ndescription: Structured git commits\n---\nBody",
+        )
+        .unwrap();
+
+        let tool_dirs = ToolDirs::builtin(tmp.path());
+        let mut app = App::new(paths, tool_dirs).unwrap();
+
+        // Point the app at a project outside the git repo the test runs in,
+        // with a manifest already referencing one skill.
+        let project_root = tmp.path().join("project");
+        std::fs::create_dir_all(&project_root).unwrap();
+        let mut manifest = Manifest::load_or_create(&project_root).unwrap();
+        manifest.add("git-commit", SpecType::Skill);
+        manifest.save().unwrap();
+
+        app.project_root = Some(project_root.clone());
+        app.manifest_ids = ["git-commit".to_string()].into_iter().collect();
+        app.manifest = Some(manifest);
+
+        // Pre-build the sidecar tree, as `skills add` would have.
+        crate::library::sidecar::refresh(
+            &project_root,
+            app.manifest.as_ref().unwrap(),
+            &app.paths.library_dir(),
+            app.tool_dirs.tools(),
+        )
+        .unwrap();
+        assert!(project_root
+            .join(".posit/assistant/skills/git-commit")
+            .exists());
+
+        app.remove_from_manifest("git-commit").unwrap();
+        app.save_if_dirty().unwrap();
+
+        assert!(!project_root.join(".posit").exists());
     }
 }

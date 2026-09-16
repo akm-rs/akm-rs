@@ -16,6 +16,7 @@ use crate::error::{Error, IoContext, Result};
 use crate::library::libgen;
 use crate::library::local::LocalOverrides;
 use crate::library::manifest::Manifest;
+use crate::library::sidecar;
 use crate::library::spec::SpecType;
 use crate::library::symlinks;
 use crate::library::tool_dirs::ToolDirs;
@@ -36,7 +37,7 @@ pub fn run(
 
     // Fix the current project's manifest too. Manifests in other repositories
     // reference the old id and cannot be reached from here.
-    update_current_manifest(old, new, spec_type, tool_dirs)?;
+    update_current_manifest(paths, old, new, spec_type, tool_dirs)?;
 
     println!("Renamed {spec_type} '{old}' -> '{new}'");
 
@@ -130,7 +131,11 @@ fn move_files(
 }
 
 /// Rewrite the current project's manifest entry, if it references `old`.
+///
+/// Also refreshes the project's Posit sidecar, dropping the old id's tree
+/// mount and mounting the new one.
 fn update_current_manifest(
+    paths: &Paths,
     old: &str,
     new: &str,
     spec_type: SpecType,
@@ -147,6 +152,12 @@ fn update_current_manifest(
     if manifest.remove(old, Some(spec_type)) {
         manifest.add(new, spec_type);
         manifest.save()?;
+        sidecar::refresh(
+            &project_root,
+            &manifest,
+            &paths.library_dir(),
+            tool_dirs.tools(),
+        )?;
 
         // Drop the stale session symlink; the new one is created next session.
         if let Some(staging) = env::var("AKM_SESSION").ok().map(PathBuf::from) {

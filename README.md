@@ -37,7 +37,7 @@ Posit Assistant runs inside the Positron IDE, so there is no `pa` command to wra
 
 Posit's skill discovery skips symlinked directories, so core skills are mounted as real directories under `~/.posit/assistant/skills/<id>/` whose contents are symlinks into the library, rather than a symlinked directory itself. Any hand-written skill dir you keep alongside them is left alone — AKM only touches trees it fully owns.
 
-Project skills go into a gitignored sidecar at `<project>/.posit/assistant/skills/`, refreshed by `akm skills add`/`remove` and at session setup; only `.agents/akm.json` is tracked.
+Project skills go into a gitignored sidecar at `<project>/.posit/assistant/skills/`, refreshed by `akm skills add`/`remove`, the interactive TUI, `skills delete`/`rename`, and at session setup; only `.agents/akm.json` is tracked.
 
 Posit scans skills when a conversation starts, not live, so reload the Positron window (or start a new conversation) after syncing to see new skills.
 

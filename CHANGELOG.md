@@ -9,8 +9,8 @@
   `~/.posit/assistant/AGENTS.md`, appended once and never overwriting the
   file, since Posit's own `/savememory` command appends to it too.
 - Project skills for Posit are materialized into a gitignored sidecar at
-  `<project>/.posit/assistant/skills/`, refreshed by `akm skills add`/`remove`
-  and at session setup.
+  `<project>/.posit/assistant/skills/`, refreshed by `akm skills add`/`remove`,
+  the interactive TUI, `skills delete`/`rename`, and at session setup.
 - `tools.json` entries gain `mount` (`symlink` default, or `tree`) and
   optional `project_dir` fields; existing files without them still parse.
 

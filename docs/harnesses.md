@@ -113,7 +113,8 @@ Posit Assistant is built into the Positron IDE; config dir `~/.posit/assistant/`
   materialized as tree mounts into `<project>/.posit/assistant/skills/<id>/`,
   with a `.gitignore` containing `*` inside `skills/` so the sidecar is
   invisible to git (only `.agents/akm.json` is tracked). Refreshed by `akm
-  skills add`, `akm skills remove` and at session setup. Empty sidecar dirs
+  skills add`/`remove`, the interactive TUI, `skills delete`/`rename`, and at
+  session setup. Empty sidecar dirs
   are removed with `rmdir` (never recursively), so a user's own
   `.posit/assistant/settings.json` survives. `clean --project` looks at
   `<root>/assistant/` — the last dir component — not the sidecar path itself.
