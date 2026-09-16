@@ -1,4 +1,4 @@
-# Unreleased
+# 1.1.0
 
 - Add Posit Assistant as a sixth harness (`~/.posit/assistant`). Its skill
   discovery skips symlinked directories, so core skills mount as real
