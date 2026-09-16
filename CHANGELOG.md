@@ -1,4 +1,4 @@
-# Unreleased
+# 1.1.1
 
 - Mistral Vibe: global instructions now go to `~/.vibe/AGENTS.md`, which Vibe
   reads as user-level instructions. The previous target,
