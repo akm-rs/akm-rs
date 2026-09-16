@@ -10,6 +10,9 @@
 //!    it only if not already present — the host file's existing content is
 //!    never overwritten
 //! 6. Print count of distributed copies
+//! 7. Retire a `~/.vibe/prompts/cli.md` left by 1.1.0 and earlier, when its
+//!    content matches the source (proof akm wrote it) — on Vibe ≥ 2.9.0 that
+//!    file replaces Vibe's built-in system prompt outright
 
 use crate::commands::instructions::{
     default_targets, seed_from_legacy, Delivery, InstructionsTarget,
@@ -33,7 +36,38 @@ pub fn run(paths: &Paths) -> Result<()> {
     let home = paths.home();
 
     let targets = default_targets(home);
-    sync_instructions(&source, &targets)
+    sync_instructions(&source, &targets)?;
+    retire_vibe_prompt_override(home, &source)
+}
+
+/// Remove `~/.vibe/prompts/cli.md` if it is a copy of the global instructions.
+///
+/// Releases up to 1.1.0 delivered Vibe's instructions there. Vibe 2.9.0 made a
+/// user file named after a built-in prompt override it wholesale, so the copy
+/// replaced Vibe's entire system prompt. Only a byte-identical copy is
+/// removed — a hand-written `cli.md`, or one from a since-edited source, is
+/// left alone.
+pub(crate) fn retire_vibe_prompt_override(home: &Path, source: &Path) -> Result<()> {
+    let stale = home.join(".vibe").join("prompts").join("cli.md");
+    if !stale.is_file() || !source.is_file() {
+        return Ok(());
+    }
+
+    let current = fs::read_to_string(source).io_context(format!(
+        "Reading global instructions from {}",
+        source.display()
+    ))?;
+    let leftover = fs::read_to_string(&stale).io_context(format!("Reading {}", stale.display()))?;
+    if leftover != current {
+        return Ok(());
+    }
+
+    fs::remove_file(&stale).io_context(format!("Removing {}", stale.display()))?;
+    println!(
+        "Removed {} (Vibe now reads ~/.vibe/AGENTS.md; that file overrode its system prompt)",
+        stale.display()
+    );
+    Ok(())
 }
 
 /// Core sync logic, separated for testability.
@@ -216,6 +250,45 @@ mod tests {
 
         let content = fs::read_to_string(tmp.path().join("tool/out.md")).unwrap();
         assert_eq!(content, "content");
+    }
+
+    #[test]
+    fn retire_removes_prompt_override_that_matches_source() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path();
+        let source = home.join("global.md");
+        fs::write(&source, "content").unwrap();
+        let stale = home.join(".vibe/prompts/cli.md");
+        fs::create_dir_all(stale.parent().unwrap()).unwrap();
+        fs::write(&stale, "content").unwrap();
+
+        retire_vibe_prompt_override(home, &source).unwrap();
+
+        assert!(!stale.exists());
+        assert!(home.join(".vibe/prompts").is_dir());
+    }
+
+    #[test]
+    fn retire_keeps_prompt_override_that_differs_from_source() {
+        let tmp = TempDir::new().unwrap();
+        let home = tmp.path();
+        let source = home.join("global.md");
+        fs::write(&source, "content").unwrap();
+        let stale = home.join(".vibe/prompts/cli.md");
+        fs::create_dir_all(stale.parent().unwrap()).unwrap();
+        fs::write(&stale, "my own prompt").unwrap();
+
+        retire_vibe_prompt_override(home, &source).unwrap();
+
+        assert_eq!(fs::read_to_string(&stale).unwrap(), "my own prompt");
+    }
+
+    #[test]
+    fn retire_is_a_no_op_without_the_file() {
+        let tmp = TempDir::new().unwrap();
+        let source = tmp.path().join("global.md");
+        fs::write(&source, "content").unwrap();
+        retire_vibe_prompt_override(tmp.path(), &source).unwrap();
     }
 
     #[test]

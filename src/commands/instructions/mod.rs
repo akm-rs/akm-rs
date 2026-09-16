@@ -88,13 +88,17 @@ impl InstructionsTarget {
 /// |-----------|----------|----------|
 /// | `~/.claude` | `CLAUDE.md` | Overwrite |
 /// | `~/.copilot` | `copilot-instructions.md` | Overwrite |
-/// | `~/.vibe/prompts` | `cli.md` | Overwrite |
+/// | `~/.vibe` | `AGENTS.md` | Overwrite |
 /// | `~/.agents` | `AGENTS.md` | Overwrite |
 /// | `~/.pi/agent` | `AGENTS.md` | Overwrite |
 /// | `~/.posit/assistant` | `akm-instructions.md` | Include into `AGENTS.md` |
 ///
-/// Note: The `.vibe` target uses a subdirectory (`prompts/`), which differs from
-/// the generic tool dir (`.vibe`). This is instructions-specific behavior.
+/// Vibe reads `~/.vibe/AGENTS.md` as user-level instructions. Earlier releases
+/// wrote `~/.vibe/prompts/cli.md` instead; since Vibe 2.9.0 a user prompt file
+/// named after a built-in prompt *replaces* that prompt wholesale, so that
+/// target swapped Vibe's whole system prompt for the global instructions.
+/// `sync` retires a leftover copy it can prove it wrote (see
+/// [`sync::retire_vibe_prompt_override`]).
 ///
 /// Pi reads its global context file from its config dir (`~/.pi/agent`), using
 /// the same `AGENTS.md` name as OpenCode.
@@ -119,8 +123,8 @@ pub fn default_targets(home: &Path) -> Vec<InstructionsTarget> {
             delivery: Delivery::Overwrite,
         },
         InstructionsTarget {
-            dir: home.join(".vibe").join("prompts"),
-            filename: "cli.md".into(),
+            dir: home.join(".vibe"),
+            filename: "AGENTS.md".into(),
             delivery: Delivery::Overwrite,
         },
         InstructionsTarget {
@@ -220,7 +224,7 @@ mod tests {
         );
         assert_eq!(
             targets[2].path(),
-            PathBuf::from("/home/user/.vibe/prompts/cli.md")
+            PathBuf::from("/home/user/.vibe/AGENTS.md")
         );
         assert_eq!(
             targets[3].path(),
@@ -249,10 +253,11 @@ mod tests {
     }
 
     #[test]
-    fn vibe_target_uses_prompts_subdirectory() {
+    fn vibe_target_is_agents_md_not_a_prompt_override() {
         let targets = default_targets(Path::new("/home/user"));
         let vibe = &targets[2];
-        assert_eq!(vibe.dir, PathBuf::from("/home/user/.vibe/prompts"));
-        assert_eq!(vibe.filename, "cli.md");
+        assert_eq!(vibe.dir, PathBuf::from("/home/user/.vibe"));
+        assert_eq!(vibe.filename, "AGENTS.md");
+        assert_eq!(vibe.delivery, Delivery::Overwrite);
     }
 }

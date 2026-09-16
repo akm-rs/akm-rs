@@ -12,6 +12,9 @@
 //!   entries are symlinks into the library skill, for harnesses whose skill
 //!   discovery skips symlinked directories. Agents are not mounted at all.
 //!
+//! A target with `agents == false` (Vibe, whose agents are TOML configs) gets
+//! skills only under either kind.
+//!
 //! All mount functions take the targets as a parameter — no global state.
 
 use crate::error::{Error, IoContext, Result};
@@ -26,7 +29,8 @@ const SPEC_SUBDIRS: &[&str] = &["skills", "agents"];
 ///
 /// Returns `Ok(false)` if source doesn't exist on disk.
 /// Returns `Ok(true)` if the source existed and was mounted wherever the
-/// target's mount kind applies — [`Mount::Tree`] targets skip agents.
+/// target's mount kind applies — [`Mount::Tree`] targets and targets with
+/// `agents == false` skip agents.
 pub fn create_global(spec: &Spec, library_dir: &Path, targets: &[MountTarget]) -> Result<bool> {
     let source_path = spec.source_path(library_dir);
 
@@ -35,6 +39,10 @@ pub fn create_global(spec: &Spec, library_dir: &Path, targets: &[MountTarget]) -
     }
 
     for target in targets {
+        if spec.spec_type == SpecType::Agent && !target.agents {
+            continue;
+        }
+
         let subdir = spec.spec_type.subdir();
         let target_dir = target.dir.join(subdir);
 
@@ -410,6 +418,7 @@ mod tests {
         MountTarget {
             dir: dir.to_path_buf(),
             mount: Mount::Symlink,
+            agents: true,
         }
     }
 
@@ -417,7 +426,32 @@ mod tests {
         MountTarget {
             dir: dir.to_path_buf(),
             mount: Mount::Tree,
+            agents: true,
         }
+    }
+
+    fn skills_only_target(dir: &Path) -> MountTarget {
+        MountTarget {
+            dir: dir.to_path_buf(),
+            mount: Mount::Symlink,
+            agents: false,
+        }
+    }
+
+    #[test]
+    fn create_global_skips_agents_when_target_has_none() {
+        let tmp = TempDir::new().unwrap();
+        let library_dir = tmp.path().join("library");
+        let tool_dir = tmp.path().join(".vibe");
+        create_skill_on_disk(&library_dir, "tdd");
+        create_agent_on_disk(&library_dir, "reviewer");
+        let targets = vec![skills_only_target(&tool_dir)];
+
+        assert!(create_global(&make_skill_spec("tdd"), &library_dir, &targets).unwrap());
+        assert!(create_global(&make_agent_spec("reviewer"), &library_dir, &targets).unwrap());
+
+        assert!(tool_dir.join("skills").join("tdd").is_symlink());
+        assert!(!tool_dir.join("agents").exists());
     }
 
     fn make_skill_spec(id: &str) -> Spec {
