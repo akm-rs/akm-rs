@@ -213,6 +213,7 @@ mod tests {
             command: "pa".into(),
             dir: ".posit/assistant".into(),
             mount: Mount::Tree,
+            agents: true,
             project_dir: Some(".posit/assistant".into()),
         }
     }
@@ -223,6 +224,7 @@ mod tests {
             command: "claude".into(),
             dir: ".claude".into(),
             mount: Mount::Symlink,
+            agents: true,
             project_dir: None,
         }
     }

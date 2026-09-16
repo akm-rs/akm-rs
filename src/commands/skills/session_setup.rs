@@ -64,7 +64,8 @@ pub fn run(
         }
 
         // These must match the tool dirs in akm-init.sh's _akm_skills_session_start().
-        // Vibe is intentionally excluded (doesn't support --add-dir).
+        // Vibe is not wrapped yet (its --add-dir, since 2.10.0, does pull in
+        // `<dir>/.vibe/skills`, so a wrapper is possible — see docs/harnesses.md).
         // Pi only reads `.pi/skills` (mounted with `--skill`) — it has no
         // subagent concept, so `.pi/agents` stays unused.
         for tool_dir in &[".claude", ".copilot", ".agents", ".pi"] {

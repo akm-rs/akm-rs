@@ -4,14 +4,15 @@ How AKM mounts the same library of skills, agents and instructions into each
 supported harness. Definitions live in `src/shell/tools.json` (embedded at
 compile time, written to `$XDG_DATA_HOME/akm/tools.json` by `akm setup`) and are
 loaded through `src/library/tool_dirs.rs`. Each entry also carries a `mount`
-kind (`symlink`, the default, or `tree`) and an optional `project_dir`.
+kind (`symlink`, the default, or `tree`), an `agents` flag (default `true`;
+`false` skips `.md` agent specs) and an optional `project_dir`.
 Mount operations read them through `ToolDirs::mounts()`.
 
 | Harness | Command | Global dir (`ToolDef::dir`) | Staging dir | Session mount | Artifacts |
 |---------|---------|------------------------------|-------------|---------------|-----------|
 | Claude Code | `claude` | `~/.claude` | `.claude` | `--add-dir <staging>` | symlink + `--append-system-prompt` |
 | GitHub Copilot CLI | `copilot` | `~/.copilot` | `.copilot` | `--add-dir <staging>` | symlink in staging |
-| Mistral Vibe | `vibe` | `~/.vibe` | `.vibe` | none (no `--add-dir`) | none |
+| Mistral Vibe | `vibe` | `~/.vibe` | `.vibe` | none (not wrapped yet) | none |
 | OpenCode | `opencode` | `~/.agents` | `.agents` | `OPENCODE_CONFIG_DIR` | symlink in staging |
 | Pi | `pi` | `~/.pi/agent` | `.pi` | `--skill <staging>/.pi/skills` | `--append-system-prompt` |
 | Posit Assistant | `pa` | `~/.posit/assistant` | — | — (sidecar) | — |
@@ -79,6 +80,32 @@ Pi CLI surface as of `0.82.1` (`@earendil-works/pi-coding-agent`); docs at
 - **Do not hijack `PI_CODING_AGENT_DIR`.** It relocates `~/.pi/agent`, but
   `auth.json`, `models-store.json` and `sessions/` live there too — unlike
   `OPENCODE_CONFIG_DIR`, it is not free to repoint at a staging directory.
+
+## Mistral Vibe
+
+Checked against Vibe `2.5.0` (installed) and upstream `main` at `2.25.4`
+(September 2026); source at <https://github.com/mistralai/mistral-vibe>.
+
+- **Skills: symlinks are fine.** Discovery walks `~/.vibe/skills/` with
+  pathlib, which follows symlinks. Since 2.11.0 Vibe also reads
+  `~/.agents/skills/`, where AKM's OpenCode links live, so every core skill is
+  seen twice; the first wins and the duplicate is a debug-level log line.
+- **Agents are TOML, not markdown.** `~/.vibe/agents/<name>.toml` is an agent
+  *config* (model, prompt id, disabled tools) selected with `vibe --agent
+  <name>`. AKM's `.md` agent specs have no counterpart, so the Vibe entry has
+  `"agents": false` and gets skills only.
+- **Instructions go to `~/.vibe/AGENTS.md`.** Vibe reads it as user-level
+  instructions on every version checked. Releases up to 1.1.0 wrote
+  `~/.vibe/prompts/cli.md` instead. On 2.5.0 that file was inert (the built-in
+  `cli` prompt is resolved first); from 2.9.0 on, a user prompt file named
+  after a built-in prompt **replaces it wholesale**, so the global instructions
+  became Vibe's entire system prompt. `instructions sync` deletes a leftover
+  `cli.md` when it is byte-identical to the current global instructions.
+- **`--add-dir` exists since 2.10.0.** It is repeatable, trusts the path, and
+  pulls in that dir's `AGENTS.md` and `.vibe/` config (including
+  `.vibe/skills`). A session wrapper handing over `<staging>` would work like
+  Copilot's; it is not built, so Vibe has no session mount and no artifacts
+  hand-off. Adding one means all three places in AGENTS.md's harness checklist.
 
 ## Posit Assistant
 

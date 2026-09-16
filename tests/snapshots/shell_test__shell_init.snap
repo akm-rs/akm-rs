@@ -433,7 +433,8 @@ _akm_wrap_tool() {
 }
 
 # --- Exported wrappers ---
-# Vibe is excluded — it has no --add-dir, so there is nothing to wrap.
+# Vibe is not wrapped yet. Its --add-dir (since 2.10.0) reads <dir>/.vibe/skills,
+# so a wrapper is possible; until then Vibe gets core skills and instructions only.
 
 claude()   { _akm_wrap_tool claude   "$@"; }
 copilot()  { _akm_wrap_tool copilot  "$@"; }

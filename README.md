@@ -20,7 +20,7 @@ AKM wires the same library of skills, agents and instructions into every harness
 | [GitHub Copilot CLI](https://github.com/features/copilot) | `copilot` | `~/.copilot` | `--add-dir <staging>` | symlinked into staging |
 | [OpenCode](https://opencode.ai) | `opencode` | `~/.agents` | `OPENCODE_CONFIG_DIR` | symlinked into staging |
 | [Pi](https://pi.dev) | `pi` | `~/.pi/agent` | `--skill <staging>/.pi/skills` | named in the system prompt |
-| Mistral Vibe | `vibe` | `~/.vibe` | — (no wrapper) | — |
+| Mistral Vibe | `vibe` | `~/.vibe` | — (no wrapper yet) | — |
 | Posit Assistant | `pa` | `~/.posit/assistant` | none (sidecar `.posit/assistant/skills`) | — |
 
 `akm setup` installs shell functions that shadow `claude`, `copilot`, `opencode` and `pi`. Each one builds a per-session staging directory of symlinks into the cold library, hands it to the tool in whatever form that tool understands, and tears it down on exit.
@@ -30,6 +30,12 @@ AKM wires the same library of skills, agents and instructions into every harness
 Pi has no `--add-dir`. Session skills mount with `--skill`, and the artifacts directory — which Pi's file tools can already reach — is named in the system prompt with `--append-system-prompt`. Your own `.pi/APPEND_SYSTEM.md` (project, else `~/.pi/agent/APPEND_SYSTEM.md`) is passed alongside it.
 
 Pi has no subagents, so only skills are mounted for it.
+
+### Mistral Vibe
+
+Vibe is not wrapped yet, so it gets core skills (`~/.vibe/skills/`) and global instructions (`~/.vibe/AGENTS.md`) but no per-session project skills. Vibe's `--add-dir` (2.10.0+) does read `<dir>/.vibe/skills`, so a wrapper is possible; it just is not built. Vibe agents are `~/.vibe/agents/<name>.toml` configs, not markdown personas, so AKM agent specs are not mounted for it.
+
+Do not point Vibe's `system_prompt_id` at a file AKM writes: since Vibe 2.9.0 a `~/.vibe/prompts/<id>.md` named after a built-in prompt replaces that prompt wholesale. AKM 1.1.0 and earlier wrote `~/.vibe/prompts/cli.md` for exactly that reason; `akm instructions sync` now removes that file when it is a byte-identical copy of the global instructions.
 
 ### Posit Assistant
 
@@ -355,7 +361,7 @@ Global instructions live in the registry, at `instructions/global.md`, so they
 propagate between your machines through the same clone, drift and publish flow
 as a skill. `instructions sync` writes that file out under each tool's expected
 name: `~/.claude/CLAUDE.md`, `~/.copilot/copilot-instructions.md`,
-`~/.vibe/prompts/cli.md`, `~/.agents/AGENTS.md`, `~/.pi/agent/AGENTS.md` and
+`~/.vibe/AGENTS.md`, `~/.agents/AGENTS.md`, `~/.pi/agent/AGENTS.md` and
 `~/.posit/assistant/akm-instructions.md` (included from `AGENTS.md` via an
 `@akm-instructions.md` line, so Posit's `/savememory` notes are kept).
 

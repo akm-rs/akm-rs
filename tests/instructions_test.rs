@@ -77,9 +77,10 @@ fn instructions_sync_distributes_to_all_tool_dirs() {
         "Be concise."
     );
     assert_eq!(
-        fs::read_to_string(home.join(".vibe/prompts/cli.md")).unwrap(),
+        fs::read_to_string(home.join(".vibe/AGENTS.md")).unwrap(),
         "Be concise."
     );
+    assert!(!home.join(".vibe/prompts/cli.md").exists());
     assert_eq!(
         fs::read_to_string(home.join(".agents/AGENTS.md")).unwrap(),
         "Be concise."
@@ -95,6 +96,40 @@ fn instructions_sync_distributes_to_all_tool_dirs() {
     assert_eq!(
         fs::read_to_string(home.join(".posit/assistant/AGENTS.md")).unwrap(),
         "@akm-instructions.md\n"
+    );
+}
+
+#[test]
+fn instructions_sync_retires_vibe_prompt_override_it_wrote() {
+    let tmp = TempDir::new().unwrap();
+    let (home, _, instructions) = setup_env(&tmp);
+
+    fs::write(&instructions, "Be concise.").unwrap();
+
+    // What a pre-1.2 `instructions sync` left behind, plus a user prompt.
+    let prompts = home.join(".vibe/prompts");
+    fs::create_dir_all(&prompts).unwrap();
+    fs::write(prompts.join("cli.md"), "Be concise.").unwrap();
+    fs::write(prompts.join("redteam.md"), "You are red team.").unwrap();
+
+    cargo_bin_cmd!("akm")
+        .args(["instructions", "sync"])
+        .env("HOME", &home)
+        .env("XDG_CONFIG_HOME", home.join(".config"))
+        .env("XDG_DATA_HOME", home.join(".local/share"))
+        .env("XDG_CACHE_HOME", home.join(".cache"))
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Removed"));
+
+    assert!(!prompts.join("cli.md").exists());
+    assert_eq!(
+        fs::read_to_string(prompts.join("redteam.md")).unwrap(),
+        "You are red team."
+    );
+    assert_eq!(
+        fs::read_to_string(home.join(".vibe/AGENTS.md")).unwrap(),
+        "Be concise."
     );
 }
 

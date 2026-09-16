@@ -9,14 +9,16 @@
 //! [
 //!   {"name": "Claude Code", "command": "claude", "dir": ".claude"},
 //!   {"name": "Github Copilot CLI", "command": "copilot", "dir": ".copilot"},
-//!   {"name": "Mistral Vibe", "command": "vibe", "dir": ".vibe"},
+//!   {"name": "Mistral Vibe", "command": "vibe", "dir": ".vibe", "agents": false},
 //!   {"name": "OpenCode", "command": "opencode", "dir": ".agents"},
 //!   {"name": "Pi", "command": "pi", "dir": ".pi/agent"},
 //!   {"name": "Posit Assistant", "command": "pa", "dir": ".posit/assistant", "mount": "tree", "project_dir": ".posit/assistant"}
 //! ]
 //! ```
 //!
-//! `mount` defaults to `symlink` when absent; `project_dir` is optional.
+//! `mount` defaults to `symlink` when absent; `agents` defaults to `true`
+//! (set it to `false` for harnesses with no `.md` agent files); `project_dir`
+//! is optional.
 
 use crate::error::{Error, IoContext};
 use crate::paths::Paths;
@@ -50,10 +52,18 @@ pub struct ToolDef {
     /// How specs are mounted into `dir` (see [`Mount`]).
     #[serde(default)]
     pub mount: Mount,
+    /// Whether `.md` agent specs are mounted into `dir/agents`. `false` for
+    /// harnesses whose agents are something else entirely (Vibe: TOML configs).
+    #[serde(default = "default_true")]
+    pub agents: bool,
     /// Project-relative dir the harness reads project skills from, for
     /// harnesses with no session mount. Materialized as a sidecar.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_dir: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl ToolDef {
@@ -77,6 +87,7 @@ fn builtin_tools() -> Vec<ToolDef> {
             command: "claude".into(),
             dir: ".claude".into(),
             mount: Mount::Symlink,
+            agents: true,
             project_dir: None,
         },
         ToolDef {
@@ -84,13 +95,17 @@ fn builtin_tools() -> Vec<ToolDef> {
             command: "copilot".into(),
             dir: ".copilot".into(),
             mount: Mount::Symlink,
+            agents: true,
             project_dir: None,
         },
+        // Vibe agents are `~/.vibe/agents/<name>.toml` configs, not markdown
+        // personas, so akm's `.md` agent specs have nothing to plug into.
         ToolDef {
             name: "Mistral Vibe".into(),
             command: "vibe".into(),
             dir: ".vibe".into(),
             mount: Mount::Symlink,
+            agents: false,
             project_dir: None,
         },
         ToolDef {
@@ -98,6 +113,7 @@ fn builtin_tools() -> Vec<ToolDef> {
             command: "opencode".into(),
             dir: ".agents".into(),
             mount: Mount::Symlink,
+            agents: true,
             project_dir: None,
         },
         // Pi reads its global AGENTS.md and skills/ from ~/.pi/agent,
@@ -107,6 +123,7 @@ fn builtin_tools() -> Vec<ToolDef> {
             command: "pi".into(),
             dir: ".pi/agent".into(),
             mount: Mount::Symlink,
+            agents: true,
             project_dir: None,
         },
         // Posit Assistant's skill discovery skips symlinked directories, so
@@ -118,6 +135,7 @@ fn builtin_tools() -> Vec<ToolDef> {
             command: "pa".into(),
             dir: ".posit/assistant".into(),
             mount: Mount::Tree,
+            agents: true,
             project_dir: Some(".posit/assistant".into()),
         },
     ]
@@ -130,6 +148,8 @@ pub struct MountTarget {
     pub dir: PathBuf,
     /// How specs are mounted into `dir`.
     pub mount: Mount,
+    /// Whether agent specs are mounted at all (see [`ToolDef::agents`]).
+    pub agents: bool,
 }
 
 /// Resolved tool directories.
@@ -213,6 +233,7 @@ impl ToolDirs {
             .map(|(dir, tool)| MountTarget {
                 dir: dir.clone(),
                 mount: tool.mount,
+                agents: tool.agents,
             })
             .collect()
     }
@@ -307,6 +328,7 @@ mod tests {
             command: "test".into(),
             dir: ".testtool".into(),
             mount: Mount::Symlink,
+            agents: true,
             project_dir: None,
         }];
         let td = ToolDirs::from_tools(tools, tmp.path());
@@ -325,7 +347,24 @@ mod tests {
 
         let tools = ToolDirs::load_from_file(&json_path).unwrap();
         assert_eq!(tools[0].mount, Mount::Symlink);
+        assert!(tools[0].agents);
         assert_eq!(tools[0].project_dir, None);
+    }
+
+    #[test]
+    fn vibe_entry_parses_agents_false() {
+        let tmp = TempDir::new().unwrap();
+        let json_path = tmp.path().join("tools.json");
+        std::fs::write(
+            &json_path,
+            r#"[{"name":"Mistral Vibe","command":"vibe","dir":".vibe","agents":false}]"#,
+        )
+        .unwrap();
+
+        let tools = ToolDirs::load_from_file(&json_path).unwrap();
+        assert!(!tools[0].agents);
+        let td = ToolDirs::from_tools(tools, tmp.path());
+        assert!(!td.mounts()[0].agents);
     }
 
     #[test]
