@@ -83,7 +83,7 @@ pub fn apply(paths: &Paths, id: &str, tool_dirs: &ToolDirs) -> Result<()> {
     overrides.save_to(&paths.local_json())?;
     library.save_to(&paths.library_json())?;
 
-    symlinks::rebuild_core(&library.core_specs(), &library_dir, tool_dirs.dirs())?;
+    symlinks::rebuild_core(&library.core_specs(), &library_dir, &tool_dirs.mounts())?;
 
     Ok(())
 }

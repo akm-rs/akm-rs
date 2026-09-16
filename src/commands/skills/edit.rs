@@ -65,7 +65,7 @@ pub fn run(
     }
     library.save_to(&paths.library_json())?;
 
-    let count = symlinks::rebuild_core(&library.core_specs(), &library_dir, tool_dirs.dirs())?;
+    let count = symlinks::rebuild_core(&library.core_specs(), &library_dir, &tool_dirs.mounts())?;
     println!("Updated '{id}' ({count} core symlinks rebuilt)");
 
     offer_publish_if_changed(paths, config, id)?;

@@ -106,7 +106,7 @@ pub fn remove_files(paths: &Paths, tool_dirs: &ToolDirs, purge: bool) -> Result<
     }
 
     // 2. Global spec symlinks (before tools.json goes away)
-    let cleared = symlinks::clear_all(tool_dirs.dirs())?;
+    let cleared = symlinks::clear_all(&tool_dirs.mounts(), &paths.library_dir())?;
     if cleared > 0 {
         println!("Removed {cleared} global spec symlink(s)");
     }

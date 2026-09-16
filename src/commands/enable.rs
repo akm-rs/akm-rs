@@ -23,7 +23,7 @@ pub fn run(paths: &Paths, tool_dirs: &ToolDirs) -> Result<()> {
     let rebuilt = match Library::load(paths) {
         Ok(library) => {
             let core_specs = library.core_specs();
-            symlinks::rebuild_core(&core_specs, &paths.library_dir(), tool_dirs.dirs())?
+            symlinks::rebuild_core(&core_specs, &paths.library_dir(), &tool_dirs.mounts())?
         }
         Err(_) => 0, // No library yet — nothing to symlink
     };

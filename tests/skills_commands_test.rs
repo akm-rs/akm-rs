@@ -376,6 +376,32 @@ fn clean_global_dry_run() {
     assert!(skills_dir.join("stale.md").exists());
 }
 
+#[test]
+fn clean_global_keeps_owned_tree_and_user_skill_under_posit() {
+    let tmp = TempDir::new().unwrap();
+    let tool_dirs = test_tool_dirs(&tmp);
+    let paths = test_paths(&tmp);
+
+    // Library skill, tree-mounted into Posit's global dir.
+    create_spec_on_disk(&paths.library_dir(), "tdd", SpecType::Skill);
+    let posit_skills = tmp.path().join("home/.posit/assistant/skills");
+    std::fs::create_dir_all(posit_skills.join("tdd")).unwrap();
+    std::os::unix::fs::symlink(
+        paths.skills_dir().join("tdd").join("SKILL.md"),
+        posit_skills.join("tdd").join("SKILL.md"),
+    )
+    .unwrap();
+
+    // A skill the user wrote by hand next to it.
+    std::fs::create_dir_all(posit_skills.join("mine")).unwrap();
+    std::fs::write(posit_skills.join("mine").join("SKILL.md"), "mine").unwrap();
+
+    akm::commands::skills::clean::run(&paths, &tool_dirs, false, false).unwrap();
+
+    assert!(posit_skills.join("tdd").join("SKILL.md").is_symlink());
+    assert!(posit_skills.join("mine").join("SKILL.md").is_file());
+}
+
 // =============================================================================
 // Promote tests
 // =============================================================================

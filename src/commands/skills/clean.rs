@@ -2,12 +2,14 @@
 //!
 //! Two modes:
 //! - **Global** (default): removes non-symlink entries from global tool dirs.
+//!   Tree-mounted harnesses are the exception: there `skills/<id>/` is a real
+//!   directory by design, so those are left alone (see [`clean_global`]).
 //! - **Project** (`--project`): removes non-symlink copies from .claude/ dirs
 //!   in the current project that exist in the library.
 
 use crate::error::{Error, Result};
 use crate::git::Git;
-use crate::library::tool_dirs::ToolDirs;
+use crate::library::tool_dirs::{Mount, ToolDirs};
 use crate::library::Library;
 use crate::paths::Paths;
 
@@ -24,10 +26,15 @@ pub fn run(paths: &Paths, tool_dirs: &ToolDirs, project: bool, dry_run: bool) ->
 }
 
 /// Clean non-symlink entries from global tool directories.
+///
+/// Under a [`Mount::Tree`] target, a real directory in `skills/` is never
+/// stale: it is either the tree akm mounted (its entries are symlinks into the
+/// library) or a skill the user wrote by hand there. Both are kept, silently.
 fn clean_global(tool_dirs: &ToolDirs, dry_run: bool) -> Result<()> {
     let mut removed = 0u32;
 
-    for tool_dir in tool_dirs.dirs() {
+    for target in tool_dirs.mounts() {
+        let tool_dir = &target.dir;
         for subdir in SPEC_SUBDIRS {
             let dir = tool_dir.join(subdir);
             if !dir.is_dir() {
@@ -42,6 +49,9 @@ fn clean_global(tool_dirs: &ToolDirs, dry_run: bool) -> Result<()> {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if !path.is_symlink() {
+                    if target.mount == Mount::Tree && *subdir == "skills" && path.is_dir() {
+                        continue;
+                    }
                     let name = entry.file_name().to_string_lossy().to_string();
                     let display = format!("{}/{subdir}/{name}", tool_dir.display());
                     if dry_run {

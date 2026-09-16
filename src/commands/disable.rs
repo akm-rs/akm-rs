@@ -21,7 +21,7 @@ pub fn run(paths: &Paths, tool_dirs: &ToolDirs) -> Result<()> {
     ))?;
     std::fs::write(&sentinel, "").io_context(format!("Writing sentinel {}", sentinel.display()))?;
 
-    let cleared = symlinks::clear_all(tool_dirs.dirs())?;
+    let cleared = symlinks::clear_all(&tool_dirs.mounts(), &paths.library_dir())?;
 
     if already {
         println!("akm was already disabled.");

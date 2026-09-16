@@ -1,33 +1,61 @@
 //! Symlink management for spec distribution.
 //!
 //! Handles three symlink operations:
-//! 1. **Global symlinks** — core specs symlinked into global tool dirs (~/.claude/, etc.)
+//! 1. **Global mounts** — core specs mounted into global tool dirs (~/.claude/, etc.)
 //! 2. **Session symlinks** — project/JIT specs symlinked into per-session staging dirs
 //! 3. **Cleanup** — remove broken symlinks, clear existing links before rebuild
 //!
-//! All symlink functions take tool dirs as a parameter — no global state.
+//! Global mounts come in two kinds (see [`Mount`]):
+//! - [`Mount::Symlink`] — `<tool dir>/skills/<id>` is a symlink to the library
+//!   skill, `<tool dir>/agents/<id>.md` a symlink to the library agent.
+//! - [`Mount::Tree`] — `<tool dir>/skills/<id>/` is a *real* directory whose
+//!   entries are symlinks into the library skill, for harnesses whose skill
+//!   discovery skips symlinked directories. Agents are not mounted at all.
+//!
+//! All mount functions take the targets as a parameter — no global state.
 
 use crate::error::{Error, IoContext, Result};
 use crate::library::spec::{Spec, SpecType};
-use std::path::{Path, PathBuf};
+use crate::library::tool_dirs::{Mount, MountTarget};
+use std::path::Path;
 
 /// Spec subdirectory names used inside tool dirs and staging dirs.
 const SPEC_SUBDIRS: &[&str] = &["skills", "agents"];
 
-/// Create global symlinks for a single spec across all tool directories.
+/// Create global mounts for a single spec across all mount targets.
 ///
 /// Returns `Ok(false)` if source doesn't exist on disk.
-/// Returns `Ok(true)` if symlinks were created.
-pub fn create_global(spec: &Spec, library_dir: &Path, tool_dirs: &[PathBuf]) -> Result<bool> {
+/// Returns `Ok(true)` if the source existed and was mounted wherever the
+/// target's mount kind applies — [`Mount::Tree`] targets skip agents.
+pub fn create_global(spec: &Spec, library_dir: &Path, targets: &[MountTarget]) -> Result<bool> {
     let source_path = spec.source_path(library_dir);
 
     if !source_path.exists() {
         return Ok(false);
     }
 
-    for tool_dir in tool_dirs {
+    for target in targets {
         let subdir = spec.spec_type.subdir();
-        let target_dir = tool_dir.join(subdir);
+        let target_dir = target.dir.join(subdir);
+
+        if target.mount == Mount::Tree {
+            // Tree mounts carry skills only.
+            if spec.spec_type != SpecType::Skill {
+                continue;
+            }
+
+            std::fs::create_dir_all(&target_dir)
+                .io_context(format!("Creating directory {}", target_dir.display()))?;
+
+            let tree_path = target_dir.join(&spec.id);
+            if !create_tree(&source_path, &tree_path, library_dir)? {
+                eprintln!(
+                    "Warning: {} exists and is not managed by akm — left in place",
+                    tree_path.display()
+                );
+            }
+            continue;
+        }
 
         std::fs::create_dir_all(&target_dir)
             .io_context(format!("Creating directory {}", target_dir.display()))?;
@@ -58,6 +86,97 @@ pub fn create_global(spec: &Spec, library_dir: &Path, tool_dirs: &[PathBuf]) -> 
         }
     }
 
+    Ok(true)
+}
+
+/// Materialize `source_dir` as a real directory at `target` whose entries are
+/// symlinks to the corresponding entries of `source_dir`.
+///
+/// Idempotent: stale entries (symlinks whose name no longer exists in the
+/// source) are removed, missing ones added. Refuses to touch a target that
+/// exists and is not akm-owned, returning `Ok(false)` — under a tree mount the
+/// user's own hand-authored skills live in the same directory.
+pub fn create_tree(source_dir: &Path, target: &Path, library_dir: &Path) -> Result<bool> {
+    // A symlink at the target is an old-style mount — ours to replace.
+    if target.is_symlink() {
+        std::fs::remove_file(target)
+            .io_context(format!("Removing symlink mount {}", target.display()))?;
+    } else if target.exists() && !is_akm_tree(target, library_dir) {
+        return Ok(false);
+    }
+
+    std::fs::create_dir_all(target)
+        .io_context(format!("Creating directory {}", target.display()))?;
+
+    let entries = std::fs::read_dir(source_dir)
+        .io_context(format!("Reading directory {}", source_dir.display()))?;
+
+    let mut names = Vec::new();
+    for entry in entries {
+        let entry = entry.io_context(format!(
+            "Reading directory entry in {}",
+            source_dir.display()
+        ))?;
+        let name = entry.file_name();
+        create_symlink(&source_dir.join(&name), &target.join(&name))?;
+        names.push(name);
+    }
+
+    // Drop links whose source entry is gone.
+    let existing =
+        std::fs::read_dir(target).io_context(format!("Reading directory {}", target.display()))?;
+    for entry in existing {
+        let entry = entry.io_context(format!("Reading directory entry in {}", target.display()))?;
+        let path = entry.path();
+        if path.is_symlink() && !names.contains(&entry.file_name()) {
+            std::fs::remove_file(&path)
+                .io_context(format!("Removing stale symlink {}", path.display()))?;
+        }
+    }
+
+    Ok(true)
+}
+
+/// Whether `dir` is a tree akm created.
+///
+/// True iff `dir` is a real directory (not a symlink) and every entry is a
+/// symlink whose target lies under `library_dir`. An empty directory counts as
+/// owned — a skill deleted from the library leaves one behind.
+pub fn is_akm_tree(dir: &Path, library_dir: &Path) -> bool {
+    if dir.is_symlink() || !dir.is_dir() {
+        return false;
+    }
+
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+
+    for entry in entries {
+        let Ok(entry) = entry else {
+            return false;
+        };
+        // read_link fails on anything that is not a symlink.
+        let Ok(link_target) = std::fs::read_link(entry.path()) else {
+            return false;
+        };
+        if !link_target.starts_with(library_dir) {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Remove a tree created by [`create_tree`].
+///
+/// Returns `Ok(false)` without touching anything if `dir` is not akm-owned
+/// (see [`is_akm_tree`]).
+pub fn remove_tree(dir: &Path, library_dir: &Path) -> Result<bool> {
+    if !is_akm_tree(dir, library_dir) {
+        return Ok(false);
+    }
+
+    std::fs::remove_dir_all(dir).io_context(format!("Removing akm tree {}", dir.display()))?;
     Ok(true)
 }
 
@@ -129,16 +248,18 @@ pub fn remove_session(id: &str, staging_dir: &Path, staging_names: &[&str]) -> R
     Ok(found)
 }
 
-/// Clear all symlinks (not regular files/dirs) from tool dirs.
+/// Clear all akm-owned mounts from the mount targets.
 ///
-/// Only removes symlinks — real files and directories are left intact.
-/// Returns the number of symlinks removed.
-pub fn clear_all(tool_dirs: &[PathBuf]) -> Result<usize> {
+/// Removes symlinks everywhere, plus — under a [`Mount::Tree`] target — the
+/// real directories akm materialized (see [`is_akm_tree`]). Real files and the
+/// user's own skill directories are left intact.
+/// Returns the number of mounts removed.
+pub fn clear_all(targets: &[MountTarget], library_dir: &Path) -> Result<usize> {
     let mut count = 0;
 
-    for tool_dir in tool_dirs {
+    for target in targets {
         for subdir in SPEC_SUBDIRS {
-            let dir = tool_dir.join(subdir);
+            let dir = target.dir.join(subdir);
             if !dir.is_dir() {
                 continue;
             }
@@ -155,6 +276,11 @@ pub fn clear_all(tool_dirs: &[PathBuf]) -> Result<usize> {
                     std::fs::remove_file(&path)
                         .io_context(format!("Removing symlink {}", path.display()))?;
                     count += 1;
+                } else if target.mount == Mount::Tree
+                    && path.is_dir()
+                    && remove_tree(&path, library_dir)?
+                {
+                    count += 1;
                 }
             }
         }
@@ -163,16 +289,18 @@ pub fn clear_all(tool_dirs: &[PathBuf]) -> Result<usize> {
     Ok(count)
 }
 
-/// Clean broken symlinks from tool dirs.
+/// Clean broken mounts from the mount targets.
 ///
-/// A broken symlink is one where `is_symlink()` is true but `exists()` is false.
-/// Returns the number of broken symlinks removed.
-pub fn clean_broken(tool_dirs: &[PathBuf]) -> Result<usize> {
+/// A broken symlink is one where `is_symlink()` is true but `exists()` is
+/// false. Under a [`Mount::Tree`] target an akm-owned tree is broken when it is
+/// empty or its `SKILL.md` link dangles — the library skill is gone.
+/// Returns the number of broken mounts removed.
+pub fn clean_broken(targets: &[MountTarget], library_dir: &Path) -> Result<usize> {
     let mut count = 0;
 
-    for tool_dir in tool_dirs {
+    for target in targets {
         for subdir in SPEC_SUBDIRS {
-            let dir = tool_dir.join(subdir);
+            let dir = target.dir.join(subdir);
             if !dir.is_dir() {
                 continue;
             }
@@ -190,6 +318,12 @@ pub fn clean_broken(tool_dirs: &[PathBuf]) -> Result<usize> {
                     std::fs::remove_file(&path)
                         .io_context(format!("Removing broken symlink {}", path.display()))?;
                     count += 1;
+                } else if target.mount == Mount::Tree && !path.is_symlink() && path.is_dir() {
+                    let skill_md = path.join("SKILL.md");
+                    let broken = (skill_md.is_symlink() && !skill_md.exists()) || is_empty(&path);
+                    if broken && remove_tree(&path, library_dir)? {
+                        count += 1;
+                    }
                 }
             }
         }
@@ -198,28 +332,33 @@ pub fn clean_broken(tool_dirs: &[PathBuf]) -> Result<usize> {
     Ok(count)
 }
 
-/// Rebuild global symlinks for all core specs.
+/// Whether `dir` has no entries. Unreadable directories count as non-empty.
+fn is_empty(dir: &Path) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_none())
+}
+
+/// Rebuild global mounts for all core specs.
 ///
 /// This is the high-level function called by the sync command.
-/// It clears all existing symlinks, cleans broken ones, then creates
-/// fresh symlinks for every core spec.
+/// It clears all existing mounts, cleans broken ones, then creates
+/// fresh mounts for every core spec.
 ///
-/// Returns the number of symlinks successfully created.
+/// Returns the number of specs successfully mounted.
 pub fn rebuild_core(
     core_specs: &[&Spec],
     library_dir: &Path,
-    tool_dirs: &[PathBuf],
+    targets: &[MountTarget],
 ) -> Result<usize> {
-    // Step 1: Clear all existing symlinks
-    clear_all(tool_dirs)?;
+    // Step 1: Clear all existing mounts
+    clear_all(targets, library_dir)?;
 
-    // Step 2: Clean any broken symlinks
-    clean_broken(tool_dirs)?;
+    // Step 2: Clean any broken mounts
+    clean_broken(targets, library_dir)?;
 
-    // Step 3: Create symlinks for each core spec
+    // Step 3: Create mounts for each core spec
     let mut count = 0;
     for spec in core_specs {
-        match create_global(spec, library_dir, tool_dirs) {
+        match create_global(spec, library_dir, targets) {
             Ok(true) => count += 1,
             Ok(false) => {
                 // Source doesn't exist — skip silently
@@ -264,7 +403,22 @@ mod tests {
     use super::*;
     use crate::library::spec::{Spec, SpecType};
     use crate::library::tool_dirs::ToolDirs;
+    use std::path::PathBuf;
     use tempfile::TempDir;
+
+    fn symlink_target(dir: &Path) -> MountTarget {
+        MountTarget {
+            dir: dir.to_path_buf(),
+            mount: Mount::Symlink,
+        }
+    }
+
+    fn tree_target(dir: &Path) -> MountTarget {
+        MountTarget {
+            dir: dir.to_path_buf(),
+            mount: Mount::Tree,
+        }
+    }
 
     fn make_skill_spec(id: &str) -> Spec {
         Spec::new(id, SpecType::Skill, id, "test skill")
@@ -302,9 +456,9 @@ mod tests {
 
         create_skill_on_disk(&lib_dir, "tdd");
         let spec = make_skill_spec("tdd");
-        let tool_dirs = vec![tool_dir.clone()];
+        let targets = vec![symlink_target(&tool_dir)];
 
-        let created = create_global(&spec, &lib_dir, &tool_dirs).unwrap();
+        let created = create_global(&spec, &lib_dir, &targets).unwrap();
         assert!(created);
 
         let link = tool_dir.join("skills").join("tdd");
@@ -320,9 +474,9 @@ mod tests {
 
         create_agent_on_disk(&lib_dir, "reviewer");
         let spec = make_agent_spec("reviewer");
-        let tool_dirs = vec![tool_dir.clone()];
+        let targets = vec![symlink_target(&tool_dir)];
 
-        let created = create_global(&spec, &lib_dir, &tool_dirs).unwrap();
+        let created = create_global(&spec, &lib_dir, &targets).unwrap();
         assert!(created);
 
         let link = tool_dir.join("agents").join("reviewer.md");
@@ -335,9 +489,9 @@ mod tests {
         let lib_dir = tmp.path().join("library");
         let tool_dir = tmp.path().join("home").join(".claude");
         let spec = make_skill_spec("nonexistent");
-        let tool_dirs = vec![tool_dir];
+        let targets = vec![symlink_target(&tool_dir)];
 
-        let created = create_global(&spec, &lib_dir, &tool_dirs).unwrap();
+        let created = create_global(&spec, &lib_dir, &targets).unwrap();
         assert!(!created);
     }
 
@@ -357,7 +511,7 @@ mod tests {
         #[cfg(unix)]
         std::os::unix::fs::symlink(&target, skills_dir.join("test-skill")).unwrap();
 
-        let removed = clear_all(&[tool_dir]).unwrap();
+        let removed = clear_all(&[symlink_target(&tool_dir)], tmp.path()).unwrap();
 
         #[cfg(unix)]
         {
@@ -378,7 +532,7 @@ mod tests {
         #[cfg(unix)]
         std::os::unix::fs::symlink(&nonexistent, skills_dir.join("broken-skill")).unwrap();
 
-        let removed = clean_broken(&[tool_dir]).unwrap();
+        let removed = clean_broken(&[symlink_target(&tool_dir)], tmp.path()).unwrap();
 
         #[cfg(unix)]
         assert_eq!(removed, 1);
@@ -399,9 +553,9 @@ mod tests {
         agent_spec.core = true;
 
         let core_specs: Vec<&Spec> = vec![&skill_spec, &agent_spec];
-        let tool_dirs = vec![tool_dir.clone()];
+        let targets = vec![symlink_target(&tool_dir)];
 
-        let count = rebuild_core(&core_specs, &lib_dir, &tool_dirs).unwrap();
+        let count = rebuild_core(&core_specs, &lib_dir, &targets).unwrap();
         assert_eq!(count, 2);
 
         assert!(tool_dir.join("skills").join("core-skill").is_symlink());
@@ -419,10 +573,10 @@ mod tests {
         spec.core = true;
 
         let core_specs: Vec<&Spec> = vec![&spec];
-        let tool_dirs = vec![tool_dir.clone()];
+        let targets = vec![symlink_target(&tool_dir)];
 
-        let count1 = rebuild_core(&core_specs, &lib_dir, &tool_dirs).unwrap();
-        let count2 = rebuild_core(&core_specs, &lib_dir, &tool_dirs).unwrap();
+        let count1 = rebuild_core(&core_specs, &lib_dir, &targets).unwrap();
+        let count2 = rebuild_core(&core_specs, &lib_dir, &targets).unwrap();
         assert_eq!(count1, count2);
         assert_eq!(count1, 1);
     }
@@ -441,7 +595,7 @@ mod tests {
         std::fs::write(blocking_dir.join("stale.txt"), "old data").unwrap();
 
         let spec = make_skill_spec("tdd");
-        let created = create_global(&spec, &lib_dir, std::slice::from_ref(&tool_dir)).unwrap();
+        let created = create_global(&spec, &lib_dir, &[symlink_target(&tool_dir)]).unwrap();
         assert!(created);
 
         let link = tool_dir.join("skills").join("tdd");
@@ -474,6 +628,226 @@ mod tests {
         let removed = remove_session("tdd", &staging, &staging_names).unwrap();
         assert!(removed);
         assert!(!staging.join(".claude").join("skills").join("tdd").exists());
+    }
+
+    // =========================================================================
+    // Tree mounts
+    // =========================================================================
+
+    /// A library skill with a nested `references/` dir.
+    fn create_skill_with_references(library_dir: &Path, id: &str) -> PathBuf {
+        create_skill_on_disk(library_dir, id);
+        let skill_dir = library_dir.join("skills").join(id);
+        std::fs::create_dir_all(skill_dir.join("references")).unwrap();
+        std::fs::write(skill_dir.join("references").join("a.md"), "ref").unwrap();
+        skill_dir
+    }
+
+    #[test]
+    fn create_tree_makes_dir_of_links() {
+        let tmp = TempDir::new().unwrap();
+        let lib_dir = tmp.path().join("library");
+        let source = create_skill_with_references(&lib_dir, "tdd");
+        let target = tmp.path().join("home/.posit/assistant/skills/tdd");
+
+        assert!(create_tree(&source, &target, &lib_dir).unwrap());
+
+        assert!(target.is_dir());
+        assert!(!target.is_symlink());
+        assert!(target.join("SKILL.md").is_symlink());
+        assert!(target.join("references").is_symlink());
+        assert!(target.join("references").join("a.md").is_file());
+        assert_eq!(
+            std::fs::read_to_string(target.join("SKILL.md")).unwrap(),
+            std::fs::read_to_string(source.join("SKILL.md")).unwrap()
+        );
+    }
+
+    #[test]
+    fn create_tree_is_idempotent() {
+        let tmp = TempDir::new().unwrap();
+        let lib_dir = tmp.path().join("library");
+        let source = create_skill_with_references(&lib_dir, "tdd");
+        let target = tmp.path().join("target");
+
+        assert!(create_tree(&source, &target, &lib_dir).unwrap());
+        assert!(create_tree(&source, &target, &lib_dir).unwrap());
+
+        let mut names: Vec<_> = std::fs::read_dir(&target)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
+        names.sort();
+        assert_eq!(names, vec!["SKILL.md", "references"]);
+    }
+
+    #[test]
+    fn create_tree_removes_stale_entry() {
+        let tmp = TempDir::new().unwrap();
+        let lib_dir = tmp.path().join("library");
+        let source = create_skill_with_references(&lib_dir, "tdd");
+        let target = tmp.path().join("target");
+
+        // A link left over from a previous version of the skill.
+        std::fs::create_dir_all(&target).unwrap();
+        std::os::unix::fs::symlink(source.join("SKILL.md"), target.join("old.md")).unwrap();
+
+        assert!(create_tree(&source, &target, &lib_dir).unwrap());
+
+        assert!(!target.join("old.md").is_symlink());
+        assert!(target.join("SKILL.md").is_symlink());
+    }
+
+    #[test]
+    fn create_tree_refuses_non_owned_dir() {
+        let tmp = TempDir::new().unwrap();
+        let lib_dir = tmp.path().join("library");
+        let source = create_skill_with_references(&lib_dir, "tdd");
+        let target = tmp.path().join("target");
+
+        // A skill the user wrote by hand — real files, not ours.
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("SKILL.md"), "mine").unwrap();
+
+        assert!(!create_tree(&source, &target, &lib_dir).unwrap());
+        assert_eq!(
+            std::fs::read_to_string(target.join("SKILL.md")).unwrap(),
+            "mine"
+        );
+    }
+
+    #[test]
+    fn create_tree_replaces_old_style_symlink() {
+        let tmp = TempDir::new().unwrap();
+        let lib_dir = tmp.path().join("library");
+        let source = create_skill_with_references(&lib_dir, "tdd");
+        let target = tmp.path().join("target");
+
+        std::os::unix::fs::symlink(&source, &target).unwrap();
+
+        assert!(create_tree(&source, &target, &lib_dir).unwrap());
+
+        assert!(!target.is_symlink());
+        assert!(target.is_dir());
+        assert!(target.join("SKILL.md").is_symlink());
+        // The library skill itself is untouched.
+        assert!(source.join("SKILL.md").is_file());
+    }
+
+    #[test]
+    fn is_akm_tree_cases() {
+        let tmp = TempDir::new().unwrap();
+        let lib_dir = tmp.path().join("library");
+        let source = create_skill_with_references(&lib_dir, "tdd");
+
+        let owned = tmp.path().join("owned");
+        create_tree(&source, &owned, &lib_dir).unwrap();
+        assert!(is_akm_tree(&owned, &lib_dir));
+
+        let empty = tmp.path().join("empty");
+        std::fs::create_dir_all(&empty).unwrap();
+        assert!(is_akm_tree(&empty, &lib_dir));
+
+        let with_file = tmp.path().join("with-file");
+        std::fs::create_dir_all(&with_file).unwrap();
+        std::fs::write(with_file.join("SKILL.md"), "mine").unwrap();
+        assert!(!is_akm_tree(&with_file, &lib_dir));
+
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        let elsewhere = tmp.path().join("elsewhere.md");
+        std::fs::write(&elsewhere, "not ours").unwrap();
+        std::os::unix::fs::symlink(&elsewhere, outside.join("SKILL.md")).unwrap();
+        assert!(!is_akm_tree(&outside, &lib_dir));
+
+        assert!(!is_akm_tree(&tmp.path().join("missing"), &lib_dir));
+    }
+
+    #[test]
+    fn clear_all_removes_owned_tree_and_keeps_user_skill_dir() {
+        let tmp = TempDir::new().unwrap();
+        let lib_dir = tmp.path().join("library");
+        let tool_dir = tmp.path().join("home/.posit/assistant");
+        let source = create_skill_with_references(&lib_dir, "tdd");
+
+        let skills_dir = tool_dir.join("skills");
+        std::fs::create_dir_all(&skills_dir).unwrap();
+        create_tree(&source, &skills_dir.join("tdd"), &lib_dir).unwrap();
+
+        // The user's own skill — a real dir with real files.
+        let mine = skills_dir.join("mine");
+        std::fs::create_dir_all(&mine).unwrap();
+        std::fs::write(mine.join("SKILL.md"), "mine").unwrap();
+
+        let removed = clear_all(&[tree_target(&tool_dir)], &lib_dir).unwrap();
+
+        assert_eq!(removed, 1);
+        assert!(!skills_dir.join("tdd").exists());
+        assert!(mine.join("SKILL.md").is_file());
+    }
+
+    #[test]
+    fn clean_broken_removes_tree_whose_source_vanished() {
+        let tmp = TempDir::new().unwrap();
+        let lib_dir = tmp.path().join("library");
+        let tool_dir = tmp.path().join("home/.posit/assistant");
+        let source = create_skill_with_references(&lib_dir, "tdd");
+
+        let tree = tool_dir.join("skills").join("tdd");
+        std::fs::create_dir_all(tool_dir.join("skills")).unwrap();
+        create_tree(&source, &tree, &lib_dir).unwrap();
+
+        // The skill is deleted from the library — every link now dangles.
+        std::fs::remove_dir_all(&source).unwrap();
+
+        let removed = clean_broken(&[tree_target(&tool_dir)], &lib_dir).unwrap();
+
+        assert_eq!(removed, 1);
+        assert!(!tree.exists());
+    }
+
+    #[test]
+    fn create_global_tree_skips_agents() {
+        let tmp = TempDir::new().unwrap();
+        let lib_dir = tmp.path().join("library");
+        let tool_dir = tmp.path().join("home/.posit/assistant");
+
+        create_agent_on_disk(&lib_dir, "reviewer");
+        let spec = make_agent_spec("reviewer");
+
+        let created = create_global(&spec, &lib_dir, &[tree_target(&tool_dir)]).unwrap();
+
+        assert!(created);
+        assert!(!tool_dir.join("agents").exists());
+    }
+
+    #[test]
+    fn rebuild_core_mixed_targets() {
+        let tmp = TempDir::new().unwrap();
+        let lib_dir = tmp.path().join("library");
+        let claude = tmp.path().join("home/.claude");
+        let posit = tmp.path().join("home/.posit/assistant");
+
+        create_skill_with_references(&lib_dir, "core-skill");
+        create_agent_on_disk(&lib_dir, "core-agent");
+
+        let mut skill_spec = make_skill_spec("core-skill");
+        skill_spec.core = true;
+        let mut agent_spec = make_agent_spec("core-agent");
+        agent_spec.core = true;
+        let core_specs: Vec<&Spec> = vec![&skill_spec, &agent_spec];
+
+        let targets = vec![symlink_target(&claude), tree_target(&posit)];
+        let count = rebuild_core(&core_specs, &lib_dir, &targets).unwrap();
+        assert_eq!(count, 2);
+
+        assert!(claude.join("skills/core-skill").is_symlink());
+        assert!(claude.join("agents/core-agent.md").is_symlink());
+
+        let tree = posit.join("skills/core-skill");
+        assert!(tree.is_dir() && !tree.is_symlink());
+        assert!(tree.join("SKILL.md").is_symlink());
+        assert!(!posit.join("agents").exists());
     }
 
     /// Pi's global dir is `~/.pi/agent`, but its staging dir is `.pi` — the

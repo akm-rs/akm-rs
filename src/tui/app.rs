@@ -525,7 +525,7 @@ impl App {
         crate::library::symlinks::rebuild_core(
             &published.core_specs(),
             &library_dir,
-            self.tool_dirs.dirs(),
+            &self.tool_dirs.mounts(),
         )?;
 
         Ok(())
