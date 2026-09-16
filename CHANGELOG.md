@@ -1,4 +1,4 @@
-# Unreleased
+# 1.1.2
 
 - Mistral Vibe: `vibe` is now wrapped like `copilot`. The shell function hands
   Vibe the per-session staging directory with `--add-dir` (Vibe 2.10.0+), so
