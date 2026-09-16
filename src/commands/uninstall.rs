@@ -52,7 +52,7 @@ pub fn run(
         println!("  {}", paths.legacy_global_instructions().display());
         println!("  {}", paths.library_dir().display());
     }
-    println!("Restart your shell to drop the claude/copilot/opencode/pi wrappers.");
+    println!("Restart your shell to drop the claude/copilot/opencode/pi/vibe wrappers.");
     Ok(())
 }
 

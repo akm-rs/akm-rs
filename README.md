@@ -20,10 +20,10 @@ AKM wires the same library of skills, agents and instructions into every harness
 | [GitHub Copilot CLI](https://github.com/features/copilot) | `copilot` | `~/.copilot` | `--add-dir <staging>` | symlinked into staging |
 | [OpenCode](https://opencode.ai) | `opencode` | `~/.agents` | `OPENCODE_CONFIG_DIR` | symlinked into staging |
 | [Pi](https://pi.dev) | `pi` | `~/.pi/agent` | `--skill <staging>/.pi/skills` | named in the system prompt |
-| Mistral Vibe | `vibe` | `~/.vibe` | — (no wrapper yet) | — |
+| [Mistral Vibe](https://github.com/mistralai/mistral-vibe) | `vibe` | `~/.vibe` | `--add-dir <staging>` | symlinked into staging |
 | Posit Assistant | `pa` | `~/.posit/assistant` | none (sidecar `.posit/assistant/skills`) | — |
 
-`akm setup` installs shell functions that shadow `claude`, `copilot`, `opencode` and `pi`. Each one builds a per-session staging directory of symlinks into the cold library, hands it to the tool in whatever form that tool understands, and tears it down on exit.
+`akm setup` installs shell functions that shadow `claude`, `copilot`, `opencode`, `pi` and `vibe`. Each one builds a per-session staging directory of symlinks into the cold library, hands it to the tool in whatever form that tool understands, and tears it down on exit.
 
 ### Pi
 
@@ -33,7 +33,7 @@ Pi has no subagents, so only skills are mounted for it.
 
 ### Mistral Vibe
 
-Vibe is not wrapped yet, so it gets core skills (`~/.vibe/skills/`) and global instructions (`~/.vibe/AGENTS.md`) but no per-session project skills. Vibe's `--add-dir` (2.10.0+) does read `<dir>/.vibe/skills`, so a wrapper is possible; it just is not built. Vibe agents are `~/.vibe/agents/<name>.toml` configs, not markdown personas, so AKM agent specs are not mounted for it.
+Vibe (2.10.0+) takes `--add-dir` and reads `<dir>/.vibe/skills` from it, so the wrapper hands it the staging directory the same way it does Copilot. Core skills live in `~/.vibe/skills/` and global instructions in `~/.vibe/AGENTS.md`. Vibe agents are `~/.vibe/agents/<name>.toml` configs, not markdown personas, so AKM agent specs are not mounted for it.
 
 Do not point Vibe's `system_prompt_id` at a file AKM writes: since Vibe 2.9.0 a `~/.vibe/prompts/<id>.md` named after a built-in prompt replaces that prompt wholesale. AKM 1.1.0 and earlier wrote `~/.vibe/prompts/cli.md` for exactly that reason; `akm instructions sync` now removes that file when it is a byte-identical copy of the global instructions.
 
@@ -102,7 +102,7 @@ After installation, run the interactive setup:
 akm setup
 ```
 
-This configures which features to enable (skills, artifacts, instructions), sets up registry remotes, and wires shell integration into your `.bashrc`. The shell integration is what makes `claude`, `copilot`, `opencode` and `pi` session-aware — open a new shell (or `source ~/.bashrc`) once setup finishes.
+This configures which features to enable (skills, artifacts, instructions), sets up registry remotes, and wires shell integration into your `.bashrc`. The shell integration is what makes `claude`, `copilot`, `opencode`, `pi` and `vibe` session-aware — open a new shell (or `source ~/.bashrc`) once setup finishes.
 
 ## Usage
 
@@ -396,7 +396,7 @@ changes land without a second `akm setup`. Restart your shell to pick them up.
 ### Disabling and Uninstalling
 
 ```bash
-akm disable            # new shells get vanilla claude/copilot/opencode/pi; nothing deleted
+akm disable            # new shells get vanilla claude/copilot/opencode/pi/vibe; nothing deleted
 akm enable             # restore wrappers and global core symlinks
 akm uninstall          # remove akm — preserves artifacts and the library checkout
 akm uninstall --purge  # remove everything, including artifacts and the library
@@ -462,7 +462,7 @@ On disk:
 
 ## How a session works
 
-1. The wrapper function for a harness (`claude`, `copilot`, `opencode`, `pi`) creates a staging directory under `$XDG_CACHE_HOME/akm/<repo>-<ts>-<pid>`, with one subdirectory per harness.
+1. The wrapper function for a harness (`claude`, `copilot`, `opencode`, `pi`, `vibe`) creates a staging directory under `$XDG_CACHE_HOME/akm/<repo>-<ts>-<pid>`, with one subdirectory per harness.
 2. `akm skills session-setup` reads the project manifest (`.agents/akm.json`) and symlinks each declared spec from the cold library into every harness subdirectory.
 3. If the artifacts feature is on, the project's artifacts directory is symlinked in at the staging root and per harness — except for Pi, which is given the absolute path instead.
 4. A `README.md` naming the artifacts directory is written at the staging root, and the root is made read-only. The staging tree is deleted on exit, so a write landing there would be lost; the harness sees a permission error instead.

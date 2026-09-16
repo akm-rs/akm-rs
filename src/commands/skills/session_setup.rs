@@ -64,11 +64,11 @@ pub fn run(
         }
 
         // These must match the tool dirs in akm-init.sh's _akm_skills_session_start().
-        // Vibe is not wrapped yet (its --add-dir, since 2.10.0, does pull in
-        // `<dir>/.vibe/skills`, so a wrapper is possible — see docs/harnesses.md).
         // Pi only reads `.pi/skills` (mounted with `--skill`) — it has no
-        // subagent concept, so `.pi/agents` stays unused.
-        for tool_dir in &[".claude", ".copilot", ".agents", ".pi"] {
+        // subagent concept, so `.pi/agents` stays unused. Vibe's --add-dir reads
+        // `.vibe/skills`; its agents are TOML configs, so `.vibe/agents` is
+        // likewise unused (see docs/harnesses.md).
+        for tool_dir in &[".claude", ".copilot", ".agents", ".pi", ".vibe"] {
             let target_dir = staging.join(tool_dir).join(subdir);
             let link = if spec.spec_type == SpecType::Skill {
                 target_dir.join(id)

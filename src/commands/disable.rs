@@ -1,7 +1,7 @@
 //! `akm disable` — restore vanilla harness entrypoints without removing anything.
 //!
 //! Creates the `disabled` sentinel (checked by akm-init.sh at source time,
-//! so new shells skip the claude/copilot/opencode/pi wrappers) and clears
+//! so new shells skip the claude/copilot/opencode/pi/vibe wrappers) and clears
 //! the global core-spec symlinks from tool directories. Config, library,
 //! and manifests are untouched. Reversed by `akm enable`.
 
@@ -28,11 +28,11 @@ pub fn run(paths: &Paths, tool_dirs: &ToolDirs) -> Result<()> {
     } else {
         println!("akm disabled.");
     }
-    println!("  - New shells get vanilla claude/copilot/opencode/pi (no wrappers)");
+    println!("  - New shells get vanilla claude/copilot/opencode/pi/vibe (no wrappers)");
     println!("  - Removed {cleared} global spec symlink(s) from tool directories");
     println!();
     println!("This shell still has the wrappers. To drop them now:");
-    println!("  unset -f claude copilot opencode pi");
+    println!("  unset -f claude copilot opencode pi vibe");
     println!();
     println!("Instruction files distributed to tool dirs (e.g. ~/.claude/CLAUDE.md,");
     println!("~/.posit/assistant/akm-instructions.md) are left in place.");
