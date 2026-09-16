@@ -120,7 +120,7 @@ fn instructions_sync_retires_vibe_prompt_override_it_wrote() {
         .env("XDG_CACHE_HOME", home.join(".cache"))
         .assert()
         .success()
-        .stdout(predicate::str::contains("Removed"));
+        .stdout(predicate::str::contains("Removed").not());
 
     assert!(!prompts.join("cli.md").exists());
     assert_eq!(

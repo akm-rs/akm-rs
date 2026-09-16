@@ -46,7 +46,8 @@ pub fn run(paths: &Paths) -> Result<()> {
 /// user file named after a built-in prompt override it wholesale, so the copy
 /// replaced Vibe's entire system prompt. Only a byte-identical copy is
 /// removed — a hand-written `cli.md`, or one from a since-edited source, is
-/// left alone.
+/// left alone. The removal is silent: it is a one-off migration of a file akm
+/// itself wrote, not something the user needs to act on.
 pub(crate) fn retire_vibe_prompt_override(home: &Path, source: &Path) -> Result<()> {
     let stale = home.join(".vibe").join("prompts").join("cli.md");
     if !stale.is_file() || !source.is_file() {
@@ -62,12 +63,7 @@ pub(crate) fn retire_vibe_prompt_override(home: &Path, source: &Path) -> Result<
         return Ok(());
     }
 
-    fs::remove_file(&stale).io_context(format!("Removing {}", stale.display()))?;
-    println!(
-        "Removed {} (Vibe now reads ~/.vibe/AGENTS.md; that file overrode its system prompt)",
-        stale.display()
-    );
-    Ok(())
+    fs::remove_file(&stale).io_context(format!("Removing {}", stale.display()))
 }
 
 /// Core sync logic, separated for testability.

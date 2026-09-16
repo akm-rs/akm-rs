@@ -29,7 +29,7 @@ pub fn run(paths: &Paths, tool_dirs: &ToolDirs) -> Result<()> {
     };
     println!("  - Restored {rebuilt} global core symlink(s)");
     println!();
-    println!("Start a new shell to restore the claude/copilot/opencode/pi wrappers.");
+    println!("Start a new shell to restore the claude/copilot/opencode/pi/vibe wrappers.");
 
     Ok(())
 }

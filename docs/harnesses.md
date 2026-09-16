@@ -12,7 +12,7 @@ Mount operations read them through `ToolDirs::mounts()`.
 |---------|---------|------------------------------|-------------|---------------|-----------|
 | Claude Code | `claude` | `~/.claude` | `.claude` | `--add-dir <staging>` | symlink + `--append-system-prompt` |
 | GitHub Copilot CLI | `copilot` | `~/.copilot` | `.copilot` | `--add-dir <staging>` | symlink in staging |
-| Mistral Vibe | `vibe` | `~/.vibe` | `.vibe` | none (not wrapped yet) | none |
+| Mistral Vibe | `vibe` | `~/.vibe` | `.vibe` | `--add-dir <staging>` | symlink in staging |
 | OpenCode | `opencode` | `~/.agents` | `.agents` | `OPENCODE_CONFIG_DIR` | symlink in staging |
 | Pi | `pi` | `~/.pi/agent` | `.pi` | `--skill <staging>/.pi/skills` | `--append-system-prompt` |
 | Posit Assistant | `pa` | `~/.posit/assistant` | — | — (sidecar) | — |
@@ -83,8 +83,8 @@ Pi CLI surface as of `0.82.1` (`@earendil-works/pi-coding-agent`); docs at
 
 ## Mistral Vibe
 
-Checked against Vibe `2.5.0` (installed) and upstream `main` at `2.25.4`
-(September 2026); source at <https://github.com/mistralai/mistral-vibe>.
+Checked against Vibe `2.25.4` (installed) and upstream `main` at the same
+version (September 2026); source at <https://github.com/mistralai/mistral-vibe>.
 
 - **Skills: symlinks are fine.** Discovery walks `~/.vibe/skills/` with
   pathlib, which follows symlinks. Since 2.11.0 Vibe also reads
@@ -103,9 +103,10 @@ Checked against Vibe `2.5.0` (installed) and upstream `main` at `2.25.4`
   `cli.md` when it is byte-identical to the current global instructions.
 - **`--add-dir` exists since 2.10.0.** It is repeatable, trusts the path, and
   pulls in that dir's `AGENTS.md` and `.vibe/` config (including
-  `.vibe/skills`). A session wrapper handing over `<staging>` would work like
-  Copilot's; it is not built, so Vibe has no session mount and no artifacts
-  hand-off. Adding one means all three places in AGENTS.md's harness checklist.
+  `.vibe/skills`). The session wrapper hands over `<staging>` exactly like
+  Copilot's: no `--append-system-prompt`, so the artifacts dir is reached
+  through the `.vibe/artifacts` symlink and the staging README. Vibe has no
+  argv[1] subcommands, so no Pi-style pass-through is needed.
 
 ## Posit Assistant
 

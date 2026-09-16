@@ -1,3 +1,12 @@
+# Unreleased
+
+- Mistral Vibe: `vibe` is now wrapped like `copilot`. The shell function hands
+  Vibe the per-session staging directory with `--add-dir` (Vibe 2.10.0+), so
+  project skills declared in `.agents/akm.json` reach Vibe per session, and the
+  artifacts directory is symlinked in at `<staging>/.vibe/artifacts`.
+- `akm instructions sync` no longer prints a line when it retires a leftover
+  `~/.vibe/prompts/cli.md`; the one-off cleanup is silent.
+
 # 1.1.1
 
 - Mistral Vibe: global instructions now go to `~/.vibe/AGENTS.md`, which Vibe

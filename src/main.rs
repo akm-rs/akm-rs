@@ -125,7 +125,7 @@ enum Commands {
     },
     /// Turn off shell integration so harnesses run vanilla (reversible)
     ///
-    /// New shells get the plain claude/copilot/opencode/pi binaries (no
+    /// New shells get the plain claude/copilot/opencode/pi/vibe binaries (no
     /// session wrappers) and global core-spec symlinks are removed from tool
     /// dirs. Nothing is deleted from config or the library. Undo with
     /// `akm enable`.

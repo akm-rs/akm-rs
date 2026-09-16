@@ -242,6 +242,45 @@ fn session_symlink_create() {
         .is_symlink());
 }
 
+/// `session-setup` links each manifest spec into every wrapped tool's staging
+/// subdir, Vibe included, pointing back into the cold library.
+#[test]
+fn session_setup_links_skills_into_every_wrapped_tool_dir() {
+    let tmp = TempDir::new().unwrap();
+    let paths = test_paths(&tmp);
+    create_test_library(&paths);
+    create_spec_on_disk(&paths.library_dir(), "tdd", SpecType::Skill);
+
+    let project = tmp.path().join("project");
+    std::fs::create_dir_all(&project).unwrap();
+    let mut manifest = akm::library::manifest::Manifest::load_or_create(&project).unwrap();
+    manifest.add("tdd", SpecType::Skill);
+    manifest.save().unwrap();
+
+    let staging = tmp.path().join("session");
+    for tool_dir in [".claude", ".copilot", ".agents", ".pi", ".vibe"] {
+        std::fs::create_dir_all(staging.join(tool_dir).join("skills")).unwrap();
+    }
+
+    akm::commands::skills::session_setup::run(
+        &paths,
+        staging.to_str().unwrap(),
+        project.to_str().unwrap(),
+        &test_tool_dirs(&tmp),
+    )
+    .unwrap();
+
+    for tool_dir in [".claude", ".copilot", ".agents", ".pi", ".vibe"] {
+        let link = staging.join(tool_dir).join("skills").join("tdd");
+        assert!(link.is_symlink(), "{tool_dir}/skills/tdd is not a symlink");
+        assert_eq!(
+            std::fs::read_link(&link).unwrap(),
+            paths.skills_dir().join("tdd"),
+            "{tool_dir}/skills/tdd should point into the library"
+        );
+    }
+}
+
 #[test]
 fn session_symlink_create_idempotent() {
     let tmp = TempDir::new().unwrap();

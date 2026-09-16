@@ -97,6 +97,22 @@ cat "$AKM_SESSION/README.md" > "{readme}" 2>&1
             ),
         );
 
+        // Vibe records argv and probes the .vibe subtree of the staging dir:
+        // the skills dir its --add-dir would read, and the artifacts symlink.
+        write_stub(
+            &stubs.join("vibe"),
+            &format!(
+                r#"#!/bin/bash
+printf '%s\n' "$@" > "{argv}"
+[[ -d "$AKM_SESSION/.vibe/skills" ]] && echo "skills-dir" > "{skills}"
+readlink "$AKM_SESSION/.vibe/artifacts" > "{artifacts}" 2>&1
+"#,
+                argv = h.probe("vibe-argv").display(),
+                skills = h.probe("vibe-skills").display(),
+                artifacts = h.probe("vibe-artifacts").display(),
+            ),
+        );
+
         std::fs::create_dir_all(root.join("myrepo")).unwrap();
         std::fs::write(
             root.join("akm-init.sh"),
@@ -271,6 +287,45 @@ fn test_claude_wrapper_mounts_and_announces() {
     assert!(
         argv.contains("Never write into the AKM session staging directory"),
         "append prompt missing the staging warning: {argv}"
+    );
+}
+
+// --- Vibe wrapper ---
+
+/// Vibe takes `--add-dir` like Copilot and has no `--append-system-prompt`,
+/// so it gets the staging dir mounted and finds artifacts through the
+/// `.vibe/artifacts` symlink inside it.
+#[test]
+fn test_vibe_wrapper_mounts_staging_dir() {
+    let h = Harness::new();
+    h.run("vibe --agent plan");
+    let argv = h.read_probe("vibe-argv");
+    let lines: Vec<&str> = argv.lines().collect();
+
+    let add_idx = lines
+        .iter()
+        .position(|l| *l == "--add-dir")
+        .expect("--add-dir not passed to vibe");
+    assert!(
+        lines[add_idx + 1].contains("/cache/akm/myrepo-"),
+        "unexpected --add-dir value: {}",
+        lines[add_idx + 1]
+    );
+    assert!(
+        !lines.contains(&"--append-system-prompt"),
+        "vibe has no --append-system-prompt: {argv}"
+    );
+    assert_eq!(
+        &lines[lines.len() - 2..],
+        &["--agent", "plan"],
+        "user args must come last: {argv}"
+    );
+
+    assert_eq!(h.read_probe("vibe-skills").trim(), "skills-dir");
+    assert_eq!(
+        h.read_probe("vibe-artifacts").trim(),
+        h.artifact_dir().to_string_lossy(),
+        "<staging>/.vibe/artifacts should point at the project's artifacts dir"
     );
 }
 
