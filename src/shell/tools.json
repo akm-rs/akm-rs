@@ -3,5 +3,6 @@
   {"name": "Github Copilot CLI", "command": "copilot", "dir": ".copilot"},
   {"name": "Mistral Vibe", "command": "vibe", "dir": ".vibe"},
   {"name": "OpenCode", "command": "opencode", "dir": ".agents"},
-  {"name": "Pi", "command": "pi", "dir": ".pi/agent"}
+  {"name": "Pi", "command": "pi", "dir": ".pi/agent"},
+  {"name": "Posit Assistant", "command": "pa", "dir": ".posit/assistant", "mount": "tree", "project_dir": ".posit/assistant"}
 ]

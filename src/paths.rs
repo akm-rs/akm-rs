@@ -226,6 +226,7 @@ impl Paths {
             self.home.join(".agents"),
             self.home.join(".vibe"),
             self.home.join(".pi").join("agent"),
+            self.home.join(".posit").join("assistant"),
         ]
     }
 }

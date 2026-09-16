@@ -11,14 +11,30 @@
 //!   {"name": "Github Copilot CLI", "command": "copilot", "dir": ".copilot"},
 //!   {"name": "Mistral Vibe", "command": "vibe", "dir": ".vibe"},
 //!   {"name": "OpenCode", "command": "opencode", "dir": ".agents"},
-//!   {"name": "Pi", "command": "pi", "dir": ".pi/agent"}
+//!   {"name": "Pi", "command": "pi", "dir": ".pi/agent"},
+//!   {"name": "Posit Assistant", "command": "pa", "dir": ".posit/assistant", "mount": "tree", "project_dir": ".posit/assistant"}
 //! ]
 //! ```
+//!
+//! `mount` defaults to `symlink` when absent; `project_dir` is optional.
 
 use crate::error::{Error, IoContext};
 use crate::paths::Paths;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
+
+/// How a harness's global dir receives mounted specs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Mount {
+    /// `<dir>/skills/<id>` is a symlink to the library skill (all harnesses so far).
+    #[default]
+    Symlink,
+    /// `<dir>/skills/<id>/` is a real directory whose entries are symlinks into
+    /// the library skill. For harnesses whose discovery skips symlinked dirs.
+    /// Agents are not mounted.
+    Tree,
+}
 
 /// A single tool definition from tools.json.
 ///
@@ -31,6 +47,13 @@ pub struct ToolDef {
     pub command: String,
     /// Directory name relative to $HOME (e.g., ".claude").
     pub dir: String,
+    /// How specs are mounted into `dir` (see [`Mount`]).
+    #[serde(default)]
+    pub mount: Mount,
+    /// Project-relative dir the harness reads project skills from, for
+    /// harnesses with no session mount. Materialized as a sidecar.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_dir: Option<String>,
 }
 
 impl ToolDef {
@@ -53,21 +76,29 @@ fn builtin_tools() -> Vec<ToolDef> {
             name: "Claude Code".into(),
             command: "claude".into(),
             dir: ".claude".into(),
+            mount: Mount::Symlink,
+            project_dir: None,
         },
         ToolDef {
             name: "Github Copilot CLI".into(),
             command: "copilot".into(),
             dir: ".copilot".into(),
+            mount: Mount::Symlink,
+            project_dir: None,
         },
         ToolDef {
             name: "Mistral Vibe".into(),
             command: "vibe".into(),
             dir: ".vibe".into(),
+            mount: Mount::Symlink,
+            project_dir: None,
         },
         ToolDef {
             name: "OpenCode".into(),
             command: "opencode".into(),
             dir: ".agents".into(),
+            mount: Mount::Symlink,
+            project_dir: None,
         },
         // Pi reads its global AGENTS.md and skills/ from ~/.pi/agent,
         // not ~/.pi — the config dir is one level down.
@@ -75,8 +106,30 @@ fn builtin_tools() -> Vec<ToolDef> {
             name: "Pi".into(),
             command: "pi".into(),
             dir: ".pi/agent".into(),
+            mount: Mount::Symlink,
+            project_dir: None,
+        },
+        // Posit Assistant's skill discovery skips symlinked directories, so
+        // its skills need a real directory per skill (tree mount) rather than
+        // a single symlink. It also has no session lifecycle, so project
+        // skills are materialized into a project_dir sidecar instead.
+        ToolDef {
+            name: "Posit Assistant".into(),
+            command: "pa".into(),
+            dir: ".posit/assistant".into(),
+            mount: Mount::Tree,
+            project_dir: Some(".posit/assistant".into()),
         },
     ]
+}
+
+/// A resolved global tool dir together with how specs are mounted into it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MountTarget {
+    /// Resolved absolute path to the global tool directory.
+    pub dir: PathBuf,
+    /// How specs are mounted into `dir`.
+    pub mount: Mount,
 }
 
 /// Resolved tool directories.
@@ -152,6 +205,18 @@ impl ToolDirs {
         &self.dirs
     }
 
+    /// Resolved global tool dirs paired with their mount kind.
+    pub fn mounts(&self) -> Vec<MountTarget> {
+        self.dirs
+            .iter()
+            .zip(self.tools.iter())
+            .map(|(dir, tool)| MountTarget {
+                dir: dir.clone(),
+                mount: tool.mount,
+            })
+            .collect()
+    }
+
     /// Get the tool definitions.
     pub fn tools(&self) -> &[ToolDef] {
         &self.tools
@@ -186,15 +251,16 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn builtin_has_five_tools() {
+    fn builtin_has_six_tools() {
         let tmp = TempDir::new().unwrap();
         let td = ToolDirs::builtin(tmp.path());
-        assert_eq!(td.count(), 5);
+        assert_eq!(td.count(), 6);
         assert_eq!(td.dirs()[0], tmp.path().join(".claude"));
         assert_eq!(td.dirs()[1], tmp.path().join(".copilot"));
         assert_eq!(td.dirs()[2], tmp.path().join(".vibe"));
         assert_eq!(td.dirs()[3], tmp.path().join(".agents"));
         assert_eq!(td.dirs()[4], tmp.path().join(".pi").join("agent"));
+        assert_eq!(td.dirs()[5], tmp.path().join(".posit").join("assistant"));
     }
 
     #[test]
@@ -203,7 +269,7 @@ mod tests {
         let td = ToolDirs::builtin(tmp.path());
         assert_eq!(
             td.display_names(),
-            "Claude Code, Github Copilot CLI, Mistral Vibe, OpenCode, Pi"
+            "Claude Code, Github Copilot CLI, Mistral Vibe, OpenCode, Pi, Posit Assistant"
         );
     }
 
@@ -213,7 +279,7 @@ mod tests {
         let td = ToolDirs::builtin(tmp.path());
         assert_eq!(
             td.staging_names(),
-            vec![".claude", ".copilot", ".vibe", ".agents", ".pi"]
+            vec![".claude", ".copilot", ".vibe", ".agents", ".pi", ".posit"]
         );
     }
 
@@ -240,8 +306,52 @@ mod tests {
             name: "Test".into(),
             command: "test".into(),
             dir: ".testtool".into(),
+            mount: Mount::Symlink,
+            project_dir: None,
         }];
         let td = ToolDirs::from_tools(tools, tmp.path());
         assert_eq!(td.dirs(), &[tmp.path().join(".testtool")]);
+    }
+
+    #[test]
+    fn mount_defaults_to_symlink_when_absent_from_json() {
+        let tmp = TempDir::new().unwrap();
+        let json_path = tmp.path().join("tools.json");
+        std::fs::write(
+            &json_path,
+            r#"[{"name":"TestTool","command":"test","dir":".test"}]"#,
+        )
+        .unwrap();
+
+        let tools = ToolDirs::load_from_file(&json_path).unwrap();
+        assert_eq!(tools[0].mount, Mount::Symlink);
+        assert_eq!(tools[0].project_dir, None);
+    }
+
+    #[test]
+    fn posit_entry_parses_tree_mount_and_project_dir() {
+        let tmp = TempDir::new().unwrap();
+        let json_path = tmp.path().join("tools.json");
+        std::fs::write(
+            &json_path,
+            r#"[{"name":"Posit Assistant","command":"pa","dir":".posit/assistant","mount":"tree","project_dir":".posit/assistant"}]"#,
+        )
+        .unwrap();
+
+        let tools = ToolDirs::load_from_file(&json_path).unwrap();
+        assert_eq!(tools[0].mount, Mount::Tree);
+        assert_eq!(tools[0].project_dir.as_deref(), Some(".posit/assistant"));
+    }
+
+    #[test]
+    fn mounts_pairs_dir_with_mount_kind() {
+        let tmp = TempDir::new().unwrap();
+        let td = ToolDirs::builtin(tmp.path());
+        let mounts = td.mounts();
+        assert_eq!(mounts.len(), 6);
+        assert_eq!(mounts[0].dir, tmp.path().join(".claude"));
+        assert_eq!(mounts[0].mount, Mount::Symlink);
+        assert_eq!(mounts[5].dir, tmp.path().join(".posit").join("assistant"));
+        assert_eq!(mounts[5].mount, Mount::Tree);
     }
 }
