@@ -34,8 +34,9 @@ pub fn run(paths: &Paths, tool_dirs: &ToolDirs) -> Result<()> {
     println!("This shell still has the wrappers. To drop them now:");
     println!("  unset -f claude copilot opencode pi");
     println!();
-    println!("Instruction files distributed to tool dirs (e.g. ~/.claude/CLAUDE.md)");
-    println!("are left in place. Re-enable with: akm enable");
+    println!("Instruction files distributed to tool dirs (e.g. ~/.claude/CLAUDE.md,");
+    println!("~/.posit/assistant/akm-instructions.md) are left in place.");
+    println!("Re-enable with: akm enable");
 
     Ok(())
 }

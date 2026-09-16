@@ -4,10 +4,16 @@
 //! 1. Carry a pre-rc4 instructions file into the registry, if there is one
 //! 2. Check the registry-hosted source exists
 //! 3. If not, print warning and return Ok (not an error)
-//! 4. For each target (tool dir + filename): create dir, copy file
-//! 5. Print count of distributed copies
+//! 4. For each target (tool dir + filename): create dir, write the file
+//! 5. For targets with `Delivery::Include`: also ensure the host file in the
+//!    same directory contains a single `@<filename>` include line, appending
+//!    it only if not already present — the host file's existing content is
+//!    never overwritten
+//! 6. Print count of distributed copies
 
-use crate::commands::instructions::{default_targets, seed_from_legacy, InstructionsTarget};
+use crate::commands::instructions::{
+    default_targets, seed_from_legacy, Delivery, InstructionsTarget,
+};
 use crate::error::{IoContext, Result};
 use crate::paths::Paths;
 use std::fs;
@@ -59,9 +65,45 @@ pub(crate) fn sync_instructions(source: &Path, targets: &[InstructionsTarget]) -
         fs::write(&dest, &content)
             .io_context(format!("Writing instructions to {}", dest.display()))?;
         count += 1;
+
+        if let Delivery::Include { host } = &target.delivery {
+            ensure_include_line(&target.dir, host, &target.filename)?;
+        }
     }
 
     println!("Global instructions distributed to {count} tool directories");
+    Ok(())
+}
+
+/// Ensure `dir/host` contains a line `@<filename>`, appending it if missing.
+///
+/// The host file's existing content is never rewritten — this only appends,
+/// and only when the include line is not already present (checked with
+/// leading/trailing whitespace trimmed, so a manually reformatted line is
+/// still recognized). If `dir/host` does not exist, it is created containing
+/// just the include line.
+fn ensure_include_line(dir: &Path, host: &str, filename: &str) -> Result<()> {
+    let host_path = dir.join(host);
+    let include_line = format!("@{filename}");
+
+    let existing = if host_path.exists() {
+        fs::read_to_string(&host_path).io_context(format!("Reading {}", host_path.display()))?
+    } else {
+        String::new()
+    };
+
+    if existing.lines().any(|line| line.trim() == include_line) {
+        return Ok(());
+    }
+
+    let mut updated = existing;
+    if !updated.is_empty() && !updated.ends_with('\n') {
+        updated.push('\n');
+    }
+    updated.push_str(&include_line);
+    updated.push('\n');
+
+    fs::write(&host_path, updated).io_context(format!("Writing {}", host_path.display()))?;
     Ok(())
 }
 
@@ -78,6 +120,7 @@ mod tests {
         let targets = vec![InstructionsTarget {
             dir: tmp.path().join("target"),
             filename: "out.md".into(),
+            delivery: Delivery::Overwrite,
         }];
 
         // Should succeed (return Ok), not create any files
@@ -96,10 +139,12 @@ mod tests {
             InstructionsTarget {
                 dir: tmp.path().join("tool1"),
                 filename: "INSTRUCTIONS.md".into(),
+                delivery: Delivery::Overwrite,
             },
             InstructionsTarget {
                 dir: tmp.path().join("tool2"),
                 filename: "instructions.md".into(),
+                delivery: Delivery::Overwrite,
             },
         ];
 
@@ -122,6 +167,7 @@ mod tests {
         let targets = vec![InstructionsTarget {
             dir: tmp.path().join("deep").join("nested").join("dir"),
             filename: "out.md".into(),
+            delivery: Delivery::Overwrite,
         }];
 
         let result = sync_instructions(&source, &targets);
@@ -142,6 +188,7 @@ mod tests {
         let targets = vec![InstructionsTarget {
             dir: target_dir,
             filename: "out.md".into(),
+            delivery: Delivery::Overwrite,
         }];
 
         let result = sync_instructions(&source, &targets);
@@ -160,6 +207,7 @@ mod tests {
         let targets = vec![InstructionsTarget {
             dir: tmp.path().join("tool"),
             filename: "out.md".into(),
+            delivery: Delivery::Overwrite,
         }];
 
         // Run twice — second run should not fail
@@ -168,5 +216,104 @@ mod tests {
 
         let content = fs::read_to_string(tmp.path().join("tool/out.md")).unwrap();
         assert_eq!(content, "content");
+    }
+
+    #[test]
+    fn include_appends_line_to_existing_host_keeping_its_text() {
+        let tmp = TempDir::new().unwrap();
+        let source = tmp.path().join("global-instructions.md");
+        fs::write(&source, "content").unwrap();
+
+        let target_dir = tmp.path().join("posit");
+        fs::create_dir_all(&target_dir).unwrap();
+        fs::write(target_dir.join("AGENTS.md"), "# My memory\nfact one").unwrap();
+
+        let targets = vec![InstructionsTarget {
+            dir: target_dir.clone(),
+            filename: "akm-instructions.md".into(),
+            delivery: Delivery::Include {
+                host: "AGENTS.md".into(),
+            },
+        }];
+
+        sync_instructions(&source, &targets).unwrap();
+
+        let host = fs::read_to_string(target_dir.join("AGENTS.md")).unwrap();
+        assert_eq!(host, "# My memory\nfact one\n@akm-instructions.md\n");
+        let sibling = fs::read_to_string(target_dir.join("akm-instructions.md")).unwrap();
+        assert_eq!(sibling, "content");
+    }
+
+    #[test]
+    fn include_is_idempotent_on_second_sync() {
+        let tmp = TempDir::new().unwrap();
+        let source = tmp.path().join("global-instructions.md");
+        fs::write(&source, "content").unwrap();
+
+        let target_dir = tmp.path().join("posit");
+        fs::create_dir_all(&target_dir).unwrap();
+        fs::write(target_dir.join("AGENTS.md"), "# My memory\nfact one").unwrap();
+
+        let targets = vec![InstructionsTarget {
+            dir: target_dir.clone(),
+            filename: "akm-instructions.md".into(),
+            delivery: Delivery::Include {
+                host: "AGENTS.md".into(),
+            },
+        }];
+
+        sync_instructions(&source, &targets).unwrap();
+        let after_first = fs::read(target_dir.join("AGENTS.md")).unwrap();
+
+        sync_instructions(&source, &targets).unwrap();
+        let after_second = fs::read(target_dir.join("AGENTS.md")).unwrap();
+
+        assert_eq!(after_first, after_second);
+    }
+
+    #[test]
+    fn include_creates_host_when_absent() {
+        let tmp = TempDir::new().unwrap();
+        let source = tmp.path().join("global-instructions.md");
+        fs::write(&source, "content").unwrap();
+
+        let target_dir = tmp.path().join("posit");
+
+        let targets = vec![InstructionsTarget {
+            dir: target_dir.clone(),
+            filename: "akm-instructions.md".into(),
+            delivery: Delivery::Include {
+                host: "AGENTS.md".into(),
+            },
+        }];
+
+        sync_instructions(&source, &targets).unwrap();
+
+        let host = fs::read_to_string(target_dir.join("AGENTS.md")).unwrap();
+        assert_eq!(host, "@akm-instructions.md\n");
+    }
+
+    #[test]
+    fn include_recognises_line_with_surrounding_whitespace() {
+        let tmp = TempDir::new().unwrap();
+        let source = tmp.path().join("global-instructions.md");
+        fs::write(&source, "content").unwrap();
+
+        let target_dir = tmp.path().join("posit");
+        fs::create_dir_all(&target_dir).unwrap();
+        fs::write(target_dir.join("AGENTS.md"), "  @akm-instructions.md \n").unwrap();
+
+        let targets = vec![InstructionsTarget {
+            dir: target_dir.clone(),
+            filename: "akm-instructions.md".into(),
+            delivery: Delivery::Include {
+                host: "AGENTS.md".into(),
+            },
+        }];
+
+        sync_instructions(&source, &targets).unwrap();
+
+        let host = fs::read_to_string(target_dir.join("AGENTS.md")).unwrap();
+        assert_eq!(host, "  @akm-instructions.md \n");
     }
 }
