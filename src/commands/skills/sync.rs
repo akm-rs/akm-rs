@@ -133,7 +133,7 @@ pub fn execute(
 
     // --- Rebuild global symlinks ---
     let symlink_count = if library_json.is_file() {
-        symlinks::rebuild_core(&library.core_specs(), &library_dir, tool_dirs.dirs())?
+        symlinks::rebuild_core(&library.core_specs(), &library_dir, &tool_dirs.mounts())?
     } else {
         0
     };

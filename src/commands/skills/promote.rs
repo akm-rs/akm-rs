@@ -141,7 +141,7 @@ pub fn run(
 
     // Step 8: Rebuild global symlinks
     let core_specs = library.core_specs();
-    let count = symlinks::rebuild_core(&core_specs, &library_dir, tool_dirs.dirs())?;
+    let count = symlinks::rebuild_core(&core_specs, &library_dir, &tool_dirs.mounts())?;
     println!("  {count} core symlinks rebuilt");
     println!();
     println!("Promoted skill '{id}' to cold storage");

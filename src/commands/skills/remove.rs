@@ -8,12 +8,15 @@
 //!    b. If NOT in library, try removing from both arrays
 //!    c. If AKM_SESSION is active, also remove session symlinks
 //! 4. Save the manifest
+//! 5. Refresh the project sidecar for harnesses with a `project_dir` (e.g.
+//!    Posit Assistant), printing a mount count for those harnesses
 //!
 //! Idempotency: Removing an ID that's not present warns but doesn't fail.
 
 use crate::error::{Error, Result};
 use crate::git::Git;
 use crate::library::manifest::Manifest;
+use crate::library::sidecar;
 use crate::library::symlinks;
 use crate::library::tool_dirs::ToolDirs;
 use crate::library::Library;
@@ -61,5 +64,16 @@ pub fn run(paths: &Paths, ids: &[String], tool_dirs: &ToolDirs) -> Result<()> {
     }
 
     manifest.save()?;
+
+    let sidecar_report = sidecar::refresh(
+        &project_root,
+        &manifest,
+        &paths.library_dir(),
+        tool_dirs.tools(),
+    )?;
+    if tool_dirs.tools().iter().any(|t| t.project_dir.is_some()) {
+        println!("✓ Posit sidecar: {} skill(s)", sidecar_report.mounted);
+    }
+
     Ok(())
 }

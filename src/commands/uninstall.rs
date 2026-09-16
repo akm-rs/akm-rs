@@ -89,8 +89,9 @@ fn print_plan(paths: &Paths, purge: bool) {
         );
     }
     println!();
-    println!("Instruction files distributed to tool dirs (e.g. ~/.claude/CLAUDE.md)");
-    println!("are left in place — they may contain your own edits.");
+    println!("Instruction files distributed to tool dirs (e.g. ~/.claude/CLAUDE.md,");
+    println!("~/.posit/assistant/akm-instructions.md) are left in place — they may");
+    println!("contain your own edits.");
     println!();
 }
 
@@ -105,7 +106,7 @@ pub fn remove_files(paths: &Paths, tool_dirs: &ToolDirs, purge: bool) -> Result<
     }
 
     // 2. Global spec symlinks (before tools.json goes away)
-    let cleared = symlinks::clear_all(tool_dirs.dirs())?;
+    let cleared = symlinks::clear_all(&tool_dirs.mounts(), &paths.library_dir())?;
     if cleared > 0 {
         println!("Removed {cleared} global spec symlink(s)");
     }

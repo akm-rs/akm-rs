@@ -1,3 +1,19 @@
+# Unreleased
+
+- Add Posit Assistant as a sixth harness (`~/.posit/assistant`). Its skill
+  discovery skips symlinked directories, so core skills mount as real
+  directories whose entries are symlinks into the library (tree mount)
+  instead of the symlinked-dir mount every other harness uses.
+- `akm instructions sync` writes `~/.posit/assistant/akm-instructions.md` and
+  adds a single `@akm-instructions.md` include line to
+  `~/.posit/assistant/AGENTS.md`, appended once and never overwriting the
+  file, since Posit's own `/savememory` command appends to it too.
+- Project skills for Posit are materialized into a gitignored sidecar at
+  `<project>/.posit/assistant/skills/`, refreshed by `akm skills add`/`remove`,
+  the interactive TUI, `skills delete`/`rename`, and at session setup.
+- `tools.json` entries gain `mount` (`symlink` default, or `tree`) and
+  optional `project_dir` fields; existing files without them still parse.
+
 # 1.0.1
 
 - `akm skills import` accepts repository-root GitHub URLs —

@@ -376,6 +376,32 @@ fn clean_global_dry_run() {
     assert!(skills_dir.join("stale.md").exists());
 }
 
+#[test]
+fn clean_global_keeps_owned_tree_and_user_skill_under_posit() {
+    let tmp = TempDir::new().unwrap();
+    let tool_dirs = test_tool_dirs(&tmp);
+    let paths = test_paths(&tmp);
+
+    // Library skill, tree-mounted into Posit's global dir.
+    create_spec_on_disk(&paths.library_dir(), "tdd", SpecType::Skill);
+    let posit_skills = tmp.path().join("home/.posit/assistant/skills");
+    std::fs::create_dir_all(posit_skills.join("tdd")).unwrap();
+    std::os::unix::fs::symlink(
+        paths.skills_dir().join("tdd").join("SKILL.md"),
+        posit_skills.join("tdd").join("SKILL.md"),
+    )
+    .unwrap();
+
+    // A skill the user wrote by hand next to it.
+    std::fs::create_dir_all(posit_skills.join("mine")).unwrap();
+    std::fs::write(posit_skills.join("mine").join("SKILL.md"), "mine").unwrap();
+
+    akm::commands::skills::clean::run(&paths, &tool_dirs, false, false).unwrap();
+
+    assert!(posit_skills.join("tdd").join("SKILL.md").is_symlink());
+    assert!(posit_skills.join("mine").join("SKILL.md").is_file());
+}
+
 // =============================================================================
 // Promote tests
 // =============================================================================
@@ -977,4 +1003,89 @@ fn git_reset_unstages_changes() {
 
     akm::git::Git::reset(&repo).unwrap();
     assert!(akm::git::Git::is_staging_clean(&repo).unwrap());
+}
+
+// =============================================================================
+// Posit sidecar via `skills add` / `skills remove`
+// =============================================================================
+
+/// `akm skills add` materializes the manifest into the Posit sidecar
+/// (`.posit/assistant/skills/<id>/`, a tree mount, invisible to git via its
+/// own `.gitignore`), and `akm skills remove` tears it back down.
+#[test]
+fn add_then_remove_materializes_and_removes_posit_sidecar() {
+    use assert_cmd::cargo::cargo_bin_cmd;
+
+    let tmp = TempDir::new().unwrap();
+    let paths = test_paths(&tmp);
+
+    // Library with a "tdd" skill on disk.
+    std::fs::create_dir_all(paths.library_dir().join("skills")).unwrap();
+    create_spec_on_disk(&paths.library_dir(), "tdd", SpecType::Skill);
+    let mut library = Library::new();
+    library.specs.push(Spec::new(
+        "tdd",
+        SpecType::Skill,
+        "TDD",
+        "Test-driven development",
+    ));
+    library.save_to(&paths.library_json()).unwrap();
+
+    // Minimal config with skills enabled.
+    let config_dir = tmp.path().join("config").join("akm");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::write(config_dir.join("config.toml"), "features = [\"skills\"]\n").unwrap();
+
+    // A git repo to act as the project root.
+    let repo = tmp.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    std::process::Command::new("git")
+        .args(["init", "--quiet", "-b", "main"])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+
+    let env_vars = [
+        ("XDG_DATA_HOME", tmp.path().join("data")),
+        ("XDG_CONFIG_HOME", tmp.path().join("config")),
+        ("XDG_CACHE_HOME", tmp.path().join("cache")),
+        ("HOME", tmp.path().join("home")),
+    ];
+
+    let mut add_cmd = cargo_bin_cmd!("akm");
+    add_cmd.args(["skills", "add", "tdd"]).current_dir(&repo);
+    for (key, val) in &env_vars {
+        add_cmd.env(key, val);
+    }
+    add_cmd
+        .assert()
+        .success()
+        .stdout(pred_contains("Posit sidecar: 1 skill(s)"));
+
+    let sidecar_skill = repo.join(".posit/assistant/skills/tdd");
+    assert!(sidecar_skill.join("SKILL.md").is_symlink());
+    assert!(repo.join(".posit/assistant/skills/.gitignore").is_file());
+
+    let status = std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(&repo)
+        .output()
+        .unwrap();
+    let status_out = String::from_utf8(status.stdout).unwrap();
+    let lines: Vec<&str> = status_out.lines().collect();
+    assert_eq!(lines, vec!["?? .agents/"]);
+
+    let mut remove_cmd = cargo_bin_cmd!("akm");
+    remove_cmd
+        .args(["skills", "remove", "tdd"])
+        .current_dir(&repo);
+    for (key, val) in &env_vars {
+        remove_cmd.env(key, val);
+    }
+    remove_cmd
+        .assert()
+        .success()
+        .stdout(pred_contains("Posit sidecar: 0 skill(s)"));
+
+    assert!(!repo.join(".posit").exists());
 }

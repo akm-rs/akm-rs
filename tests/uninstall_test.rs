@@ -78,6 +78,19 @@ fn install_fixture(paths: &Paths) {
         std::fs::create_dir_all(&skills).unwrap();
         std::os::unix::fs::symlink(&skill_dir, skills.join("tdd")).unwrap();
     }
+
+    // Posit Assistant is tree-mounted: `skills/tdd/` is a real directory whose
+    // entries are symlinks into the library skill. Skills the user wrote by
+    // hand live in the same directory and are never akm's to touch.
+    let posit_skills = paths.home().join(".posit/assistant/skills");
+    std::fs::create_dir_all(posit_skills.join("tdd")).unwrap();
+    std::os::unix::fs::symlink(
+        skill_dir.join("SKILL.md"),
+        posit_skills.join("tdd").join("SKILL.md"),
+    )
+    .unwrap();
+    std::fs::create_dir_all(posit_skills.join("mine")).unwrap();
+    std::fs::write(posit_skills.join("mine").join("SKILL.md"), "mine").unwrap();
 }
 
 fn bashrc_content(paths: &Paths) -> String {
@@ -170,6 +183,25 @@ fn uninstall_leaves_non_symlink_tool_dir_content() {
 }
 
 #[test]
+fn uninstall_removes_owned_tree_and_keeps_user_skill_dir() {
+    let tmp = TempDir::new().unwrap();
+    let paths = test_paths(&tmp);
+    install_fixture(&paths);
+
+    uninstall::remove_files(&paths, &test_tool_dirs(&tmp), false).unwrap();
+
+    let posit_skills = paths.home().join(".posit/assistant/skills");
+    assert!(
+        !posit_skills.join("tdd").exists(),
+        "akm-owned tree should be removed"
+    );
+    assert!(
+        posit_skills.join("mine/SKILL.md").is_file(),
+        "hand-authored skill dir should survive"
+    );
+}
+
+#[test]
 fn uninstall_purge_leaves_distributed_instructions() {
     let tmp = TempDir::new().unwrap();
     let paths = test_paths(&tmp);
@@ -233,6 +265,17 @@ fn disable_creates_sentinel_and_clears_symlinks() {
     assert!(paths.disabled_sentinel().is_file());
     assert!(!paths.home().join(".claude/skills/tdd").is_symlink());
     assert!(!paths.home().join(".pi/agent/skills/tdd").is_symlink());
+    assert!(
+        !paths.home().join(".posit/assistant/skills/tdd").exists(),
+        "akm-owned tree should be cleared"
+    );
+    assert!(
+        paths
+            .home()
+            .join(".posit/assistant/skills/mine/SKILL.md")
+            .is_file(),
+        "hand-authored skill dir should survive"
+    );
     // Library untouched
     assert!(paths.skills_dir().join("tdd/SKILL.md").is_file());
     assert!(paths.library_json().is_file());
@@ -266,6 +309,16 @@ fn enable_removes_sentinel_and_rebuilds_core_symlinks() {
     assert!(
         paths.home().join(".pi/agent/skills/tdd").is_symlink(),
         "pi core symlink should be rebuilt"
+    );
+
+    let tree = paths.home().join(".posit/assistant/skills/tdd");
+    assert!(
+        tree.is_dir() && !tree.is_symlink(),
+        "posit core mount should be a real directory"
+    );
+    assert!(
+        tree.join("SKILL.md").is_symlink(),
+        "posit tree entries should be symlinks into the library"
     );
 }
 

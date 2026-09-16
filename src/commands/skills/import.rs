@@ -596,7 +596,7 @@ fn prompted_meta(id: &str, fm: &Frontmatter, source: Option<String>) -> SpecMeta
 fn rebuild(paths: &Paths, tool_dirs: &ToolDirs, library_dir: &Path) -> Result<()> {
     libgen::generate(library_dir, &paths.library_json())?;
     let library = Library::load_from(&paths.library_json())?;
-    let count = symlinks::rebuild_core(&library.core_specs(), library_dir, tool_dirs.dirs())?;
+    let count = symlinks::rebuild_core(&library.core_specs(), library_dir, &tool_dirs.mounts())?;
     println!("  {count} core symlinks rebuilt");
     Ok(())
 }

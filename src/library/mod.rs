@@ -9,6 +9,7 @@ pub mod frontmatter;
 pub mod libgen;
 pub mod local;
 pub mod manifest;
+pub mod sidecar;
 pub mod spec;
 pub mod symlinks;
 pub mod tool_dirs;

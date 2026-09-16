@@ -92,7 +92,7 @@ pub(crate) fn rebuild_after_revert(paths: &Paths, tool_dirs: &ToolDirs) -> Resul
     }
     library.save_to(&paths.library_json())?;
 
-    symlinks::rebuild_core(&library.core_specs(), &library_dir, tool_dirs.dirs())
+    symlinks::rebuild_core(&library.core_specs(), &library_dir, &tool_dirs.mounts())
 }
 
 /// Ask before discarding work. Non-interactive callers must pass `--force`.

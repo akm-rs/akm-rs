@@ -51,6 +51,16 @@ pub(crate) fn seed_from_legacy(paths: &Paths) -> Result<bool> {
     Ok(true)
 }
 
+/// How the instructions reach a target directory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Delivery {
+    /// Write the file at `dir/filename` (all current targets).
+    Overwrite,
+    /// Write `dir/filename`, and ensure `dir/<host>` contains one line
+    /// `@<filename>`. `host` is created with just that line if absent.
+    Include { host: String },
+}
+
 /// An instructions sync target: a directory + filename pair.
 ///
 /// Each tool expects global instructions at a different path with a different
@@ -61,6 +71,8 @@ pub struct InstructionsTarget {
     pub dir: PathBuf,
     /// Filename within that directory (e.g., "CLAUDE.md", "copilot-instructions.md").
     pub filename: String,
+    /// How the file at `dir/filename` reaches the tool.
+    pub delivery: Delivery,
 }
 
 impl InstructionsTarget {
@@ -72,19 +84,25 @@ impl InstructionsTarget {
 
 /// Build the list of instructions sync targets.
 ///
-/// | Directory | Filename |
-/// |-----------|----------|
-/// | `~/.claude` | `CLAUDE.md` |
-/// | `~/.copilot` | `copilot-instructions.md` |
-/// | `~/.vibe/prompts` | `cli.md` |
-/// | `~/.agents` | `AGENTS.md` |
-/// | `~/.pi/agent` | `AGENTS.md` |
+/// | Directory | Filename | Delivery |
+/// |-----------|----------|----------|
+/// | `~/.claude` | `CLAUDE.md` | Overwrite |
+/// | `~/.copilot` | `copilot-instructions.md` | Overwrite |
+/// | `~/.vibe/prompts` | `cli.md` | Overwrite |
+/// | `~/.agents` | `AGENTS.md` | Overwrite |
+/// | `~/.pi/agent` | `AGENTS.md` | Overwrite |
+/// | `~/.posit/assistant` | `akm-instructions.md` | Include into `AGENTS.md` |
 ///
 /// Note: The `.vibe` target uses a subdirectory (`prompts/`), which differs from
 /// the generic tool dir (`.vibe`). This is instructions-specific behavior.
 ///
 /// Pi reads its global context file from its config dir (`~/.pi/agent`), using
 /// the same `AGENTS.md` name as OpenCode.
+///
+/// Posit Assistant is different: its own `/savememory` command appends to
+/// `AGENTS.md`, so akm must not overwrite that file. Instead it writes the
+/// instructions to a sibling file and links it in with a single `@<filename>`
+/// include line, appended once.
 ///
 /// # Arguments
 /// * `home` — User home directory (for resolving `~/.claude`, etc.)
@@ -93,22 +111,34 @@ pub fn default_targets(home: &Path) -> Vec<InstructionsTarget> {
         InstructionsTarget {
             dir: home.join(".claude"),
             filename: "CLAUDE.md".into(),
+            delivery: Delivery::Overwrite,
         },
         InstructionsTarget {
             dir: home.join(".copilot"),
             filename: "copilot-instructions.md".into(),
+            delivery: Delivery::Overwrite,
         },
         InstructionsTarget {
             dir: home.join(".vibe").join("prompts"),
             filename: "cli.md".into(),
+            delivery: Delivery::Overwrite,
         },
         InstructionsTarget {
             dir: home.join(".agents"),
             filename: "AGENTS.md".into(),
+            delivery: Delivery::Overwrite,
         },
         InstructionsTarget {
             dir: home.join(".pi").join("agent"),
             filename: "AGENTS.md".into(),
+            delivery: Delivery::Overwrite,
+        },
+        InstructionsTarget {
+            dir: home.join(".posit").join("assistant"),
+            filename: "akm-instructions.md".into(),
+            delivery: Delivery::Include {
+                host: "AGENTS.md".into(),
+            },
         },
     ]
 }
@@ -171,9 +201,9 @@ mod tests {
     }
 
     #[test]
-    fn default_targets_has_five_entries() {
+    fn default_targets_has_six_entries() {
         let targets = default_targets(Path::new("/home/user"));
-        assert_eq!(targets.len(), 5);
+        assert_eq!(targets.len(), 6);
     }
 
     #[test]
@@ -199,6 +229,22 @@ mod tests {
         assert_eq!(
             targets[4].path(),
             PathBuf::from("/home/user/.pi/agent/AGENTS.md")
+        );
+        assert_eq!(
+            targets[5].path(),
+            PathBuf::from("/home/user/.posit/assistant/akm-instructions.md")
+        );
+    }
+
+    #[test]
+    fn posit_target_includes_from_agents_md() {
+        let targets = default_targets(Path::new("/home/user"));
+        let posit = &targets[5];
+        assert_eq!(
+            posit.delivery,
+            Delivery::Include {
+                host: "AGENTS.md".into()
+            }
         );
     }
 

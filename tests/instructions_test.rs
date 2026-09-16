@@ -65,7 +65,7 @@ fn instructions_sync_distributes_to_all_tool_dirs() {
         .env("XDG_CACHE_HOME", home.join(".cache"))
         .assert()
         .success()
-        .stdout(predicate::str::contains("5 tool directories"));
+        .stdout(predicate::str::contains("6 tool directories"));
 
     // Verify each target
     assert_eq!(
@@ -87,6 +87,42 @@ fn instructions_sync_distributes_to_all_tool_dirs() {
     assert_eq!(
         fs::read_to_string(home.join(".pi/agent/AGENTS.md")).unwrap(),
         "Be concise."
+    );
+    assert_eq!(
+        fs::read_to_string(home.join(".posit/assistant/akm-instructions.md")).unwrap(),
+        "Be concise."
+    );
+    assert_eq!(
+        fs::read_to_string(home.join(".posit/assistant/AGENTS.md")).unwrap(),
+        "@akm-instructions.md\n"
+    );
+}
+
+#[test]
+fn instructions_sync_preserves_posit_agents_md() {
+    let tmp = TempDir::new().unwrap();
+    let (home, _, instructions) = setup_env(&tmp);
+
+    fs::write(&instructions, "Be concise.").unwrap();
+
+    let posit_dir = home.join(".posit/assistant");
+    fs::create_dir_all(&posit_dir).unwrap();
+    fs::write(posit_dir.join("AGENTS.md"), "# memory\n- likes tea\n").unwrap();
+
+    for _ in 0..2 {
+        cargo_bin_cmd!("akm")
+            .args(["instructions", "sync"])
+            .env("HOME", &home)
+            .env("XDG_CONFIG_HOME", home.join(".config"))
+            .env("XDG_DATA_HOME", home.join(".local/share"))
+            .env("XDG_CACHE_HOME", home.join(".cache"))
+            .assert()
+            .success();
+    }
+
+    assert_eq!(
+        fs::read_to_string(posit_dir.join("AGENTS.md")).unwrap(),
+        "# memory\n- likes tea\n@akm-instructions.md\n"
     );
 }
 
@@ -360,7 +396,7 @@ fn instructions_sync_seeds_from_the_pre_rc4_location() {
         .assert()
         .success()
         .stdout(predicate::str::contains("personal registry"))
-        .stdout(predicate::str::contains("5 tool directories"));
+        .stdout(predicate::str::contains("6 tool directories"));
 
     assert_eq!(
         fs::read_to_string(&instructions).unwrap(),

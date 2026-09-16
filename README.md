@@ -21,6 +21,7 @@ AKM wires the same library of skills, agents and instructions into every harness
 | [OpenCode](https://opencode.ai) | `opencode` | `~/.agents` | `OPENCODE_CONFIG_DIR` | symlinked into staging |
 | [Pi](https://pi.dev) | `pi` | `~/.pi/agent` | `--skill <staging>/.pi/skills` | named in the system prompt |
 | Mistral Vibe | `vibe` | `~/.vibe` | — (no wrapper) | — |
+| Posit Assistant | `pa` | `~/.posit/assistant` | none (sidecar `.posit/assistant/skills`) | — |
 
 `akm setup` installs shell functions that shadow `claude`, `copilot`, `opencode` and `pi`. Each one builds a per-session staging directory of symlinks into the cold library, hands it to the tool in whatever form that tool understands, and tears it down on exit.
 
@@ -29,6 +30,16 @@ AKM wires the same library of skills, agents and instructions into every harness
 Pi has no `--add-dir`. Session skills mount with `--skill`, and the artifacts directory — which Pi's file tools can already reach — is named in the system prompt with `--append-system-prompt`. Your own `.pi/APPEND_SYSTEM.md` (project, else `~/.pi/agent/APPEND_SYSTEM.md`) is passed alongside it.
 
 Pi has no subagents, so only skills are mounted for it.
+
+### Posit Assistant
+
+Posit Assistant runs inside the Positron IDE, so there is no `pa` command to wrap and no session to hook into — `akm skills sync` mounts straight into `~/.posit/assistant/`.
+
+Posit's skill discovery skips symlinked directories, so core skills are mounted as real directories under `~/.posit/assistant/skills/<id>/` whose contents are symlinks into the library, rather than a symlinked directory itself. Any hand-written skill dir you keep alongside them is left alone — AKM only touches trees it fully owns.
+
+Project skills go into a gitignored sidecar at `<project>/.posit/assistant/skills/`, refreshed by `akm skills add`/`remove`, the interactive TUI, `skills delete`/`rename`, and at session setup; only `.agents/akm.json` is tracked.
+
+Posit scans skills when a conversation starts, not live, so reload the Positron window (or start a new conversation) after syncing to see new skills.
 
 The tool list lives in `~/.local/share/akm/tools.json` and can be edited to add harnesses without recompiling.
 
@@ -344,7 +355,9 @@ Global instructions live in the registry, at `instructions/global.md`, so they
 propagate between your machines through the same clone, drift and publish flow
 as a skill. `instructions sync` writes that file out under each tool's expected
 name: `~/.claude/CLAUDE.md`, `~/.copilot/copilot-instructions.md`,
-`~/.vibe/prompts/cli.md`, `~/.agents/AGENTS.md` and `~/.pi/agent/AGENTS.md`.
+`~/.vibe/prompts/cli.md`, `~/.agents/AGENTS.md`, `~/.pi/agent/AGENTS.md` and
+`~/.posit/assistant/akm-instructions.md` (included from `AGENTS.md` via an
+`@akm-instructions.md` line, so Posit's `/savememory` notes are kept).
 
 A pre-rc4 `~/.akm/global-instructions.md` is carried into the registry the first
 time the new file is needed; the old file is left where it is.

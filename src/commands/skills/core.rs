@@ -108,7 +108,7 @@ fn adopt(paths: &Paths, overrides: &mut LocalOverrides, tool_dirs: &ToolDirs) ->
     crate::library::libgen::generate(&library_dir, &paths.library_json())?;
     let library = Library::load_from(&paths.library_json())?;
 
-    let count = symlinks::rebuild_core(&library.core_specs(), &library_dir, tool_dirs.dirs())?;
+    let count = symlinks::rebuild_core(&library.core_specs(), &library_dir, &tool_dirs.mounts())?;
 
     println!("Dropped {dropped} local core override(s).");
     println!("{count} core symlinks rebuilt from the registry's defaults.");
