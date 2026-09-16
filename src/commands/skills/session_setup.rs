@@ -1,13 +1,17 @@
 //! Hidden helper: set up session staging from project manifest in a single invocation.
 //!
 //! Called by the generated akm-init.sh to populate a staging directory with
-//! symlinks for all specs declared in the project manifest.
+//! symlinks for all specs declared in the project manifest. Also refreshes
+//! the project sidecar (see [`crate::library::sidecar`]) for harnesses with
+//! no session lifecycle, such as Posit Assistant.
 //!
 //! Not intended for direct user invocation (hidden from help).
 
 use crate::error::Result;
 use crate::library::manifest::Manifest;
+use crate::library::sidecar;
 use crate::library::spec::SpecType;
+use crate::library::tool_dirs::ToolDirs;
 use crate::library::Library;
 use crate::paths::Paths;
 use std::path::Path;
@@ -15,7 +19,12 @@ use std::path::Path;
 /// Set up session staging: read manifest, create symlinks for each spec.
 ///
 /// Returns Ok(()) even on partial failures (shell init handles gracefully).
-pub fn run(paths: &Paths, staging_dir: &str, project_root: &str) -> Result<()> {
+pub fn run(
+    paths: &Paths,
+    staging_dir: &str,
+    project_root: &str,
+    tool_dirs: &ToolDirs,
+) -> Result<()> {
     let staging = Path::new(staging_dir);
     let root = Path::new(project_root);
 
@@ -69,6 +78,10 @@ pub fn run(paths: &Paths, staging_dir: &str, project_root: &str) -> Result<()> {
             let _ = std::os::unix::fs::symlink(&source_path, &link);
         }
     }
+
+    // Refresh the project sidecar for harnesses with no session lifecycle
+    // (e.g. Posit Assistant). Non-fatal — shell init handles gracefully.
+    let _ = sidecar::refresh(root, &manifest, &paths.library_dir(), tool_dirs.tools());
 
     Ok(())
 }

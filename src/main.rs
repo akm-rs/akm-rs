@@ -573,7 +573,12 @@ fn main() -> ExitCode {
                 Some(SkillsCommands::SessionSetup {
                     staging_dir,
                     project_root,
-                }) => commands::skills::session_setup::run(&paths, &staging_dir, &project_root),
+                }) => commands::skills::session_setup::run(
+                    &paths,
+                    &staging_dir,
+                    &project_root,
+                    &tool_dirs,
+                ),
                 None => {
                     // Default: `akm skills` with no subcommand → browse the
                     // library. The bare noun reads as `akm skills list`; the
